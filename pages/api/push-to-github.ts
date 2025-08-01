@@ -51,22 +51,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ];
 
     // 创建 blob 和 tree
-    const blobs = await Promise.all(
-      files.map(async (file) => {
-        const blob = await octokit.git.createBlob({
-          owner,
-          repo,
-          content: file.content,
-          encoding: "utf-8",
-        });
-        return {
-          path: file.path,
-          mode: "100644",
-          type: "blob",
-          sha: blob.data.sha,
-        };
-      })
-    );
+const blobs = await Promise.all(
+  files.map(async (file) => {
+    const blob = await octokit.git.createBlob({
+      owner,
+      repo,
+      content: file.content,
+      encoding: "utf-8",
+    });
+    return {
+      path: file.path,
+      mode: "100644" as const, // 修复点
+      type: "blob" as const,
+      sha: blob.data.sha,
+    };
+  })
+);
+
 
     const { data: newTree } = await octokit.git.createTree({
       owner,
