@@ -1,0 +1,66 @@
+[
+  {
+    "id": 1753603044918,
+    "prompt": "A weather dashboard app with dark mode",
+    "html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>A weather dashboard app with dark mode</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <div id=\"app\">\n    <h1>A weather dashboard app with dark mode</h1>\n    <button onclick=\"alert('Hello')\">Click Me</button>\n  </div>\n  <script src=\"script.js\"></script>\n</body>\n</html>",
+    "css": "body { font-family: sans-serif; background: #f0f0f0; text-align: center; padding: 50px; }\nbutton { padding: 10px 20px; font-size: 16px; }",
+    "js": "console.log(\"App Loaded\");",
+    "createdAt": "2025-07-27T07:57:24.918Z"
+  },
+  {
+    "id": 1753603616112,
+    "prompt": "A weather dashboard app with dark mode and hourly forecast",
+    "html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>A weather dashboard app with dark mode and hourly forecast</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <div id=\"app\">\n    <h1>A weather dashboard app with dark mode and hourly forecast</h1>\n    <button onclick=\"alert('Hello')\">Click Me</button>\n  </div>\n  <script src=\"script.js\"></script>\n</body>\n</html>",
+    "css": "body { font-family: sans-serif; background: #f0f0f0; text-align: center; padding: 50px; }\nbutton { padding: 10px 20px; font-size: 16px; }",
+    "js": "console.log(\"App Loaded\");",
+    "createdAt": "2025-07-27T08:06:56.112Z"
+  },
+  {
+    "id": 1753603708209,
+    "prompt": "A weather dashboard app with dark mode and hourly forecast",
+    "html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>A weather dashboard app with dark mode and hourly forecast</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <div id=\"app\">\n    <h1>A weather dashboard app with dark mode and hourly forecast</h1>\n    <button onclick=\"alert('Hello')\">Click Me</button>\n  </div>\n  <script src=\"script.js\"></script>\n</body>\n</html>",
+    "css": "body { font-family: sans-serif; background: #f0f0f0; text-align: center; padding: 50px; }\nbutton { padding: 10px 20px; font-size: 16px; }",
+    "js": "console.log(\"App Loaded\");",
+    "createdAt": "2025-07-27T08:08:28.209Z"
+  },
+  {
+    "id": 1753603843795,
+    "prompt": "A weather dashboard app with dark mode and hourly forecast",
+    "html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>A weather dashboard app with dark mode and hourly forecast</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <div id=\"app\">\n    <h1>A weather dashboard app with dark mode and hourly forecast</h1>\n    <button onclick=\"alert('Hello')\">Click Me</button>\n  </div>\n  <script src=\"script.js\"></script>\n</body>\n</html>",
+    "css": "body { font-family: sans-serif; background: #f0f0f0; text-align: center; padding: 50px; }\nbutton { padding: 10px 20px; font-size: 16px; }",
+    "js": "console.log(\"App Loaded\");",
+    "createdAt": "2025-07-27T08:10:43.795Z"
+  },
+  {
+    "id": 1753604033553,
+    "prompt": "A weather dashboard app with dark mode and hourly forecast",
+    "html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>A weather dashboard app with dark mode and hourly forecast</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <div id=\"app\">\n    <h1>A weather dashboard app with dark mode and hourly forecast</h1>\n    <button onclick=\"alert('Hello')\">Click Me</button>\n  </div>\n  <script src=\"script.js\"></script>\n</body>\n</html>",
+    "css": "body { font-family: sans-serif; background: #f0f0f0; text-align: center; padding: 50px; }\nbutton { padding: 10px 20px; font-size: 16px; }",
+    "js": "console.log(\"App Loaded\");",
+    "createdAt": "2025-07-27T08:13:53.553Z"
+  },
+  {
+    "id": 1753604772084,
+    "prompt": "A weather dashboard app with dark mode and hourly forecast",
+    "html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>A weather dashboard app with dark mode and hourly forecast</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <div id=\"app\">\n    <h1>A weather dashboard app with dark mode and hourly forecast</h1>\n    <button onclick=\"alert('Hello')\">Click Me</button>\n  </div>\n  <script src=\"script.js\"></script>\n</body>\n</html>",
+    "css": "body { font-family: sans-serif; background: #f0f0f0; text-align: center; padding: 50px; }\nbutton { padding: 10px 20px; font-size: 16px; }",
+    "js": "console.log(\"App Loaded\");",
+    "createdAt": "2025-07-27T08:26:12.084Z"
+  },
+  {
+    "id": 1753622329866,
+    "prompt": "A weather dashboard app with dark mode and hourly forecast",
+    "html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>A weather dashboard app with dark mode and hourly forecast</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <div id=\"app\">\n    <h1>A weather dashboard app with dark mode and hourly forecast</h1>\n    <button onclick=\"alert('Hello')\">Click Me</button>\n  </div>\n  <script src=\"script.js\"></script>\n</body>\n</html>",
+    "css": "body { font-family: sans-serif; background: #f0f0f0; text-align: center; padding: 50px; }\nbutton { padding: 10px 20px; font-size: 16px; }",
+    "js": "console.log(\"App Loaded\");",
+    "createdAt": "2025-07-27T13:18:49.866Z"
+  },
+  {
+    "id": 1753622424970,
+    "prompt": "a meditation timer app with soothing UI",
+    "html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>a meditation timer app with soothing UI</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <div id=\"app\">\n    <h1>a meditation timer app with soothing UI</h1>\n    <button onclick=\"alert('Hello')\">Click Me</button>\n  </div>\n  <script src=\"script.js\"></script>\n</body>\n</html>",
+    "css": "body { font-family: sans-serif; background: #f0f0f0; text-align: center; padding: 50px; }\nbutton { padding: 10px 20px; font-size: 16px; }",
+    "js": "console.log(\"App Loaded\");",
+    "createdAt": "2025-07-27T13:20:24.970Z"
+  }
+]
