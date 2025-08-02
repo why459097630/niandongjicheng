@@ -1,4 +1,4 @@
-import '@/styles/globals.css'; // 引入你刚创建的全局样式
+import '../styles/globals.css'
 
 import { Inter } from 'next/font/google';
 const inter = Inter({ subsets: ['latin'] });
