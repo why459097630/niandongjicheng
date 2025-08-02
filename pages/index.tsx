@@ -21,12 +21,8 @@ export default function Home() {
   };
 
   const handleSubmit = async () => {
-    if (!prompt) {
-      alert('请先填写你的需求');
-      return;
-    }
-    if (!selectedTemplate) {
-      alert('请选择一个模板样式');
+    if (!prompt || !selectedTemplate) {
+      alert('请填写需求并选择模板');
       return;
     }
 
@@ -37,55 +33,54 @@ export default function Home() {
       const res = await fetch('/api/push-to-github', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          features,
-          template: selectedTemplate,
-        }),
+        body: JSON.stringify({ prompt, features, template: selectedTemplate }),
       });
-
       const data = await res.json();
-
-      if (data.success) {
-        setResultUrl(data.apkUrl || null);
-      } else {
-        alert('生成失败，请稍后再试');
-      }
-    } catch (error) {
-      alert('请求出错，请检查网络或稍后重试');
+      if (data.success) setResultUrl(data.apkUrl || null);
+      else alert('生成失败，请稍后再试');
+    } catch {
+      alert('请求出错，请稍后重试');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main className="min-h-screen bg-gray-100 py-8 px-4">
-      <div className="max-w-2xl mx-auto bg-white shadow-xl rounded-2xl p-6">
-        <h1 className="text-3xl font-bold text-center mb-6 text-blue-600">念动即成 · App 生成器</h1>
+    <main className="min-h-screen bg-gradient-to-br from-white to-sky-50 px-4 py-12">
+      {/* 标题区 */}
+      <div className="text-center max-w-xl mx-auto mb-10">
+        <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900">
+          念动即成 · App 生成器
+        </h1>
+        <p className="mt-4 text-lg text-gray-600">
+          一句话生成你专属的 App，自动打包、自动下载，0 编程门槛。
+        </p>
+      </div>
 
-        {/* Prompt 输入 */}
-        <div className="mb-5">
-          <label className="font-semibold text-gray-700">🧠 请输入你的需求：</label>
+      {/* Prompt 输入 */}
+      <div className="max-w-2xl mx-auto bg-white shadow-md rounded-2xl p-6 space-y-6">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">🧠 输入你的想法：</label>
           <input
             type="text"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="例如：我想做一个情侣纪念日提醒 App"
-            className="w-full mt-2 px-4 py-2 border rounded-lg focus:outline-none focus:ring"
+            className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
         </div>
 
         {/* 功能勾选 */}
-        <div className="mb-5">
-          <label className="font-semibold text-gray-700">🔘 功能选择：</label>
-          <div className="flex flex-wrap gap-2 mt-2">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">🔘 选择功能：</label>
+          <div className="flex flex-wrap gap-3">
             {featuresList.map((feature) => (
               <button
                 key={feature}
                 onClick={() => handleFeatureToggle(feature)}
-                className={`px-4 py-1 rounded-full border transition ${
+                className={`px-4 py-1 rounded-full text-sm border transition ${
                   features.includes(feature)
-                    ? 'bg-blue-500 text-white border-blue-500'
+                    ? 'bg-blue-600 text-white border-blue-600'
                     : 'bg-white text-gray-700 hover:bg-gray-100'
                 }`}
               >
@@ -96,45 +91,45 @@ export default function Home() {
         </div>
 
         {/* 模板选择 */}
-        <div className="mb-6">
-          <label className="font-semibold text-gray-700">🎨 模板选择：</label>
-          <div className="grid grid-cols-3 gap-3 mt-2">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">🎨 模板风格：</label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {templates.map((tpl) => (
               <div
                 key={tpl.value}
                 onClick={() => setSelectedTemplate(tpl.value)}
-                className={`rounded-xl border-2 cursor-pointer overflow-hidden transition-all ${
+                className={`cursor-pointer rounded-xl border-2 overflow-hidden shadow-sm transition-all ${
                   selectedTemplate === tpl.value
-                    ? 'border-blue-500 ring-2 ring-blue-300'
+                    ? 'border-blue-500 ring-2 ring-blue-200'
                     : 'border-gray-300'
                 }`}
               >
                 <img src={tpl.image} alt={tpl.name} className="w-full h-28 object-cover" />
-                <div className="text-center py-2 font-medium">{tpl.name}</div>
+                <div className="text-center py-2 font-medium text-sm">{tpl.name}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* 示例 Prompt */}
-        <div className="mb-6 text-sm text-gray-500">
-          示例：我想做一个 <b>情侣倒计时提醒</b> App，带有 <b>提醒功能</b>，界面是 <b>清新蓝白风格</b>。
-        </div>
+        {/* 示例 prompt */}
+        <p className="text-sm text-gray-500">
+          示例：我想做一个 <b>情侣倒计时提醒</b> App，带有 <b>提醒功能</b>，界面为 <b>清新蓝白风格</b>。
+        </p>
 
         {/* 提交按钮 */}
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-xl transition"
+          className="w-full py-3 rounded-xl text-white text-lg font-semibold transition bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 shadow-lg"
         >
           {loading ? '⏳ 正在生成中...' : '🚀 生成我的 App'}
         </button>
 
-        {/* 结果区域 */}
+        {/* 结果 */}
         {resultUrl && (
-          <div className="mt-6 text-green-600 text-center">
-            🎉 生成成功！<br />
-            <a href={resultUrl} target="_blank" rel="noreferrer" className="underline">
+          <div className="text-green-600 mt-4 text-center text-sm">
+            🎉 成功生成！<br />
+            <a href={resultUrl} className="underline" target="_blank" rel="noreferrer">
               点击下载 APK
             </a>
           </div>
