@@ -1,46 +1,39 @@
-// pages/api/push-to-github.ts
-import { Octokit } from "@octokit/rest";
-import type { NextApiRequest, NextApiResponse } from "next";
+// 文件路径：pages/api/push-to-github.ts
 
-// 从环境变量读取你的 GitHub Token
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN as string;
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { Octokit } from '@octokit/rest';
 
-const octokit = new Octokit({ auth: GITHUB_TOKEN });
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { repo, filePath, content, commitMessage, secret } = req.body;
-
-  // 防止滥用，加密验证（可自定义）
-  if (secret !== process.env.API_SECRET) {
-    return res.status(403).json({ error: "Invalid secret" });
-  }
+const handler = async (req: NextApiRequest, res: NextApiResponse) => {
+  const token = process.env.GITHUB_TOKEN;
+  const owner = 'why459097630';
+  const repo = 'niandongjicheng';
+  const path = '1111111.txt'; // 要创建的文件路径
+  const content = Buffer.from('这是一个由 ChatGPT 自动创建的测试文件。').toString('base64'); // Base64 编码的内容
 
   try {
-    const [owner, repoName] = repo.split("/");
+    const octokit = new Octokit({ auth: token });
 
-    // 读取现有文件的 SHA（如果存在）
-    let sha = undefined;
-    try {
-      const { data } = await octokit.repos.getContent({
-        owner,
-        repo: repoName,
-        path: filePath,
-      });
-      sha = (data as any).sha;
-    } catch (_) {}
-
-    // 创建或更新文件
     await octokit.repos.createOrUpdateFileContents({
       owner,
-      repo: repoName,
-      path: filePath,
-      message: commitMessage,
-      content: Buffer.from(content, "utf-8").toString("base64"),
-      sha, // 如果没有就表示新文件
+      repo,
+      path,
+      message: '创建 1111111.txt 测试文件',
+      content,
+      committer: {
+        name: 'ChatGPT Bot',
+        email: 'chatgpt@openai.com',
+      },
+      author: {
+        name: 'ChatGPT Bot',
+        email: 'chatgpt@openai.com',
+      },
     });
 
-    res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, message: '✅ 文件创建成功！' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error('❌ 创建失败：', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
-}
+};
+
+export default handler;
