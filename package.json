@@ -1,5 +1,5 @@
 {
-  "name": "next-ai-base44",
+  "name": "niandongjicheng",
   "version": "1.0.0",
   "scripts": {
     "dev": "next dev",
@@ -7,22 +7,13 @@
     "start": "next start"
   },
   "dependencies": {
-    "@octokit/rest": "^22.0.0",
-    "axios": "^1.11.0",
-    "dotenv": "^17.2.1",
-    "file-saver": "^2.0.5",
-    "global-agent": "^3.0.0",
-    "https-proxy-agent": "^7.0.6",
-    "jszip": "^3.10.1",
-    "next": "13.5.6",
-    "node-fetch": "^2.7.0",
-    "proxy-agent": "^6.5.0",
+    "next": "13.4.19",
     "react": "18.2.0",
     "react-dom": "18.2.0"
   },
   "devDependencies": {
-    "@types/node": "24.1.0",
-    "@types/react": "19.1.8",
-    "typescript": "5.8.3"
+    "tailwindcss": "^3.4.1",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0"
   }
 }
