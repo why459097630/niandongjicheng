@@ -1,5 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import JSZip from 'jszip';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
@@ -18,9 +17,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // 调用 OpenAI
+    // 调用 OpenAI 生成代码
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4',
       messages: [
         {
           role: 'user',
@@ -40,42 +39,44 @@ ${prompt}`,
     });
 
     const content = completion.choices[0].message?.content || '';
-
     const html = content.split('【HTML】')[1]?.split('【')[0]?.trim() || '';
     const css = content.split('【CSS】')[1]?.split('【')[0]?.trim() || '';
     const js = content.split('【JS】')[1]?.trim() || '';
 
-    // 在线组合预览 HTML
-    const previewHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Preview</title>
-  <style>${css}</style>
-</head>
-<body>
-${html}
-<script>${js}</script>
-</body>
-</html>`;
+    // 🔁 推送到 GitHub 的路径
+    const timestamp = Date.now();
+    const subDir = `app-${timestamp}`;
+    const githubRes = await fetch('https://niandongjicheng.vercel.app/api/push-to-github', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repo: 'Packaging-warehouse',
+        branch: 'main',
+        path: `${subDir}/src/main/assets/www`,  // ✅ 关键路径！
+        files: [
+          { path: 'index.html', content: html },
+          { path: 'style.css', content: css },
+          { path: 'script.js', content: js },
+        ],
+        commitMsg: `feat: 自动生成 App - ${prompt}`,
+      }),
+    });
 
-    // 打包成 ZIP（不保存到磁盘）
-    const zip = new JSZip();
-    zip.file('index.html', html);
-    zip.file('style.css', css);
-    zip.file('script.js', js);
-    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
-    const zipBase64 = zipBuffer.toString('base64');
+    if (!githubRes.ok) {
+      const error = await githubRes.text();
+      throw new Error(`推送失败：${error}`);
+    }
 
-    // 返回 JSON
+    // APK 下载地址
+    const apkUrl = `https://nightly.link/why459097630/Packaging-warehouse/workflows/build/main/app-release.apk`;
+
     res.status(200).json({
-      message: 'App generated successfully',
+      message: 'App generated and pushed successfully',
       html,
-      previewHtml,
-      zipBase64,
+      apkUrl,
     });
   } catch (err: any) {
-    console.error('OpenAI error:', err);
-    res.status(500).json({ error: err.message || 'Failed to generate app' });
+    console.error('OpenAI or GitHub push error:', err);
+    res.status(500).json({ error: err.message || '生成失败' });
   }
 }
