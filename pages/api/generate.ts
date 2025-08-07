@@ -1,6 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import fs from 'fs';
-import path from 'path';
 import JSZip from 'jszip';
 import OpenAI from 'openai';
 
@@ -20,7 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // 调用 OpenAI 生成 HTML/CSS/JS
+    // 调用 OpenAI
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
@@ -43,19 +41,11 @@ ${prompt}`,
 
     const content = completion.choices[0].message?.content || '';
 
-    // 简单提取 HTML / CSS / JS（可用正则优化）
     const html = content.split('【HTML】')[1]?.split('【')[0]?.trim() || '';
     const css = content.split('【CSS】')[1]?.split('【')[0]?.trim() || '';
     const js = content.split('【JS】')[1]?.trim() || '';
 
-    // 确保 public 和 data 目录存在
-    const publicDir = path.join(process.cwd(), 'public');
-    const dataDir = path.join(process.cwd(), 'data');
-    fs.mkdirSync(publicDir, { recursive: true });
-    fs.mkdirSync(dataDir, { recursive: true });
-
-    // 生成预览 HTML 页面
-    const htmlPath = path.join(publicDir, 'app.html');
+    // 在线组合预览 HTML
     const previewHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -68,34 +58,22 @@ ${html}
 <script>${js}</script>
 </body>
 </html>`;
-    fs.writeFileSync(htmlPath, previewHtml, 'utf-8');
 
-    // 写入历史记录
-    const historyPath = path.join(dataDir, 'history.json');
-    const history = fs.existsSync(historyPath)
-      ? JSON.parse(fs.readFileSync(historyPath, 'utf-8'))
-      : [];
-    history.push({ id: Date.now(), prompt, html, css, js, createdAt: new Date().toISOString() });
-    fs.writeFileSync(historyPath, JSON.stringify(history, null, 2), 'utf-8');
-
-    // 打包成 ZIP 文件
+    // 打包成 ZIP（不保存到磁盘）
     const zip = new JSZip();
     zip.file('index.html', html);
     zip.file('style.css', css);
     zip.file('script.js', js);
-    const zipContent = await zip.generateAsync({ type: 'nodebuffer' });
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+    const zipBase64 = zipBuffer.toString('base64');
 
-    const zipPath = path.join(publicDir, 'app.zip');
-    fs.writeFileSync(zipPath, zipContent);
-
-    // 返回 JSON 响应
+    // 返回 JSON
     res.status(200).json({
       message: 'App generated successfully',
       html,
-      previewUrl: '/app.html',
-      zipUrl: '/app.zip',
+      previewHtml,
+      zipBase64,
     });
-
   } catch (err: any) {
     console.error('OpenAI error:', err);
     res.status(500).json({ error: err.message || 'Failed to generate app' });
