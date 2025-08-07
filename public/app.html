@@ -3,25 +3,114 @@
 <head>
   <meta charset="UTF-8">
   <title>Preview</title>
-  <style>body { font-family: sans-serif; background: #f0f0f0; text-align: center; padding: 50px; }
-button { padding: 10px 20px; font-size: 16px; }</style>
+  <style>body {
+  font-family: Arial, sans-serif;
+  background-color: #f3f3f3;
+  margin: 0;
+  padding: 0;
+}
+
+#list-page, #detail-page {
+  display: none;
+}
+
+#list-page {
+  padding: 20px;
+}
+
+#detail-page {
+  padding: 20px;
+}
+
+#artifact-list {
+  list-style: none;
+  padding: 0;
+}
+
+#artifact-list li {
+  margin: 10px 0;
+  padding: 10px;
+  background-color: #fff;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+#artifact-list li:hover {
+  background-color: #f9f9f9;
+}
+
+#detail-image {
+  max-width: 100%;
+  border-radius: 5px;
+}</style>
 </head>
 <body>
-  <!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html>
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>a meditation timer app with soothing UI</title>
-  <link rel="stylesheet" href="style.css">
+  <title>古代文物展示</title>
+  <link rel="stylesheet" type="text/css" href="styles.css">
 </head>
 <body>
-  <div id="app">
-    <h1>a meditation timer app with soothing UI</h1>
-    <button onclick="alert('Hello')">Click Me</button>
+  <div id="list-page">
+    <h1>中国古代文物列表</h1>
+    <ul id="artifact-list">
+      <!-- 文物列表项将通过 JavaScript 动态生成 -->
+    </ul>
   </div>
-  <script src="script.js"></script>
+  
+  <div id="detail-page">
+    <h1 id="detail-title"></h1>
+    <p id="detail-dynasty"></p>
+    <img id="detail-image">
+    <p id="detail-description"></p>
+  </div>
+  
+  <script src="app.js"></script>
 </body>
 </html>
-  <script>console.log("App Loaded");</script>
+<script>console.log("App加载成功");
+
+// 模拟一些文物数据
+const artifacts = [
+  {
+    name: "兵马俑",
+    dynasty: "秦朝",
+    image: "https://example.com/bingmayong.jpg",
+    description: "兵马俑是中国古代秦始皇陵的陪葬品，规模宏大，形态逼真。"
+  },
+  {
+    name: "敦煌壁画",
+    dynasty: "唐朝",
+    image: "https://example.com/dunhuangbihua.jpg",
+    description: "敦煌壁画是中国古代艺术宝库之一，内容丰富，形式多样。"
+  }
+];
+
+// 动态生成文物列表
+const artifactList = document.getElementById("artifact-list");
+artifacts.forEach((artifact, index) => {
+  const listItem = document.createElement("li");
+  listItem.textContent = artifact.name;
+  listItem.addEventListener("click", () => showDetail(index));
+  artifactList.appendChild(listItem);
+});
+
+// 显示文物详情页
+const showDetail = (index) => {
+  const detailPage = document.getElementById("detail-page");
+  const detailTitle = document.getElementById("detail-title");
+  const detailDynasty = document.getElementById("detail-dynasty");
+  const detailImage = document.getElementById("detail-image");
+  const detailDescription = document.getElementById("detail-description");
+  
+  detailTitle.textContent = artifacts[index].name;
+  detailDynasty.textContent = artifacts[index].dynasty;
+  detailImage.src = artifacts[index].image;
+  detailDescription.textContent = artifacts[index].description;
+  
+  document.getElementById("list-page").style.display = "none";
+  detailPage.style.display = "block";
+};</script>
 </body>
 </html>

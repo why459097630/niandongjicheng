@@ -15,7 +15,7 @@ export default function Home() {
     setZipUrl("");
 
     try {
-      const res = await fetch("/api/generate-app", {
+      const response = await fetch("/api/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -23,14 +23,14 @@ export default function Home() {
         body: JSON.stringify({ prompt })
       });
 
-      const data = await res.json();
+      const data = await response.json();
 
-      if (res.ok) {
+      if (response.ok) {
         setHtml(data.html);
         setPreviewUrl(data.previewUrl);
         setZipUrl(data.zipUrl);
       } else {
-        alert("生成失败: " + data.error || "未知错误");
+        alert("生成失败: " + (data.error || "未知错误"));
       }
     } catch (error) {
       alert("请求出错：" + error);
@@ -61,7 +61,7 @@ export default function Home() {
       </pre>
 
       <h2>🔍 Online Preview:</h2>
-      {previewUrl ? <a href={previewUrl} target="_blank">Preview App</a> : "No preview available"}
+      {previewUrl ? <a href={previewUrl} target="_blank" rel="noopener noreferrer">Preview App</a> : "No preview available"}
 
       <h2>📦 Download:</h2>
       {zipUrl ? <a href={zipUrl} download>Download ZIP</a> : "No zip available"}
