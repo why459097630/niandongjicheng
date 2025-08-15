@@ -1,125 +1,138 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { pickTemplateByText, type Template } from '@/lib/pickTemplate';
-import { dispatchBuild, getBuildStatus, getLatestRelease, sleep, type ReleaseAsset } from '@/lib/api';
+import { pickTemplateByText, type Template } from '../lib/pickTemplate';
+import {
+  dispatchBuild,
+  getBuildStatus,
+  getLatestRelease,
+  sleep,
+  type ReleaseAsset,
+} from '../lib/api';
 
 type Phase = 'idle' | 'dispatching' | 'polling' | 'success' | 'error';
 
+const POLL_INTERVAL = 3000;        // 轮询间隔 3s
+const POLL_TIMEOUT = 5 * 60 * 1000; // 最长轮询 5 分钟
+
 export default function GeneratePanel() {
   const [prompt, setPrompt] = useState('');
-  const smartDefault = useMemo<Template>(() => pickTemplateByText(prompt), [prompt]);
-  const [overrideTpl, setOverrideTpl] = useState<Template | ''>('');
-  const chosen = (overrideTpl || smartDefault) as Template;
-
   const [phase, setPhase] = useState<Phase>('idle');
-  const [message, setMessage] = useState('');
+  const [msg, setMsg] = useState<string>('');
   const [assets, setAssets] = useState<ReleaseAsset[]>([]);
-  const abortRef = useRef(false);
+  const isBusy = phase === 'dispatching' || phase === 'polling';
 
-  useEffect(() => {
-    return () => { abortRef.current = true; };
-  }, []);
+  // 实时给出将采用的模板（用户也可以在后续页手动覆盖）
+  const template: Template = useMemo(
+    () => pickTemplateByText(prompt),
+    [prompt],
+  );
 
-  async function handleGenerate() {
+  const onGenerate = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setMsg('');
     setAssets([]);
-    setPhase('dispatching');
-    setMessage('Dispatching…');
 
     try {
-      // 1) 触发构建
-      await dispatchBuild(chosen);
+      setPhase('dispatching');
 
-      // 2) 轮询构建状态（最多 10 分钟，5s 一次）
+      // 1) 触发一次构建
+      await dispatchBuild({ template, prompt });
+
+      // 2) 轮询构建状态（成功/失败/超时）
       setPhase('polling');
-      for (let i = 0; i < 120; i++) {
-        if (abortRef.current) return;
-        const s = await getBuildStatus();
-        setMessage(`Status: ${s.run.status} ${s.run.conclusion ? `/ ${s.run.conclusion}` : ''}`);
-        if (s.run.status === 'completed') {
-          if (s.run.conclusion !== 'success') {
-            throw new Error(`Build ${s.run.conclusion}`);
+      const start = Date.now();
+
+      while (Date.now() - start < POLL_TIMEOUT) {
+        const s = await getBuildStatus(); // { run: { status, conclusion } }
+        const status = s?.run?.status;
+        const conclusion = s?.run?.conclusion;
+
+        if (status === 'completed') {
+          if (conclusion === 'success') {
+            setPhase('success');
+          } else {
+            setPhase('error');
+            setMsg('Build failed.');
           }
           break;
         }
-        await sleep(5000);
+        await sleep(POLL_INTERVAL);
       }
 
-      // 3) 拿最新 Release 的 3 个 APK 下载
-      const rel = await getLatestRelease();
-      if (!Array.isArray(rel.assets) || rel.assets.length === 0) {
-        throw new Error('No APK assets found in latest release');
+      if (phase !== 'success' && Date.now() - start >= POLL_TIMEOUT) {
+        setPhase('error');
+        setMsg('Build timed out. Please retry later.');
+        return;
       }
-      setAssets(rel.assets);
-      setPhase('success');
-      setMessage(`Ready! tag: ${rel.tag}`);
+
+      // 3) 拉取最新 Release，给出下载链接
+      const r = await getLatestRelease(); // { tag, assets: [...] }
+      setAssets((r?.assets ?? []) as ReleaseAsset[]);
     } catch (err: any) {
       setPhase('error');
-      setMessage(err?.message || 'Unknown error');
+      setMsg(err?.message || 'Unexpected error.');
     }
-  }
-
-  const busy = phase === 'dispatching' || phase === 'polling';
+  };
 
   return (
-    <div className="mx-auto max-w-3xl w-full px-4 py-10">
-      {/* 输入 + 选择模板 */}
-      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+    <div className="w-full max-w-3xl mx-auto">
+      <form onSubmit={onGenerate} className="flex items-center gap-3">
         <input
-          className="flex-1 rounded-lg px-4 py-3 bg-zinc-900/50 text-zinc-100 border border-zinc-800 outline-none"
-          placeholder="e.g. A to-do app with notifications and dark mode"
           value={prompt}
-          onChange={e => setPrompt(e.target.value)}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="e.g. A meditation timer with sound alert"
+          className="flex-1 h-12 rounded-lg bg-[#0f172a]/40 border border-white/10 px-4 outline-none"
         />
-        <select
-          value={overrideTpl}
-          onChange={e => setOverrideTpl((e.target.value || '') as Template | '')}
-          className="rounded-lg px-3 py-3 bg-zinc-900/50 text-zinc-100 border border-zinc-800"
-          title="模板：智能默认 + 可手动覆盖"
-        >
-          <option value="">智能默认（{smartDefault}）</option>
-          <option value="core-template">core-template</option>
-          <option value="simple-template">simple-template</option>
-          <option value="form-template">form-template</option>
-        </select>
         <button
-          onClick={handleGenerate}
-          disabled={busy}
-          className={`rounded-xl px-5 py-3 font-medium ${busy ? 'opacity-60 cursor-not-allowed' : 'hover:opacity-90'} bg-indigo-600 text-white`}
+          type="submit"
+          disabled={isBusy}
+          className="h-12 px-5 rounded-lg bg-indigo-500 hover:bg-indigo-600 disabled:opacity-60 disabled:cursor-not-allowed transition"
         >
-          {busy ? 'Generating…' : 'Generate App'}
+          {isBusy ? 'Generating…' : 'Generate App'}
         </button>
+      </form>
+
+      {/* 模板提示 */}
+      <p className="text-sm text-white/60 mt-3">
+        Will use template: <span className="text-white">{template}</span>
+      </p>
+
+      {/* 状态区 */}
+      <div className="mt-6 text-sm">
+        {phase === 'dispatching' && (
+          <p className="text-white/70">Dispatching build…</p>
+        )}
+        {phase === 'polling' && (
+          <p className="text-white/70">Building (polling status)…</p>
+        )}
+        {phase === 'error' && (
+          <p className="text-red-400">{msg || 'Build failed.'}</p>
+        )}
       </div>
 
-      {/* 状态提示 */}
-      {phase !== 'idle' && (
-        <p className="mt-4 text-sm text-zinc-400">
-          {message}
-        </p>
-      )}
-
-      {/* 下载列表 */}
-      {phase === 'success' && assets.length > 0 && (
-        <div className="mt-6 grid md:grid-cols-3 gap-3">
-          {assets.map(a => (
-            <a
-              key={a.browser_download_url}
-              href={a.browser_download_url}
-              className="border border-zinc-800 rounded-xl p-4 hover:bg-zinc-900/40"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <div className="text-zinc-100 text-sm font-medium truncate">{a.name}</div>
-              <div className="text-xs text-zinc-500 truncate">{a.browser_download_url}</div>
-            </a>
-          ))}
-        </div>
-      )}
-
-      {/* 错误提示 */}
-      {phase === 'error' && (
-        <div className="mt-4 text-sm text-red-400">
-          {message}
+      {/* 成功后展示下载地址 */}
+      {phase === 'success' && (
+        <div className="mt-8">
+          <h3 className="text-white font-medium mb-3">Downloads</h3>
+          {assets.length === 0 ? (
+            <p className="text-white/60 text-sm">No assets found.</p>
+          ) : (
+            <ul className="space-y-2">
+              {assets.map((a) => (
+                <li key={a.browser_download_url}>
+                  <a
+                    href={a.browser_download_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-400 hover:text-indigo-300 underline"
+                  >
+                    {a.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
