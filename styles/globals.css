@@ -1,94 +1,70 @@
-/* =========================================
-   Tailwind base
-   ========================================= */
+/* ===== Tailwind 基础导入 ===== */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* =========================================
-   Global defaults
-   ========================================= */
+/* ===== 全局设置 ===== */
 :root {
-  /* 站点默认走深色方案，和当前视觉一致 */
+  /* 深色方案，配合 Tailwind 的深色 UI */
   color-scheme: dark;
 }
 
-html,
-body,
-#__next {
+html, body, #__next {
   height: 100%;
 }
 
-/* 页面底色 + 文字 + 抗锯齿 */
+/* ===== 页面背景（多层光斑） =====
+   说明：
+   - 第一层：左上紫色主光斑
+   - 第二层：右下蓝色主光斑
+   - 第三层：中央微弱柔光（可删）
+   - 第四层：远景深色过渡，让边缘更有深度
+*/
 body {
   @apply bg-slate-900 text-slate-100 antialiased;
 
-  /* 远景柔光（可留可去，不影响主光斑） */
-  background: radial-gradient(
-      1200px 700px at 50% -20%,
-      rgba(15, 23, 42, 0.45),
-      rgba(15, 23, 42, 1) 70%
-    );
-  background-repeat: no-repeat;
-
-  /* 字体族：Inter 优先，其次系统无衬线 */
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
-    "Segoe UI Emoji", "Segoe UI Symbol";
-}
-
-/* =========================================
-   背景光斑（左上紫、右下蓝）——你要的款
-   ========================================= */
-body::before {
-  content: "";
-  position: fixed;
-  inset: -10%;
-  pointer-events: none;
-  z-index: -1;
-
-  /* 让光斑和底色自然叠加 */
-  mix-blend-mode: screen;
-
-  /* 柔和 + 微增强色彩 */
-  filter: blur(72px) saturate(115%);
-
-  /* 全局亮度 */
-  opacity: 0.60;
-
-  /* 三个渐变：主紫光、主蓝光、中央微弱补光（可删） */
   background:
-    /* 左上紫 */
+    /* 左上紫（半径 & 位置可按需调大/调小/移动） */
     radial-gradient(900px 700px at 14% 22%, rgba(124, 58, 237, 0.35), transparent 62%),
     /* 右下蓝 */
     radial-gradient(860px 680px at 86% 82%, rgba(59, 130, 246, 0.32), transparent 62%),
-    /* 中央中性柔光（避免中区过黑，可删） */
-    radial-gradient(600px 420px at 50% 40%, rgba(100, 116, 139, 0.10), transparent 70%);
+    /* 中央柔光（想更干净可删除这一层） */
+    radial-gradient(600px 420px at 50% 40%, rgba(100, 116, 139, 0.10), transparent 70%),
+    /* 顶部远景深色过渡，增加层次 */
+    radial-gradient(1200px 700px at 50% -20%, rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 1) 70%);
+
+  background-repeat: no-repeat;
+  background-color: #0f172a;       /* 保底深色（Tailwind: slate-900） */
+  filter: saturate(115%);           /* 微增强色彩饱和度 */
 }
 
-/* =========================================
-   可选：通用 UI 小样式（你的页面正好用得上）
-   ========================================= */
+/* ===== 可选：输入框、按钮的通用样式（保留即可） ===== */
 
-/* 主按钮（“Generate App”） */
+.input {
+  @apply w-full rounded-xl bg-slate-800/60 border border-slate-700/60 px-4 py-3
+         text-slate-100 placeholder:text-slate-400
+         focus:outline-none focus:ring-2 focus:ring-violet-400/60 focus:border-violet-400/0
+         transition;
+}
+
 .btn-primary {
-  @apply inline-flex items-center gap-2 rounded-2xl px-6 py-3 text-sm font-semibold text-white shadow-lg transition-transform select-none;
+  @apply inline-flex items-center gap-2 rounded-2xl px-6 py-3 text-sm font-semibold text-white
+         shadow-lg transition-transform select-none;
   background-image: linear-gradient(135deg, #a78bfa 0%, #60a5fa 100%);
 }
+
 .btn-primary:hover {
   transform: translateY(-1px);
   filter: brightness(1.06);
 }
+
 .btn-primary:active {
   transform: translateY(0);
 }
 
-/* 输入框 */
-.input {
-  @apply w-full rounded-xl bg-slate-800/60 border border-slate-700/60 px-4 py-3 text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-400/60 focus:border-violet-400/0 transition;
-}
-
-/* 辅助文字 */
 .helper-text {
   @apply text-slate-400 text-sm;
 }
+
+/* ===== 你也可以在这里添加其它全局样式 ===== */
+/* 例如：链接、卡片、布局容器等的全局细节 */
