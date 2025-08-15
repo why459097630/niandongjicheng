@@ -1,0 +1,9 @@
+/* app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 可选：一些基础全局样式 */
+html, body {
+  height: 100%;
+}
