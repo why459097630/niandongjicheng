@@ -1,33 +1,33 @@
-import type { Template } from './pickTemplate';
+// pages/api/_lib/api.ts
 
-export type DispatchResp = { ok: boolean; dispatched: Template };
+// 直接在这里声明 Template，避免路径依赖问题
+export type Template = 'core-template' | 'simple-template' | 'form-template';
+
+export type DispatchResp = {
+  ok: boolean;
+  dispatched: Template;
+};
+
+export type BuildRun = {
+  status: 'queued' | 'in_progress' | 'completed';
+  conclusion?: 'success' | 'failure' | 'cancelled' | null;
+};
+
 export type BuildStatus = {
   ok: boolean;
-  run: { status: 'queued' | 'in_progress' | 'completed'; conclusion?: string };
+  run: BuildRun;
 };
-export type ReleaseAsset = { name: string; browser_download_url: string };
-export type LatestRelease = { ok: boolean; tag: string; assets: ReleaseAsset[] };
 
-export async function dispatchBuild(template: Template): Promise<DispatchResp> {
-  const r = await fetch('/api/build', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ template })
-  });
-  if (!r.ok) throw new Error(`dispatch failed: ${r.status}`);
-  return r.json();
-}
+export type ReleaseAsset = {
+  name: string;
+  browser_download_url: string;
+};
 
-export async function getBuildStatus(): Promise<BuildStatus> {
-  const r = await fetch('/api/build/status', { cache: 'no-store' });
-  if (!r.ok) throw new Error(`status failed: ${r.status}`);
-  return r.json();
-}
+export type ReleaseResp = {
+  ok: boolean;
+  tag: string;
+  assets: ReleaseAsset[];
+};
 
-export async function getLatestRelease(): Promise<LatestRelease> {
-  const r = await fetch('/api/release/latest', { cache: 'no-store' });
-  if (!r.ok) throw new Error(`release failed: ${r.status}`);
-  return r.json();
-}
-
-export const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+// 小工具
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
