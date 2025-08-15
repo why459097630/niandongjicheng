@@ -1,184 +1,309 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+// 轻量规则：根据自然语言做“智能默认”模板
+import { pickTemplateByText, type Template } from '../pages/api/_lib/pickTemplateByText';
 
-type RunStatus = 'queued' | 'in_progress' | 'completed' | 'unknown';
+type BuildStatus =
+  | 'idle'
+  | 'dispatching'
+  | 'queued'
+  | 'in_progress'
+  | 'completed'
+  | 'error';
 
-export default function Home() {
+type GHRun = {
+  status?: 'queued' | 'in_progress' | 'completed';
+  conclusion?: 'success' | 'failure' | 'cancelled' | null;
+};
+
+type ReleaseAsset = {
+  name: string;
+  browser_download_url: string;
+};
+
+export default function HomePage() {
   const [prompt, setPrompt] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<RunStatus>('unknown');
-  const [conclusion, setConclusion] = useState<string | null>(null);
-  const [assets, setAssets] = useState<
-    { name: string; browser_download_url: string; size?: number }[]
-  >([]);
-  const [msg, setMsg] = useState<string>('');
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [selected, setSelected] = useState<Template>('core-template');
 
-  // 简单的“智能模板”选择：可自行扩展
-  function pickTemplate(text: string): 'form-template' | 'core-template' | 'simple-template' {
-    const t = text.toLowerCase();
-    if (/(form|survey|feedback|输入|表单)/.test(t)) return 'form-template';
-    if (/(login|auth|settings|tab|list|网络|通知|数据库|复杂)/.test(t)) return 'core-template';
-    return 'simple-template';
-  }
+  // 是否手动覆盖（true 时不再随 prompt 自动切换）
+  const [manualOverride, setManualOverride] = useState(false);
 
-  async function triggerBuild(template: string) {
-    setBusy(true);
-    setMsg('Dispatching build...');
-    setStatus('queued');
-    setConclusion(null);
-    setAssets([]);
+  // 构造一个“智能推荐”
+  const smartPick = useMemo<Template>(() => pickTemplateByText(prompt), [prompt]);
 
-    const r = await fetch('/api/build', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ template }),
-    });
+  // 后端构建状态
+  const [status, setStatus] = useState<BuildStatus>('idle');
+  const [message, setMessage] = useState<string>('');
+  const [tag, setTag] = useState<string>('');
+  const [assets, setAssets] = useState<ReleaseAsset[]>([]);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-    if (!r.ok) {
-      const text = await r.text().catch(() => '');
-      setBusy(false);
-      setMsg(`Failed to dispatch build: ${r.status} ${text}`);
-      return;
-    }
-
-    setMsg(`Build dispatched with "${template}". Polling status...`);
-    startPolling();
-  }
-
-  function startPolling() {
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(async () => {
-      try {
-        const r = await fetch('/api/build/status');
-        const j = await r.json();
-        // 约定：接口若返回 { ok: true, run: { status, conclusion }, ... }
-        const s: RunStatus = j?.run?.status || 'unknown';
-        setStatus(s);
-        const c = j?.run?.conclusion || null;
-        setConclusion(c);
-
-        if (s === 'completed') {
-          clearIntervalSafe();
-          if (c === 'success') {
-            setMsg('Build success. Fetching latest release...');
-            await fetchLatestRelease();
-          } else {
-            setMsg('Build failed. Please check GitHub Actions logs.');
-          }
-          setBusy(false);
-        }
-      } catch (e) {
-        // 忽略短暂网络错误
-      }
-    }, 4000);
-  }
-
-  function clearIntervalSafe() {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  }
-
-  async function fetchLatestRelease() {
-    try {
-      const r = await fetch('/api/release/latest');
-      const j = await r.json();
-      const list = j?.assets || [];
-      setAssets(list);
-      if (!list.length) {
-        setMsg('Release ok but no APK assets found.');
-      } else {
-        setMsg('Ready! Download your APK(s) below.');
-      }
-    } catch (e) {
-      setMsg('Release fetch error.');
-    }
-  }
-
+  // 拉取可用模板
   useEffect(() => {
-    return () => clearIntervalSafe();
+    (async () => {
+      try {
+        const r = await fetch('/api/templates', { cache: 'no-store' });
+        const j = await r.json();
+        if (j?.ok && Array.isArray(j.templates)) {
+          setTemplates(j.templates as Template[]);
+        }
+      } catch {
+        // ignore
+      }
+    })();
   }, []);
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const tpl = pickTemplate(prompt);
-    await triggerBuild(tpl);
+  // 如果没有手动覆盖，就让当前选择跟随“智能推荐”
+  useEffect(() => {
+    if (!manualOverride) {
+      setSelected(smartPick);
+    }
+  }, [smartPick, manualOverride]);
+
+  // 触发构建
+  const onGenerate = async () => {
+    setStatus('dispatching');
+    setMessage('Dispatching build…');
+
+    try {
+      const r = await fetch('/api/build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ template: selected, prompt }),
+      });
+      const j = await r.json();
+
+      if (!j?.ok) {
+        setStatus('error');
+        setMessage(j?.error || 'Failed to dispatch build.');
+        return;
+      }
+
+      setMessage(`Build dispatched for ${selected}. Polling status…`);
+      startPolling();
+    } catch (err) {
+      setStatus('error');
+      setMessage('Network error while dispatching build.');
+    }
+  };
+
+  // 轮询 /api/build/status，最多 ~5 分钟（60 次 * 5s）
+  const startPolling = () => {
+    setStatus('queued');
+    let times = 0;
+
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/build/status', { cache: 'no-store' });
+        const j: { ok?: boolean; run?: GHRun } = await r.json();
+        if (!j?.ok) throw new Error('bad status');
+
+        const run = j.run || {};
+        if (run.status === 'in_progress') {
+          setStatus('in_progress');
+          setMessage('Building…');
+        } else if (run.status === 'queued') {
+          setStatus('queued');
+          setMessage('Queued…');
+        } else if (run.status === 'completed') {
+          // 完成
+          if (run.conclusion === 'success') {
+            setStatus('completed');
+            setMessage('Build succeeded. Fetching latest release…');
+            clearPolling();
+            await fetchLatest();
+            return;
+          }
+          setStatus('error');
+          setMessage(`Build failed (${run.conclusion}).`);
+          clearPolling();
+          return;
+        }
+      } catch {
+        setMessage('Polling… (temporary error, will retry)');
+      }
+
+      times += 1;
+      if (times > 60) {
+        setStatus('error');
+        setMessage('Timeout waiting for build result.');
+        clearPolling();
+        return;
+      }
+    };
+
+    tick();
+    pollingRef.current = setInterval(tick, 5000);
+  };
+
+  const clearPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  };
+
+  // 获取最新 Release 的 apk 下载链接
+  const fetchLatest = async () => {
+    try {
+      const r = await fetch('/api/release/latest', { cache: 'no-store' });
+      const j = await r.json();
+      if (j?.ok) {
+        setTag(j.tag || '');
+        setAssets(Array.isArray(j.assets) ? j.assets : []);
+        if (!j.assets?.length) {
+          setMessage('Build finished, but no downloadable assets were found.');
+        } else {
+          setMessage('Done.');
+        }
+      } else {
+        setMessage('Failed to fetch latest release.');
+      }
+    } catch {
+      setMessage('Failed to fetch latest release.');
+    }
+  };
+
+  // 切回“智能默认”
+  const resetToSmart = () => {
+    setManualOverride(false);
+    setSelected(smartPick);
+  };
+
+  // 手动选择模板
+  const onSelect = (t: Template) => {
+    setManualOverride(true);
+    setSelected(t);
   };
 
   return (
-    <main className="min-h-screen bg-[#0B1220] text-white">
-      {/* 背景渐变圈 */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute left-1/2 top-[-200px] h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-[radial-gradient(50%_50%_at_50%_50%,rgba(99,102,241,0.25)_0%,rgba(99,102,241,0)_60%)]" />
-      </div>
-
-      <section className="relative z-10 mx-auto flex max-w-4xl flex-col items-center px-6 pt-32 text-center">
-        <h1 className="bg-gradient-to-b from-white to-white/60 bg-clip-text text-4xl font-extrabold leading-tight text-transparent sm:text-5xl md:text-6xl">
-          Build Your App From a Single Prompt
+    <main className="min-h-screen text-slate-100">
+      {/* 背景光斑已在 globals.css 配好 */}
+      <section className="relative z-10 max-w-5xl mx-auto px-6 pt-24 pb-14 text-center">
+        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight leading-tight">
+          <span className="block">Build Your App From a</span>
+          <span className="block text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 to-purple-300">
+            Single Prompt
+          </span>
         </h1>
-        <p className="mt-6 text-white/70">
+
+        <p className="mt-6 text-slate-300">
           Type your idea and get a ready-to-install APK file in minutes.
         </p>
 
-        <form onSubmit={onSubmit} className="mt-10 w-full">
-          <div className="mx-auto flex max-w-2xl gap-3">
-            <input
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-base text-white placeholder-white/40 outline-none backdrop-blur-md focus:border-indigo-400"
-              placeholder="e.g. A meditation timer with sound alert"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-            <button
-              type="submit"
-              disabled={busy}
-              className="shrink-0 rounded-xl bg-indigo-500 px-5 py-4 font-semibold text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+        {/* 输入 + 下拉 + 按钮 */}
+        <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center items-center">
+          <input
+            className="w-full sm:w-[540px] h-12 rounded-xl bg-slate-900/50 ring-1 ring-white/10 px-4 outline-none focus:ring-2 focus:ring-indigo-400/60 placeholder:text-slate-400"
+            placeholder="e.g. A meditation timer with sound alert"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+
+          <div className="flex items-center gap-2">
+            <select
+              className="h-12 rounded-xl bg-slate-900/50 ring-1 ring-white/10 px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-400/60"
+              value={selected}
+              onChange={(e) => onSelect(e.target.value as Template)}
             >
-              {busy ? 'Building…' : 'Generate App'}
-            </button>
+              {templates.length
+                ? templates.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))
+                : (['core-template', 'simple-template', 'form-template'] as Template[]).map(
+                    (t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ),
+                  )}
+            </select>
+
+            {manualOverride ? (
+              <button
+                onClick={resetToSmart}
+                className="h-12 px-3 rounded-xl text-xs ring-1 ring-white/10 hover:ring-indigo-400/60 hover:bg-slate-900/40 transition"
+                title={`Smart pick: ${smartPick}`}
+              >
+                Use Smart
+              </button>
+            ) : (
+              <div
+                className="h-12 px-3 rounded-xl text-xs flex items-center ring-1 ring-white/10 bg-slate-900/40"
+                title="Following smart pick"
+              >
+                Smart: <span className="ml-1 font-mono">{smartPick}</span>
+              </div>
+            )}
           </div>
-          <p className="mt-3 text-sm text-white/50">
-            Example: A to-do app with notifications and dark mode
-          </p>
-        </form>
 
-        {/* 状态与结果 */}
-        {(busy || status !== 'unknown' || msg) && (
-          <div className="mt-10 w-full max-w-2xl rounded-xl border border-white/10 bg-white/5 p-5 text-left">
-            <div className="text-sm text-white/70">Status: <b className="text-white">{status}</b></div>
-            {conclusion && (
-              <div className="mt-1 text-sm text-white/70">
-                Conclusion: <b className="text-white">{conclusion}</b>
-              </div>
-            )}
-            {msg && <div className="mt-2 text-sm text-white/60">{msg}</div>}
+          <button
+            onClick={onGenerate}
+            disabled={status === 'dispatching' || status === 'queued' || status === 'in_progress'}
+            className="h-12 px-6 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white shadow-lg shadow-indigo-500/20 disabled:opacity-50"
+          >
+            {status === 'dispatching' || status === 'queued' || status === 'in_progress'
+              ? 'Generating…'
+              : 'Generate App'}
+          </button>
+        </div>
 
-            {assets.length > 0 && (
-              <div className="mt-5">
-                <div className="text-sm text-white/70 mb-2">Download APK:</div>
-                <div className="flex flex-wrap gap-2">
-                  {assets.map((a: any) => (
-                    <a
-                      key={a.browser_download_url}
-                      href={a.browser_download_url}
-                      className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm hover:bg-white/20"
-                    >
-                      {a.name}
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
+        {/* 说明 */}
+        <p className="mt-3 text-sm text-slate-400">
+          Example: A to-do app with notifications and dark mode
+        </p>
 
-            <div className="mt-5 text-sm text-white/50">
-              Need to choose a template manually?{' '}
-              <a href="/build" className="text-indigo-300 underline hover:text-indigo-200">
-                Go to Advanced builder
-              </a>
-              .
+        {/* 状态条 */}
+        <div className="mt-8 text-sm text-slate-300">
+          {status !== 'idle' && (
+            <div className="inline-flex items-center gap-2 rounded-xl bg-slate-900/40 ring-1 ring-white/10 px-3 py-2">
+              <span
+                className={
+                  status === 'error'
+                    ? 'inline-block w-2 h-2 rounded-full bg-rose-400'
+                    : status === 'completed'
+                    ? 'inline-block w-2 h-2 rounded-full bg-emerald-400'
+                    : 'inline-block w-2 h-2 rounded-full bg-amber-300'
+                }
+              />
+              <span className="font-medium capitalize">{status}</span>
+              <span className="text-slate-400">— {message}</span>
             </div>
+          )}
+        </div>
+
+        {/* 构建结果（下载链接） */}
+        {tag && (
+          <div className="mt-10 mx-auto max-w-3xl text-left">
+            <h3 className="text-lg font-semibold">
+              Latest Release: <span className="font-mono">{tag}</span>
+            </h3>
+            {!assets.length ? (
+              <p className="mt-2 text-slate-400">
+                No downloadable assets were found. (If this is a brand-new run, give GitHub
+                a few more seconds and refresh.)
+              </p>
+            ) : (
+              <ul className="mt-4 space-y-2">
+                {assets.map((a) => (
+                  <li key={a.browser_download_url}>
+                    <a
+                      href={a.browser_download_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg ring-1 ring-white/10 hover:ring-indigo-400/60 hover:bg-slate-900/40 transition"
+                    >
+                      <span className="font-mono">{a.name}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </section>
