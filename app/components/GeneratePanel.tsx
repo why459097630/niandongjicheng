@@ -20,7 +20,10 @@ export default function GeneratePanel() {
   const [msg, setMsg] = useState<string>('');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const canSubmit = useMemo(() => phase === 'idle' || phase === 'success' || phase === 'error', [phase]);
+  const canSubmit = useMemo(
+    () => phase === 'idle' || phase === 'success' || phase === 'error',
+    [phase]
+  );
 
   useEffect(() => {
     return () => {
@@ -49,7 +52,7 @@ export default function GeneratePanel() {
           timerRef.current = setTimeout(res, 5000);
         });
       }
-    } catch (e) {
+    } catch {
       setPhase('error');
       setMsg('Polling failed.');
     }
@@ -68,7 +71,7 @@ export default function GeneratePanel() {
       await dispatchBuild(picked);
       setMsg('Build dispatched, polling…');
       await pollStatus();
-    } catch (err) {
+    } catch {
       setPhase('error');
       setMsg('Dispatch failed.');
     }
@@ -105,9 +108,12 @@ export default function GeneratePanel() {
         <div className="mx-auto mt-6 max-w-2xl rounded-lg border border-white/10 bg-white/5 p-4 text-left">
           <h2 className="mb-2 text-lg font-semibold">Download</h2>
           <ul className="list-disc pl-5">
-            {assets.map((a) => (
-              <li key={a.id} className="py-1">
-                <a href={a.browser_download_url} className="text-indigo-300 hover:underline">
+            {assets.map((a, idx) => (
+              <li key={`${a.name}-${idx}`} className="py-1">
+                <a
+                  href={a.browser_download_url}
+                  className="text-indigo-300 hover:underline"
+                >
                   {a.name}
                 </a>
               </li>
