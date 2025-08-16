@@ -1,100 +1,66 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import { Octokit } from "@octokit/rest";
-import JSZip from "jszip";
+// /pages/api/push-to-github.ts
+import type { NextApiRequest, NextApiResponse } from 'next';
 
-const owner = "why459097630"; // 你的 GitHub 用户名
-const repo = "Packaging-warehouse"; // APK 打包仓库名
-const branch = "main"; // 推送目标分支
-const targetPath = "app"; // 推送到仓库的文件夹路径
+export const config = { api: { bodyParser: true } };
+
+function env(name: string) {
+  return process.env[name];
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    return res.status(500).json({ error: "GitHub token not found" });
-  }
-
-  const { html, css, js } = req.body;
-  if (!html || !css || !js) {
-    return res.status(400).json({ error: "Missing html/css/js" });
-  }
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'METHOD_NOT_ALLOWED' });
 
   try {
-    const octokit = new Octokit({ auth: token });
+    // 兼容两套命名
+    const token = env('GITHUB_TOKEN') || env('GH_TOKEN');
+    const owner = (env('GITHUB_REPO')?.split('/')[0]) || env('OWNER')!;
+    const repo = (env('GITHUB_REPO')?.split('/')[1]) || env('REPO')!;
+    const workflowFile = env('GITHUB_WORKFLOW_FILE') || env('WORKFLOW') || 'android-build-matrix.yml';
+    const ref = env('REF') || 'main';
 
-    // 获取最新 commit 和 tree
-    const { data: latestCommit } = await octokit.repos.getCommit({
-      owner,
-      repo,
-      ref: branch,
+    if (!token || !owner || !repo) {
+      return res.status(500).json({ ok: false, error: 'ENV_MISSING' });
+    }
+
+    // 1) 取目标仓库当前分支的 HEAD SHA（供后续 run-by-sha 查 run）
+    const headResp = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${ref}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
     });
+    if (!headResp.ok) {
+      const text = await headResp.text();
+      return res.status(500).json({ ok: false, error: 'HEAD_LOOKUP_FAILED', status: headResp.status, detail: text.slice(0, 400) });
+    }
+    const head = await headResp.json();
+    const headSha = head?.sha as string;
 
-    const baseTree = latestCommit.commit.tree.sha;
-
-    // 构造文件结构（main.html + assets）
-    const files = [
-      {
-        path: `${targetPath}/index.html`,
-        content: html,
-      },
-      {
-        path: `${targetPath}/style.css`,
-        content: css,
-      },
-      {
-        path: `${targetPath}/script.js`,
-        content: js,
-      },
-    ];
-
-    // 创建 blob 和 tree
-const blobs = await Promise.all(
-  files.map(async (file) => {
-    const blob = await octokit.git.createBlob({
-      owner,
-      repo,
-      content: file.content,
-      encoding: "utf-8",
-    });
-    return {
-      path: file.path,
-      mode: "100644" as const, // 修复点
-      type: "blob" as const,
-      sha: blob.data.sha,
+    // 2) 触发 workflow_dispatch
+    const body = req.body ?? {};
+    const inputs = {
+      app_name: body.appName || 'Generated App',
+      package_name: body.packageName || 'com.example.generated',
+      commit_sha: headSha,                                 // 关键：返回给前端用于 run-by-sha
+      template_slug: body.template || body.template_slug || 'simple-template',
     };
-  })
-);
 
-
-    const { data: newTree } = await octokit.git.createTree({
-      owner,
-      repo,
-      base_tree: baseTree,
-      tree: blobs,
+    const dispatch = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowFile}/dispatches`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({ ref, inputs }),
     });
 
-    const { data: newCommit } = await octokit.git.createCommit({
-      owner,
-      repo,
-      message: "🤖 Auto upload from niandongjicheng",
-      tree: newTree.sha,
-      parents: [latestCommit.sha],
-    });
+    if (dispatch.status !== 204) {
+      const text = await dispatch.text();
+      return res.status(500).json({ ok: false, error: 'DISPATCH_FAILED', status: dispatch.status, detail: text.slice(0, 400) });
+    }
 
-    await octokit.git.updateRef({
-      owner,
-      repo,
-      ref: `heads/${branch}`,
-      sha: newCommit.sha,
-      force: true,
-    });
-
-    return res.status(200).json({ success: true, message: "Uploaded and committed successfully" });
-  } catch (error: any) {
-    console.error("Upload failed:", error.message);
-    return res.status(500).json({ error: "Failed to upload to GitHub" });
+    // 返回 commitSha 给前端，后续 /run-by-sha 将用它找到本次 run
+    return res.status(200).json({ ok: true, commitSha: headSha });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'UNKNOWN' });
   }
 }
