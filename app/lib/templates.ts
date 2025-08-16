@@ -1,13 +1,32 @@
 // app/lib/templates.ts
-import type { Template } from './client';
+import type { Template } from './types';
 
+export const TEMPLATES: Template[] = [
+  'simple-template', // 扩展模板时在此追加
+];
+
+export const DEFAULT_TEMPLATE: Template = 'simple-template';
+
+export function normalize(text: string): string {
+  return (text ?? '').toLowerCase().trim();
+}
+
+/** 根据文案简单路由到模板，找不到则回退到 DEFAULT_TEMPLATE */
 export function pickTemplateByText(prompt: string): Template {
-  const p = (prompt || '').toLowerCase();
+  const p = normalize(prompt);
 
-  // 表单/问卷类
-  if (/(form|表单|问卷|调查|报名|反馈)/.test(p)) return 'form-template';
-  // 极简页/计时器/备忘
-  if (/(simple|极简|计时器|倒计时|秒表|番茄|todo|清单|便签|备忘)/.test(p)) return 'simple-template';
+  // 关键字示例：计时器/专注/冥想等走 simple-template
+  if (/\b(timer|countdown|pomodoro|focus|meditation|breath|clock)\b/.test(p)) {
+    return 'simple-template';
+  }
 
-  return 'core-template';
+  // 更多模板时可在此追加规则…
+
+  return DEFAULT_TEMPLATE;
+}
+
+/** 外部传入的模板名兜底为有效模板 */
+export function coerceTemplate(t?: string | null): Template {
+  const v = (t ?? '').trim();
+  return (v && TEMPLATES.includes(v as Template)) ? (v as Template) : DEFAULT_TEMPLATE;
 }
