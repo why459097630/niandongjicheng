@@ -5,13 +5,19 @@ export async function GET(req: Request) {
   const sha = searchParams.get('sha');
   if (!sha) return NextResponse.json({ ok: false, error: 'MISSING_SHA' }, { status: 400 });
 
-  const repo = process.env.GITHUB_REPO!; // e.g. "why459097630/Packaging-warehouse"
-  const [owner, repoName] = repo.split('/');
-  const workflowFile = process.env.GITHUB_WORKFLOW_FILE || 'android-build-matrix.yml';
-  const token = process.env.GITHUB_TOKEN!;
+  // 兼容你现有的环境变量命名
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN!;
+  const owner = (process.env.GITHUB_REPO?.split('/')[0]) || process.env.OWNER!;
+  const repoName = (process.env.GITHUB_REPO?.split('/')[1]) || process.env.REPO!;
+  const workflowFile = process.env.GITHUB_WORKFLOW_FILE || process.env.WORKFLOW || 'android-build-matrix.yml';
+  const branch = process.env.REF || 'main';
+
+  if (!token || !owner || !repoName) {
+    return NextResponse.json({ ok: false, error: 'ENV_MISSING' }, { status: 500 });
+  }
 
   const res = await fetch(
-    `https://api.github.com/repos/${owner}/${repoName}/actions/workflows/${workflowFile}/runs?per_page=20&branch=main`,
+    `https://api.github.com/repos/${owner}/${repoName}/actions/workflows/${workflowFile}/runs?per_page=20&branch=${branch}`,
     { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } }
   );
 
