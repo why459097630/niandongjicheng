@@ -1,105 +1,123 @@
-// /app/api/build/route.ts
-import { NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import { NextRequest, NextResponse } from "next/server";
+import { Octokit } from "@octokit/rest";
 
-type BuildRequest = {
-  prompt: string;
-  template?: string; // 'simple-template' | 'xxx'
-  smart?: boolean;   // 是否启用 AI 文案生成
-};
+const owner = process.env.OWNER!;
+const repo = process.env.REPO!;
+const token = process.env.GITHUB_TOKEN!;
+const workflow = process.env.WORKFLOW || "android-build-matrix.yml";
+const ref = process.env.REF || "main";
 
-function makeClient() {
-  const provider = (process.env.LLM_PROVIDER || 'openai').toLowerCase();
-
-  let apiKey = '';
-  let baseURL = '';
-  let defaultModel = process.env.MODEL || '';
-
-  if (provider === 'deepseek') {
-    apiKey = process.env.DEEPSEEK_API_KEY || '';
-    baseURL = 'https://api.deepseek.com';
-    defaultModel ||= 'deepseek-chat';
-  } else if (provider === 'groq') {
-    apiKey = process.env.GROQ_API_KEY || '';
-    baseURL = 'https://api.groq.com/openai/v1';
-    defaultModel ||= 'llama3-70b-8192';
-  } else {
-    // openai 官方
-    apiKey = process.env.OPENAI_API_KEY || '';
-    baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-    defaultModel ||= process.env.OPENAI_MODEL || 'gpt-4o-mini'; // 或 gpt-4o / gpt-3.5 之类
-  }
-
-  if (!apiKey) throw new Error(`Missing API key for provider=${provider}`);
-
-  const client = new OpenAI({ apiKey, baseURL });
-  return { client, model: defaultModel, provider };
-}
-
-async function aiGenerateCopy(input: string) {
-  const { client, model, provider } = makeClient();
-
-  // 统一用 Chat Completions
-  const system = 'You are an assistant that writes concise, well-structured app descriptions and content in English.';
-
-  const r = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: input },
-    ],
-    temperature: 0.7,
-  });
-
-  const text =
-    r.choices?.[0]?.message?.content?.toString().trim() ||
-    '';
-  return { text, provider, model };
-}
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as BuildRequest;
+    const { prompt, template = "simple-template", smart = false } =
+      (await req.json()) as {
+        prompt: string;
+        template?: string;
+        smart?: boolean;
+      };
 
-    // 1) 参数校验
-    if (!body?.prompt || typeof body.prompt !== 'string') {
-      return NextResponse.json({ ok: false, error: 'BAD_REQUEST' }, { status: 400 });
-    }
+    // 1) 这里先放一个最小 dataset；你可以把 Groq/OpenAI 的结果替换到 dataset 里
+    const dataset = {
+      title: "Lamborghini Encyclopedia",
+      generatedAt: new Date().toISOString(),
+      prompt,
+      template,
+      smart,
+      models: [
+        {
+          name: "350 GT",
+          years: "1964–1966",
+          engine: "3.5L V12",
+          decade: "1960s",
+          summary: "Lamborghini’s first production car.",
+          images: [
+            "https://upload.wikimedia.org/wikipedia/commons/3/3a/Lamborghini_350_GT.jpg",
+          ],
+        },
+        {
+          name: "Miura",
+          years: "1966–1973",
+          engine: "3.9L V12",
+          decade: "1960s",
+          summary:
+            "Iconic mid-engine supercar often credited with starting the genre.",
+          images: [
+            "https://upload.wikimedia.org/wikipedia/commons/2/2c/Lamborghini_Miura_S.jpg",
+          ],
+        },
+      ],
+    };
 
-    // 2) 如果 smart=true，则调模型生成文案；否则用原始 prompt
-    let finalPrompt = body.prompt;
-    let aiUsed: null | { provider: string; model: string } = null;
+    // 2) 初始化 Octokit
+    const octokit = new Octokit({ auth: token });
 
-    if (body.smart) {
-      const { text, provider, model } = await aiGenerateCopy(
-        `Generate detailed app content based on this instruction: "${body.prompt}". 
-         Write structured sections: overview, key features, data sources (if any), and suggested UI text.
-         Keep it concise and ready to insert into an Android app's resources.`
-      );
-      if (text) {
-        finalPrompt = text;
-        aiUsed = { provider, model };
+    // 3) 工具方法：创建或更新文件
+    const upsert = async (path: string, content: string) => {
+      const base64 = Buffer.from(content).toString("base64");
+      let sha: string | undefined;
+
+      try {
+        const { data } = await octokit.repos.getContent({
+          owner,
+          repo,
+          path,
+          ref,
+        });
+        if (!Array.isArray(data) && "sha" in data) {
+          sha = (data as any).sha;
+        }
+      } catch {
+        // 文件不存在时会 404，忽略即可
       }
-    }
 
-    // 3) 这里是你现有的“生成仓库内容并 push 到 GitHub”的逻辑
-    //    把 finalPrompt 写入模板里的某个 JSON/TS 文件，让后续构建把它打包进 app。
-    //    例如：生成 /android-app/app_content.json 之类，并提交到 GitHub。
-    //
-    //    下面只是示意，替换为你现有的 push-to-github 代码：
-    // await writeAndPushToRepo({ promptText: finalPrompt, template: body.template || 'simple-template' });
+      const res = await octokit.repos.createOrUpdateFileContents({
+        owner,
+        repo,
+        path,
+        branch: ref,
+        message: `chore(data): update assets (${new Date().toISOString()})`,
+        content: base64,
+        sha,
+      });
 
-    // 4) 返回 runId/commitSha（你已有）
+      return res.data.commit.sha;
+    };
+
+    // 4) 把数据写到 Android APK 可读目录（注意：按你仓库结构，这里是 app/src/main/assets/...）
+    const catalogSha = await upsert(
+      "app/src/main/assets/generated/catalog.json",
+      JSON.stringify(dataset, null, 2),
+    );
+
+    const aboutSha = await upsert(
+      "app/src/main/assets/generated/about.md",
+      `# Lamborghini Encyclopedia
+Generated at: ${new Date().toISOString()}
+
+Prompt:
+> ${prompt}
+`,
+    );
+
+    // 5) 触发构建工作流（不需要 inputs 的话就这样）
+    await octokit.actions.createWorkflowDispatch({
+      owner,
+      repo,
+      workflow_id: workflow, // 就写文件名：android-build-matrix.yml
+      ref,                    // 分支
+      // inputs: { }           // 如果 workflow 有 inputs 在这里传
+    });
+
     return NextResponse.json({
       ok: true,
-      smart: !!body.smart,
-      used: aiUsed,
-      // commitSha: 'xxxxxx', // 你真实的commit
+      message: "assets updated & workflow dispatched",
+      commitSha: { catalogSha, aboutSha },
     });
   } catch (err: any) {
-    console.error('[api/build] error:', err);
-    const msg = err?.message || 'INTERNAL_ERROR';
-    // 将常见错误（缺key/401/配额）反馈给前端
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    console.error("build route error:", err);
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? String(err) },
+      { status: 500 },
+    );
   }
 }
