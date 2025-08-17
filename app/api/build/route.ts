@@ -1,205 +1,105 @@
 // /app/api/build/route.ts
-// 完整版（Next.js App Router）
-// 功能：
-// 1) 用 OpenAI 生成结构化内容（Lamborghini 车型目录，含图片 URL）
-// 2) 将 catalog.json 提交到仓库 android-app/src/main/assets/catalog.json
-// 3) 可选：触发 GitHub Actions 工作流（如 android-build-matrix.yml）进行打包
-
-import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { Octokit } from '@octokit/rest';
 
-export const dynamic = 'force-dynamic'; // 保证每次请求都执行
-export const runtime = 'nodejs';
+type BuildRequest = {
+  prompt: string;
+  template?: string; // 'simple-template' | 'xxx'
+  smart?: boolean;   // 是否启用 AI 文案生成
+};
 
-/* -----------------------------
-   工具：提交/更新仓库文件
-------------------------------*/
-async function upsertFile(params: {
-  owner: string;
-  repo: string;
-  branch: string;
-  path: string;     // 如 'android-app/src/main/assets/catalog.json'
-  content: string;  // 纯文本（会自动转 base64）
-  message: string;
-  token: string;
-}) {
-  const { owner, repo, branch, path, content, message, token } = params;
-  const octokit = new Octokit({ auth: token });
+function makeClient() {
+  const provider = (process.env.LLM_PROVIDER || 'openai').toLowerCase();
 
-  // 获取现有文件的 sha（如果存在）
-  let sha: string | undefined;
-  try {
-    const { data } = await octokit.repos.getContent({ owner, repo, path, ref: branch });
-    if (!Array.isArray(data)) sha = (data as any).sha;
-  } catch (err: any) {
-    if (err?.status !== 404) {
-      throw err;
-    }
+  let apiKey = '';
+  let baseURL = '';
+  let defaultModel = process.env.MODEL || '';
+
+  if (provider === 'deepseek') {
+    apiKey = process.env.DEEPSEEK_API_KEY || '';
+    baseURL = 'https://api.deepseek.com';
+    defaultModel ||= 'deepseek-chat';
+  } else if (provider === 'groq') {
+    apiKey = process.env.GROQ_API_KEY || '';
+    baseURL = 'https://api.groq.com/openai/v1';
+    defaultModel ||= 'llama3-70b-8192';
+  } else {
+    // openai 官方
+    apiKey = process.env.OPENAI_API_KEY || '';
+    baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    defaultModel ||= process.env.OPENAI_MODEL || 'gpt-4o-mini'; // 或 gpt-4o / gpt-3.5 之类
   }
 
-  const resp = await octokit.repos.createOrUpdateFileContents({
-    owner,
-    repo,
-    path,
-    branch,
-    message,
-    content: Buffer.from(content, 'utf8').toString('base64'),
-    sha,
+  if (!apiKey) throw new Error(`Missing API key for provider=${provider}`);
+
+  const client = new OpenAI({ apiKey, baseURL });
+  return { client, model: defaultModel, provider };
+}
+
+async function aiGenerateCopy(input: string) {
+  const { client, model, provider } = makeClient();
+
+  // 统一用 Chat Completions
+  const system = 'You are an assistant that writes concise, well-structured app descriptions and content in English.';
+
+  const r = await client.chat.completions.create({
+    model,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: input },
+    ],
+    temperature: 0.7,
   });
 
-  // 返回提交后的信息（commit sha 等）
-  return {
-    commitSha: (resp?.data?.commit?.sha as string) || '',
-    htmlUrl: (resp?.data?.content as any)?.html_url || '',
-  };
+  const text =
+    r.choices?.[0]?.message?.content?.toString().trim() ||
+    '';
+  return { text, provider, model };
 }
 
-/* -----------------------------
-   工具：可选触发 workflow_dispatch
-------------------------------*/
-async function triggerWorkflow(params: {
-  owner: string;
-  repo: string;
-  branch: string;
-  workflowFile: string; // 例如：'android-build-matrix.yml'
-  token: string;
-  inputs?: Record<string, string>;
-}) {
-  const { owner, repo, branch, workflowFile, token, inputs } = params;
-  const octokit = new Octokit({ auth: token });
-
-  await octokit.actions.createWorkflowDispatch({
-    owner,
-    repo,
-    workflow_id: workflowFile,
-    ref: branch,
-    inputs,
-  });
-}
-
-const CONTENT_PATH = process.env.CONTENT_PATH || 'android-app/src/main/assets/catalog.json';
-
-const SCHEMA_HINT = `
-Return ONLY valid JSON, matching this schema:
-
-{
-  "appTitle": string,
-  "intro": string,
-  "models": [
-    {
-      "name": string,
-      "year": string,
-      "description": string,
-      "imageUrl": string
-    }
-  ]
-}
-`;
-
-/* -----------------------------
-   API 入口
-------------------------------*/
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    // 读取请求体
-    const { prompt, template = 'simple-template', smart = true } = await req.json();
+    const body = (await req.json()) as BuildRequest;
 
-    // 基础校验
-    const owner = process.env.OWNER!;
-    const repo = process.env.REPO!;
-    const branch = process.env.REF || 'main';
-    const token = process.env.GITHUB_TOKEN!;
-    const openaiKey = process.env.OPENAI_API_KEY!;
-    const workflowFile = process.env.WORKFLOW_FILE; // 可选
-
-    if (!openaiKey) {
-      return new Response(JSON.stringify({ ok: false, error: 'MISSING_OPENAI_API_KEY' }), { status: 500 });
-    }
-    if (!token || !owner || !repo) {
-      return new Response(JSON.stringify({ ok: false, error: 'MISSING_GITHUB_CONFIG' }), { status: 500 });
+    // 1) 参数校验
+    if (!body?.prompt || typeof body.prompt !== 'string') {
+      return NextResponse.json({ ok: false, error: 'BAD_REQUEST' }, { status: 400 });
     }
 
-    const runId = Date.now().toString(); // 用于标识这次构建
+    // 2) 如果 smart=true，则调模型生成文案；否则用原始 prompt
+    let finalPrompt = body.prompt;
+    let aiUsed: null | { provider: string; model: string } = null;
 
-    /* 1) 调用 OpenAI 生成结构化内容 */
-    const openai = new OpenAI({ apiKey: openaiKey });
+    if (body.smart) {
+      const { text, provider, model } = await aiGenerateCopy(
+        `Generate detailed app content based on this instruction: "${body.prompt}". 
+         Write structured sections: overview, key features, data sources (if any), and suggested UI text.
+         Keep it concise and ready to insert into an Android app's resources.`
+      );
+      if (text) {
+        finalPrompt = text;
+        aiUsed = { provider, model };
+      }
+    }
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      response_format: { type: 'json_object' },
-      temperature: smart ? 0.7 : 0.2,
-      messages: [
-        {
-          role: 'system',
-          content: `You are a professional content engineer. ${SCHEMA_HINT}`,
-        },
-        {
-          role: 'user',
-          content: `
-Create a complete catalog for an Android app "${prompt}".
-- The app introduces ALL significant Lamborghini models throughout history.
-- Each model must include a public imageUrl (reachable on internet), a concise year range, and a 2–4 sentence description.
-- Keep JSON valid and compact.
-          `.trim(),
-        },
-      ],
+    // 3) 这里是你现有的“生成仓库内容并 push 到 GitHub”的逻辑
+    //    把 finalPrompt 写入模板里的某个 JSON/TS 文件，让后续构建把它打包进 app。
+    //    例如：生成 /android-app/app_content.json 之类，并提交到 GitHub。
+    //
+    //    下面只是示意，替换为你现有的 push-to-github 代码：
+    // await writeAndPushToRepo({ promptText: finalPrompt, template: body.template || 'simple-template' });
+
+    // 4) 返回 runId/commitSha（你已有）
+    return NextResponse.json({
+      ok: true,
+      smart: !!body.smart,
+      used: aiUsed,
+      // commitSha: 'xxxxxx', // 你真实的commit
     });
-
-    const raw = completion.choices?.[0]?.message?.content ?? '{}';
-    let parsed: any;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return new Response(JSON.stringify({ ok: false, error: 'BAD_JSON_FROM_AI', raw }), { status: 502 });
-    }
-
-    // 附加一些元信息（可选）
-    parsed.generatedAt = new Date().toISOString();
-    parsed.template = template;
-    const json = JSON.stringify(parsed, null, 2);
-
-    /* 2) 提交/更新到仓库 assets */
-    const commitMessage = `feat(content): update catalog.json (${prompt}) [run:${runId}]`;
-    const upsert = await upsertFile({
-      owner,
-      repo,
-      branch,
-      path: CONTENT_PATH,
-      content: json,
-      message: commitMessage,
-      token,
-    });
-
-    /* 3) 可选：触发 workflow 打包（如果你把 workflow 配置为 on: workflow_dispatch）*/
-    if (workflowFile) {
-      await triggerWorkflow({
-        owner,
-        repo,
-        branch,
-        workflowFile,
-        token,
-        inputs: { runId }, // 你的 workflow 如需 runId 可自行读取
-      });
-    }
-
-    // 返回结果给前端
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        message: 'Content committed to repository successfully.',
-        path: CONTENT_PATH,
-        commitSha: upsert.commitSha,
-        runId,
-        workflowDispatched: Boolean(workflowFile),
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
   } catch (err: any) {
-    console.error('POST /api/build error:', err);
-    return new Response(JSON.stringify({ ok: false, error: 'INTERNAL_ERROR', detail: String(err?.message || err) }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    console.error('[api/build] error:', err);
+    const msg = err?.message || 'INTERNAL_ERROR';
+    // 将常见错误（缺key/401/配额）反馈给前端
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
