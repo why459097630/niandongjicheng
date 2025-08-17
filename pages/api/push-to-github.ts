@@ -1,66 +1,147 @@
-// /pages/api/push-to-github.ts
+// /api/push-to-github.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-export const config = { api: { bodyParser: true } };
+const GH_API = 'https://api.github.com';
 
-function env(name: string) {
-  return process.env[name];
+async function upsertFile(params: {
+  owner: string;
+  repo: string;
+  path: string;
+  content: string | Buffer;
+  message: string;
+  token: string;
+}) {
+  const { owner, repo, path, content, message, token } = params;
+
+  // get sha if file exists
+  let sha: string | undefined;
+  const getResp = await fetch(`${GH_API}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, {
+    headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'niandongjicheng' }
+  });
+  if (getResp.ok) {
+    const j = await getResp.json();
+    if (j && j.sha) sha = j.sha;
+  }
+
+  const b64 = Buffer.from(typeof content === 'string' ? content : content).toString('base64');
+
+  const putResp = await fetch(`${GH_API}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'User-Agent': 'niandongjicheng',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      message,
+      content: b64,
+      sha
+    })
+  });
+
+  if (!putResp.ok) {
+    const text = await putResp.text();
+    throw new Error(`Failed to write ${path}: ${putResp.status} ${text}`);
+  }
 }
 
+function pkgToPath(packageName: string) {
+  // com.example.meditationtimer -> com/example/meditationtimer
+  return packageName.trim().replace(/\s+/g, '').split('.').join('/');
+}
+
+type Payload = {
+  packageName: string;
+  java?: Record<string, string>;
+  resLayout?: Record<string, string>;
+  resValues?: Record<string, string>;
+  manifestPatch?: string | null;
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'METHOD_NOT_ALLOWED' });
-
   try {
-    // 兼容两套命名
-    const token = env('GITHUB_TOKEN') || env('GH_TOKEN');
-    const owner = (env('GITHUB_REPO')?.split('/')[0]) || env('OWNER')!;
-    const repo = (env('GITHUB_REPO')?.split('/')[1]) || env('REPO')!;
-    const workflowFile = env('GITHUB_WORKFLOW_FILE') || env('WORKFLOW') || 'android-build-matrix.yml';
-    const ref = env('REF') || 'main';
+    if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
 
-    if (!token || !owner || !repo) {
-      return res.status(500).json({ ok: false, error: 'ENV_MISSING' });
+    const token = process.env.GITHUB_TOKEN as string;
+    const owner = (process.env.GITHUB_OWNER as string) || 'why459097630';
+    const repo = (process.env.GITHUB_REPO as string) || 'Packaging-warehouse';
+
+    if (!token) return res.status(500).json({ ok: false, error: 'Missing GITHUB_TOKEN' });
+
+    const body: Payload = req.body || {};
+    const pkg = body.packageName?.trim();
+    if (!pkg) return res.status(400).json({ ok: false, error: 'packageName is required' });
+
+    // 基础必需文件校验（少了就不允许进入打包）
+    const hasMain = !!body.java && !!body.java['MainActivity.java'];
+    const hasLayout = !!body.resLayout && !!body.resLayout['activity_main.xml'];
+    const hasStrings = !!body.resValues && !!body.resValues['strings.xml'];
+    if (!hasMain || !hasLayout || !hasStrings) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Missing required files: MainActivity.java / activity_main.xml / strings.xml'
+      });
     }
 
-    // 1) 取目标仓库当前分支的 HEAD SHA（供后续 run-by-sha 查 run）
-    const headResp = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${ref}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    const javaDir = `app/src/main/java/${pkgToPath(pkg)}`;
+    const layoutDir = `app/src/main/res/layout`;
+    const valuesDir = `app/src/main/res/values`;
+
+    // 1) 写 Java
+    for (const [name, code] of Object.entries(body.java || {})) {
+      await upsertFile({
+        owner, repo,
+        path: `${javaDir}/${name}`,
+        content: code,
+        message: `chore(gen): update ${name}`,
+        token
+      });
+    }
+
+    // 2) 写 layout
+    for (const [name, code] of Object.entries(body.resLayout || {})) {
+      await upsertFile({
+        owner, repo,
+        path: `${layoutDir}/${name}`,
+        content: code,
+        message: `chore(gen): update layout ${name}`,
+        token
+      });
+    }
+
+    // 3) 写 values
+    for (const [name, code] of Object.entries(body.resValues || {})) {
+      await upsertFile({
+        owner, repo,
+        path: `${valuesDir}/${name}`,
+        content: code,
+        message: `chore(gen): update values ${name}`,
+        token
+      });
+    }
+
+    // 4) 如需对 Manifest 打补丁（可选）：这里采用“覆盖文件”的简化版
+    if (body.manifestPatch) {
+      await upsertFile({
+        owner, repo,
+        path: `app/src/main/AndroidManifest.xml`,
+        content: body.manifestPatch,
+        message: `chore(gen): patch AndroidManifest.xml`,
+        token
+      });
+    }
+
+    // 5) 生成标记：用于 CI 校验“确实写入过生成内容”
+    await upsertFile({
+      owner, repo,
+      path: `generated/.ok`,
+      content: `package=${pkg}\n${new Date().toISOString()}\n`,
+      message: `chore(gen): mark generated ok`,
+      token
     });
-    if (!headResp.ok) {
-      const text = await headResp.text();
-      return res.status(500).json({ ok: false, error: 'HEAD_LOOKUP_FAILED', status: headResp.status, detail: text.slice(0, 400) });
-    }
-    const head = await headResp.json();
-    const headSha = head?.sha as string;
 
-    // 2) 触发 workflow_dispatch
-    const body = req.body ?? {};
-    const inputs = {
-      app_name: body.appName || 'Generated App',
-      package_name: body.packageName || 'com.example.generated',
-      commit_sha: headSha,                                 // 关键：返回给前端用于 run-by-sha
-      template_slug: body.template || body.template_slug || 'simple-template',
-    };
-
-    const dispatch = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowFile}/dispatches`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'Content-Type': 'application/json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      body: JSON.stringify({ ref, inputs }),
-    });
-
-    if (dispatch.status !== 204) {
-      const text = await dispatch.text();
-      return res.status(500).json({ ok: false, error: 'DISPATCH_FAILED', status: dispatch.status, detail: text.slice(0, 400) });
-    }
-
-    // 返回 commitSha 给前端，后续 /run-by-sha 将用它找到本次 run
-    return res.status(200).json({ ok: true, commitSha: headSha });
+    return res.json({ ok: true, repo, packageName: pkg });
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || 'UNKNOWN' });
+    return res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
 }
