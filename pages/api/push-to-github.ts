@@ -1,154 +1,98 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-
-type Payload = {
-  packageName: string;
-  java?: string | Record<string, string>;
-  resLayout?: string | Record<string, string>;
-  resValues?: string | Record<string, string>;
-};
-
-const GH_TOKEN  = process.env.GH_TOKEN!;
-const GH_OWNER  = process.env.GH_OWNER!;
-const GH_REPO   = process.env.GH_REPO!;
-const GH_BRANCH = process.env.GH_BRANCH || "main";
-
-const GH_API = "https://api.github.com";
-
-// ✅ 正确的 path 编码：逐段编码，保留 /
-function encodeGhPath(p: string) {
-  return p.split("/").map(encodeURIComponent).join("/");
-}
-
-async function gh(path: string, init?: RequestInit) {
-  const res = await fetch(`${GH_API}${path}`, {
-    ...(init || {}),
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${GH_TOKEN}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "why-apk-bot", // 友好一点
-      ...(init?.headers || {}),
-    },
-  });
-
-  const text = await res.text();
-  let json: any;
-  try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
-
-  if (!res.ok) {
-    // 把 GitHub 返回什么就回传给客户端，方便你在 Network 面板直接看到原因
-    throw new Error(`GitHub ${res.status}: ${JSON.stringify(json)}`);
+// pages/api/push-to-github.js
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res
+      .status(405)
+      .json({ ok: false, error: 'Method Not Allowed' });
   }
-  return json;
-}
 
-async function getFileSha(path: string) {
   try {
-    const json = await gh(
-      `/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeGhPath(path)}?ref=${encodeURIComponent(GH_BRANCH)}`
-    );
-    return json?.sha as string | undefined;
-  } catch (e: any) {
-    // 404 表示文件不存在，返回 undefined
-    if (String(e.message).includes("404")) return undefined;
-    throw e;
-  }
-}
+    // ---- 环境变量兼容（方案B的核心） ----
+    const GH_TOKEN  = process.env.GH_TOKEN  || process.env.GITHUB_TOKEN;
+    const GH_OWNER  = process.env.GH_OWNER  || process.env.OWNER;
+    const GH_REPO   = process.env.GH_REPO   || process.env.REPO;
+    const GH_BRANCH = process.env.GH_BRANCH || process.env.REF || 'main';
 
-function b64(s: string) {
-  return Buffer.from(s, "utf8").toString("base64");
-}
-
-async function putFile(path: string, content: string, message: string) {
-  const sha = await getFileSha(path);
-  return gh(`/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeGhPath(path)}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      message,
-      content: b64(content),
-      branch: GH_BRANCH,
-      ...(sha ? { sha } : {}),
-    }),
-  });
-}
-
-function norm(maybe: string | Record<string, string> | undefined, key: string) {
-  if (!maybe) return {};
-  return typeof maybe === "string" ? { [key]: maybe } : maybe;
-}
-
-function pkgToJavaDir(pkg: string) {
-  return pkg.replace(/\./g, "/");
-}
-
-function defaultManifest(packageName: string) {
-  return `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="${packageName}">
-  <application android:allowBackup="true" android:supportsRtl="true"
-      android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-    <activity android:name=".MainActivity">
-      <intent-filter>
-        <action android:name="android.intent.action.MAIN"/>
-        <category android:name="android.intent.category.LAUNCHER"/>
-      </intent-filter>
-    </activity>
-  </application>
-</manifest>`.trim();
-}
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method Not Allowed" });
-    if (!GH_TOKEN || !GH_OWNER || !GH_REPO) return res.status(500).json({ ok: false, error: "Server missing GH_* envs" });
-
-    const body = (req.body || {}) as Payload;
-    const { packageName } = body;
-
-    if (!packageName || !/^[a-zA-Z_]\w*(\.[a-zA-Z_]\w*)+$/.test(packageName)) {
-      return res.status(400).json({ ok: false, error: "Invalid packageName" });
+    if (!GH_TOKEN || !GH_OWNER || !GH_REPO || !GH_BRANCH) {
+      return res.status(500).json({
+        ok: false,
+        error: 'Missing GitHub envs (need GH_TOKEN, GH_OWNER/OWNER, GH_REPO/REPO, GH_BRANCH/REF)'
+      });
     }
 
-    const javaMap   = norm(body.java, "MainActivity.java");
-    const layoutMap = norm(body.resLayout, "activity_main.xml");
-    const valuesMap = norm(body.resValues, "strings.xml");
+    const { packageName, java = {}, resLayout = {}, resValues = {} } = req.body || {};
+    // 你前端传的三个键：java、resLayout、resValues
+    const mainJava   = java['MainActivity.java'] || '';
+    const activityXml = resLayout['activity_main.xml'] || '';
+    const stringsXml  = resValues['strings.xml'] || '';
 
-    const mainJava  = javaMap["MainActivity.java"]?.trim();
-    const mainXml   = layoutMap["activity_main.xml"]?.trim();
-    const strings   = valuesMap["strings.xml"]?.trim();
-
-    if (!mainJava)  return res.status(400).json({ ok: false, error: "java.MainActivity.java empty" });
-    if (!mainXml)   return res.status(400).json({ ok: false, error: "resLayout.activity_main.xml empty" });
-    if (!strings)   return res.status(400).json({ ok: false, error: "resValues.strings.xml empty" });
-
-    const now = new Date().toISOString();
-    const prefix = `chore(gen): apply API payload @ ${now}`;
-
-    const javaDir = `app/src/main/java/${pkgToJavaDir(packageName)}`;
-
-    await putFile(`${javaDir}/MainActivity.java`, mainJava, `${prefix} (MainActivity.java)`);
-    await putFile(`app/src/main/res/layout/activity_main.xml`, mainXml, `${prefix} (activity_main.xml)`);
-    await putFile(`app/src/main/res/values/strings.xml`, strings, `${prefix} (strings.xml)`);
-
-    const manifestPath = `app/src/main/AndroidManifest.xml`;
-    if (!(await getFileSha(manifestPath))) {
-      await putFile(manifestPath, defaultManifest(packageName), `${prefix} (manifest)`);
+    if (!mainJava || !activityXml || !stringsXml) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Payload missing: need java.MainActivity.java, resLayout.activity_main.xml, resValues.strings.xml'
+      });
     }
 
-    res.status(200).json({
+    // 准备要写入的内容（你现有工作流是读取 demo_payload 目录下的 *.txt）
+    const files = [
+      { path: 'demo_payload/MainActivity.java.txt',    content: mainJava },
+      { path: 'demo_payload/activity_main.xml.txt',    content: activityXml },
+      { path: 'demo_payload/strings.xml.txt',          content: stringsXml }
+    ];
+
+    // 取得某个文件目前的 sha（如果文件已存在，需提供 sha 才能更新）
+    async function getFileSha(path) {
+      const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(GH_BRANCH)}`;
+      const r = await fetch(url, {
+        headers: { Authorization: `token ${GH_TOKEN}`, 'Accept': 'application/vnd.github+json' }
+      });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`Get sha failed for ${path}: ${r.status} ${await r.text()}`);
+      const json = await r.json();
+      return json.sha || null;
+    }
+
+    // 写入/更新文件
+    async function upsertFile(path, raw) {
+      const sha = await getFileSha(path);
+      const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(path)}`;
+      const message = `chore(gen): update ${path} @ ${new Date().toISOString()}`;
+      const content = Buffer.from(raw, 'utf8').toString('base64');
+
+      const body = { message, content, branch: GH_BRANCH };
+      if (sha) body.sha = sha;
+
+      const r = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          Authorization: `token ${GH_TOKEN}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/vnd.github+json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`Upsert failed for ${path}: ${r.status} ${t}`);
+      }
+      return r.json();
+    }
+
+    for (const f of files) {
+      await upsertFile(f.path, f.content);
+    }
+
+    return res.status(200).json({
       ok: true,
-      repo: GH_REPO,
       owner: GH_OWNER,
+      repo: GH_REPO,
       branch: GH_BRANCH,
-      packageName,
-      changed: [
-        `${javaDir}/MainActivity.java`,
-        `app/src/main/res/layout/activity_main.xml`,
-        `app/src/main/res/values/strings.xml`,
-        manifestPath,
-      ],
+      packageName: packageName || null,
+      written: files.map(f => f.path)
     });
-  } catch (e: any) {
-    // 把后端错误文本返回，方便你在浏览器 Network 的 Response 里直接看到根因
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: String(err.message || err) });
   }
 }
