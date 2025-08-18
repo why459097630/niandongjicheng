@@ -78,17 +78,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // 环境变量（GitHub）
-  const token = process.env.GH_TOKEN || '';
-  const owner = process.env.GH_OWNER || '';
-  const repo  = process.env.GH_REPO  || '';
-  const ref   = process.env.REF      || 'main';
+const GH_TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+const GH_OWNER = process.env.GH_OWNER || process.env.OWNER;
+const GH_REPO  = process.env.GH_REPO  || process.env.REPO;
+const REF      = process.env.REF || 'main';
 
-  if (!token || !owner || !repo) {
-    return res.status(500).json({
-      error: 'Missing GitHub envs',
-      need: ['GH_TOKEN', 'GH_OWNER', 'GH_REPO'],
-    });
-  }
+if (!GH_TOKEN || !GH_OWNER || !GH_REPO) {
+  return res.status(500).json({
+    error: 'Missing GitHub envs',
+    need: ['GH_TOKEN', 'GH_OWNER|OWNER', 'GH_REPO|REPO'],
+  });
+}
 
   // 解析 body；支持两种输入：
   // A) 单文件：{ filePath, content, message }
