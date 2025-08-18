@@ -13,21 +13,26 @@ const json = (res: NextApiResponse, status: number, body: any) =>
   res.status(status).json(body);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // 只允许 POST
-  if (req.method !== 'POST') {
-    return json(res, 405, { ok: false, error: 'Method Not Allowed' });
-  }
+  // 统一请求方法，避免 TS 因控制流收窄报错
+  const method = (req.method || '').toUpperCase();
 
-  // CORS（可选）
+  // CORS（预检 + 允许头）
   try {
     const allowOrigin = process.env.ALLOW_ORIGIN || '*';
     res.setHeader('Access-Control-Allow-Origin', allowOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-secret');
-    if (req.method === 'OPTIONS') {
+    if (method === 'OPTIONS') {
       return res.status(204).end();
     }
-  } catch { /* 忽略 */ }
+  } catch {
+    /* ignore */
+  }
+
+  // 只允许 POST
+  if (method !== 'POST') {
+    return json(res, 405, { ok: false, error: 'Method Not Allowed' });
+  }
 
   // 校验 API_SECRET
   const apiSecret = process.env.API_SECRET;
@@ -85,7 +90,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     'Content-Type': 'application/json',
   };
 
-  // 1) 先尝试获取当前文件获取 sha（决定是更新还是创建）
+  // 1) 先尝试获取当前文件 sha（决定是更新还是创建）
   let sha: string | undefined;
   try {
     const getUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(
@@ -97,7 +102,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const data = await r.json();
       sha = data?.sha;
     } else if (r.status !== 404) {
-      // 404 表示文件不存在可忽略；其他状态报错
       const text = await r.text();
       return json(res, 502, {
         ok: false,
