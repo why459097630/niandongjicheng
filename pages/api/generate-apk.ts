@@ -16,7 +16,7 @@ type Template = {
 }
 
 /* ============= Utils ============= */
-// 转义用于 strings.xml 的文本，避免 aapt2 把特殊字符当占位符/属性
+// 供 strings.xml 使用的安全转义
 function xmlText(s: string) {
   return (s || '')
     .replace(/&/g, '&amp;')
@@ -38,30 +38,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   // Auth
   const secret = (process.env.API_SECRET || '').trim()
   const incoming = String(req.headers['x-api-secret'] || (req.body as any)?.apiSecret || '').trim()
-  if (!secret || incoming !== secret) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized: bad x-api-secret' })
-  }
+  if (!secret || incoming !== secret) return res.status(401).json({ ok: false, error: 'Unauthorized: bad x-api-secret' })
 
   // ENV
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
   const GITHUB_OWNER = process.env.GITHUB_OWNER || process.env.OWNER
   const GITHUB_REPO = process.env.GITHUB_REPO || process.env.REPO
   if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-    return res
-      .status(500)
-      .json({ ok: false, error: 'Missing env: GITHUB_TOKEN / GITHUB_OWNER / GITHUB_REPO' })
+    return res.status(500).json({ ok: false, error: 'Missing env: GITHUB_TOKEN / GITHUB_OWNER / GITHUB_REPO' })
   }
 
   // Input
   const { prompt = '', template } = (req.body || {}) as { prompt?: string; template?: string }
-  const slug =
-    (prompt || 'myapp').toLowerCase().replace(/[^a-z0-9]+/g, '').replace(/^\d+/, '') || 'myapp'
+  const slug = (prompt || 'myapp').toLowerCase().replace(/[^a-z0-9]+/g, '').replace(/^\d+/, '') || 'myapp'
   const appId = `com.example.${slug}`
   const appName = (prompt || 'MyApp').slice(0, 30)
   const pkgPath = appId.replace(/\./g, '/')
   const marker = prompt ? `__PROMPT__${prompt}__` : '__PROMPT__EMPTY__'
 
-  // Template choose (allow override)
+  // Template choose
   const ALLOWED = ['timer', 'todo', 'webview'] as const
   type Allowed = (typeof ALLOWED)[number]
 
@@ -128,10 +123,7 @@ dependencies {
 `.trim()
 
   // GitHub helpers
-  const base = `https://api.github.com/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(
-    GITHUB_REPO,
-  )}`
-
+  const base = `https://api.github.com/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(GITHUB_REPO)}`
   const ghFetch = (url: string, init?: RequestInit) =>
     fetch(url, {
       ...init,
@@ -143,14 +135,12 @@ dependencies {
       } as any,
     })
 
-  // GET single content
   async function ghGet(path: string, ref = 'main'): Promise<any | null> {
     const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}?ref=${ref}`)
     if (r.status === 200) return r.json()
     return null
   }
 
-  // LIST a directory
   async function ghList(path: string, ref = 'main'): Promise<any[] | null> {
     const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}?ref=${ref}`)
     if (r.status === 200) {
@@ -160,73 +150,53 @@ dependencies {
     return null
   }
 
-  // DELETE a file (needs sha)
-  async function ghDelete(path: string, sha: string, branch = 'main', message = 'chore: clean old') {
+  async function ghDelete(path: string, sha: string, branch = 'main', message = 'chore: clean [skip ci]') {
     const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}`, {
       method: 'DELETE',
       body: JSON.stringify({ message, sha, branch }),
     })
-    if (r.status < 200 || r.status >= 300) {
-      const t = await r.text()
-      throw new Error(`Delete ${path} failed: ${r.status} ${t}`)
-    }
+    if (r.status < 200 || r.status >= 300) throw new Error(`Delete ${path} failed: ${r.status} ${await r.text()}`)
   }
 
-  // UPSERT (create or update)
-  async function upsert(
-    path: string,
-    content: string,
-    branch = 'main',
-    message = 'feat: generate from prompt',
-  ): Promise<GhFile> {
-    // get sha if exists
+  async function upsert(path: string, content: string, branch = 'main', message = 'feat: generate from prompt'): Promise<GhFile> {
     let sha: string | undefined
     const got = await ghGet(path, branch)
     if (got?.sha) sha = got.sha
-
-    const body = {
-      message,
-      branch,
-      content: Buffer.from(content, 'utf8').toString('base64'),
-      ...(sha ? { sha } : {}),
-    }
-    const put = await ghFetch(`${base}/contents/${encodeURIComponent(path)}`, {
+    const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}`, {
       method: 'PUT',
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        message,
+        branch,
+        content: Buffer.from(content, 'utf8').toString('base64'),
+        ...(sha ? { sha } : {}),
+      }),
     })
-    if (put.status < 200 || put.status >= 300) {
-      const err = await put.text()
-      throw new Error(`Write ${path} failed: ${put.status} ${err}`)
-    }
-    const data = (await put.json()) as any
-    return { path, sha: data?.content?.sha as string | undefined }
+    if (r.status < 200 || r.status >= 300) throw new Error(`Write ${path} failed: ${r.status} ${await r.text()}`)
+    const data = (await r.json()) as any
+    return { path, sha: data?.content?.sha }
   }
 
-  // 清理旧的 MainActivity.java（上一次生成不同包名时留下的）
+  // 删除旧包名下的 MainActivity.java；加 [skip ci]，避免触发工作流
   async function cleanOldJava(targetPkgPath: string, branch = 'main') {
-    // 我们的包名结构固定为 com/example/<leaf>
     const root = 'app/src/main/java/com/example'
     const dirs = await ghList(root, branch)
     if (!dirs) return
-
     const desired = `${targetPkgPath}/MainActivity.java`.replace(/^app\/src\/main\/java\//, '')
-    // 逐个 leaf 目录尝试删除 MainActivity.java（只删不等于这次包路径的）
+
     for (const d of dirs) {
       if (d.type !== 'dir') continue
-      const leaf = d.name // e.g. myapp / meditationtimer / app
-      const filePath = `${root}/${leaf}/MainActivity.java`
+      const filePath = `${root}/${d.name}/MainActivity.java`
       const got = await ghGet(filePath, branch)
       if (got?.sha) {
         const rel = filePath.replace(/^app\/src\/main\/java\//, '')
         if (rel !== desired) {
-          await ghDelete(filePath, got.sha, branch, 'chore: remove old MainActivity.java')
+          await ghDelete(filePath, got.sha, branch, 'chore: remove old MainActivity.java [skip ci]')
         }
       }
     }
   }
 
   try {
-    // 先清理旧的 MainActivity.java
     await cleanOldJava(`app/src/main/java/${pkgPath}`)
 
     const files: GhFile[] = []
@@ -238,9 +208,7 @@ dependencies {
     files.push(await upsert('app/src/main/assets/build_marker.txt', marker))
     return res.status(200).json({ ok: true, appId, template: tpl.type, files })
   } catch (e: any) {
-    return res
-      .status(500)
-      .json({ ok: false, error: 'Generate failed', detail: String(e?.message || e) })
+    return res.status(500).json({ ok: false, error: 'Generate failed', detail: String(e?.message || e) })
   }
 }
 
@@ -265,7 +233,7 @@ function chooseTemplate(prompt: string, ctx: { appId: string; appName: string })
   return makeHello(ctx.appId, ctx.appName)
 }
 
-// Manifest 仅引用 @string/app_name，避免把用户输入直接作为属性值
+// Manifest 仅用 @string/app_name，避免把用户输入直接写到 label
 function makeManifest(needInternet: boolean) {
   return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
