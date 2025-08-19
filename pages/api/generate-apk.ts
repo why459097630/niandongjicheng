@@ -54,7 +54,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const appId = `com.example.${slug}`
   const appName = (prompt || 'MyApp').slice(0, 30)
   const pkgPath = appId.replace(/\./g, '/')
-  const marker = prompt ? `__PROMPT__${prompt}__` : '__PROMPT__EMPTY__'
+
+  // 唯一时间戳，保证每次都会有内容变化 → 触发 CI
+  const ts = new Date().toISOString()
+  const marker = `__PROMPT__${prompt || 'EMPTY'}__ @ ${ts}`
 
   // Template choose
   const ALLOWED = ['timer', 'todo', 'webview'] as const
@@ -206,6 +209,9 @@ dependencies {
     files.push(await upsert('app/src/main/res/layout/activity_main.xml', tpl.layoutXml))
     files.push(await upsert('app/src/main/res/values/strings.xml', tpl.stringsXml))
     files.push(await upsert('app/src/main/assets/build_marker.txt', marker))
+    // 额外“唤醒 CI”的文件，确保每次都有新提交
+    files.push(await upsert('app/ci_nudge.txt', `${ts}\n${appId}\n`, 'main', 'chore: ci nudge'))
+
     return res.status(200).json({ ok: true, appId, template: tpl.type, files })
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: 'Generate failed', detail: String(e?.message || e) })
