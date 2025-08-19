@@ -1,289 +1,291 @@
 // pages/api/generate-apk.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from "next";
 
-type GhFile = { path: string; sha?: string };
-type Ok = { ok: true; appId: string; template: string; files: GhFile[] };
-type Fail = { ok: false; error: string; detail?: any };
-type Result = Ok | Fail;
+/**
+ * 你已经有 /pages/api/push-to-github.ts（写入/更新文件并触发 CI）。
+ * 这里直接调用它，把 files 统一提交到 Packaging-warehouse 仓库。
+ *
+ * ⚠️ 需要的环境变量（在 Vercel 上配置）：
+ *   - API_SECRET（和 /api/push-to-github.ts 校验一致）
+ *   - OWNER（目标仓库 owner，比如 why459097630）
+ *   - REPO  （目标仓库名，比如 Packaging-warehouse）
+ *   - REF   （目标分支，比如 main）
+ */
+const OWNER = process.env.OWNER || "why459097630";
+const REPO  = process.env.REPO  || "Packaging-warehouse";
+const REF   = process.env.REF   || "main";
 
-// ———————————————————————————————————————————————————————————
-// 小工具
-// ———————————————————————————————————————————————————————————
-function xmlText(s: string) {
-  return (s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/%/g, '%%');
-}
+type TemplateKind = "core-template" | "form-template" | "simple-template";
 
-const ALLOWED_TEMPLATES = ['core-template', 'form-template', 'simple-template'] as const;
-
-// 二进制文件（必须原样 base64 透传）
-const BINARY_EXT =
-  /\.(jar|png|jpg|jpeg|webp|gif|ico|keystore|jks|aab|apk|aar|so|ttf|otf|mp3|wav|ogg|mp4|webm|pdf|zip|gz|bz2|7z|rar|bin|dex|arsc)$/i;
-
-// ———————————————————————————————————————————————————————————
-// 入口
-// ———————————————————————————————————————————————————————————
-export default async function handler(req: NextApiRequest, res: NextApiResponse<Result>) {
-  // CORS
-  const allow = process.env.ALLOW_ORIGIN || '*';
-  res.setHeader('Access-Control-Allow-Origin', allow);
-  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,x-api-secret');
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
-
-  // Auth
-  const secret = (process.env.API_SECRET || '').trim();
-  const incoming = String(req.headers['x-api-secret'] || (req.body as any)?.apiSecret || '').trim();
-  if (!secret || incoming !== secret) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized: bad x-api-secret' });
-  }
-
-  // ENV
-  const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  const GITHUB_OWNER = process.env.GITHUB_OWNER || process.env.OWNER;
-  const GITHUB_REPO = process.env.GITHUB_REPO || process.env.REPO;
-  const BRANCH = process.env.REF || 'main';
-  if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-    return res.status(500).json({ ok: false, error: 'Missing env: GITHUB_TOKEN / GITHUB_OWNER / GITHUB_REPO' });
-  }
-
-  // Body
-  const { prompt = '', template } = (req.body || {}) as { prompt?: string; template?: string };
-  if (!template || !(ALLOWED_TEMPLATES as readonly string[]).includes(template)) {
-    return res.status(400).json({ ok: false, error: `Bad template: ${template}` });
-  }
-
-  // appId / pkgPath
-  const slug = (prompt || 'myapp').toLowerCase().replace(/[^a-z0-9]+/g, '').replace(/^\d+/, '') || 'myapp';
-  const appId = `com.example.${slug}`;
-  const pkgPath = appId.replace(/\./g, '/');
-  const appName = (prompt || 'MyApp').slice(0, 30);
-  const ts = new Date().toISOString();
-  const marker = `__PROMPT__${prompt || 'EMPTY'}__ @ ${ts}`;
-
-  // GitHub helpers
-  const base = `https://api.github.com/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(GITHUB_REPO)}`;
-
-  const ghFetch = (url: string, init?: RequestInit) =>
-    fetch(url, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'tpl-copier',
-        ...(init?.headers || {}),
-      } as any,
-    });
-
-  async function ghGet(path: string, ref = BRANCH): Promise<any | null> {
-    const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}?ref=${ref}`);
-    if (r.status === 200) return r.json();
-    return null;
-  }
-
-  async function ghList(path: string, ref = BRANCH): Promise<any[] | null> {
-    const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}?ref=${ref}`);
-    if (r.status === 200) {
-      const j = await r.json();
-      return Array.isArray(j) ? j : null;
-    }
-    return null;
-  }
-
-  // 低层 upsert：content 必须是 base64
-  async function upsertRawBase64(path: string, base64: string, message: string): Promise<GhFile> {
-    let sha: string | undefined;
-    const got = await ghGet(path);
-    if (got?.sha) sha = got.sha;
-
-    const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        message,
-        branch: BRANCH,
-        content: base64,
-        ...(sha ? { sha } : {}),
-      }),
-    });
-    if (r.status < 200 || r.status >= 300) {
-      throw new Error(`Write ${path} failed: ${r.status} ${await r.text()}`);
-    }
-    const data = (await r.json()) as any;
-    return { path, sha: data?.content?.sha };
-  }
-
-  // 文本（可替换），默认 [skip ci]
-  async function upsertText(path: string, text: string, message: string, skipCi = true): Promise<GhFile> {
-    const msg = skipCi ? `${message} [skip ci]` : message;
-    const b64 = Buffer.from(text, 'utf8').toString('base64');
-    return upsertRawBase64(path, b64, msg);
-  }
-
-  // 二进制（base64 原样透传），默认 [skip ci]
-  async function upsertBinary(path: string, base64: string, message: string, skipCi = true): Promise<GhFile> {
-    const msg = skipCi ? `${message} [skip ci]` : message;
-    return upsertRawBase64(path, base64, msg);
-  }
-
-  // 删除（带 [skip ci]）
-  async function ghDelete(path: string, sha: string, message = 'chore: remove old MainActivity.java', skipCi = true) {
-    const msg = skipCi ? `${message} [skip ci]` : message;
-    const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}`, {
-      method: 'DELETE',
-      body: JSON.stringify({ message: msg, sha, branch: BRANCH }),
-    });
-    if (r.status < 200 || r.status >= 300) {
-      throw new Error(`Delete ${path} failed: ${r.status} ${await r.text()}`);
-    }
-  }
-
-  // 删除旧包名目录中的 MainActivity，避免冲突
-  async function cleanOldJava(targetPkgPath: string) {
-    const root = 'app/src/main/java/com/example';
-    const list = await ghList(root);
-    if (!list) return;
-
-    const desired = `${targetPkgPath}/MainActivity.java`.replace(/^app\/src\/main\/java\//, '');
-    for (const d of list) {
-      if (d.type !== 'dir') continue;
-      const filePath = `${root}/${d.name}/MainActivity.java`;
-      const got = await ghGet(filePath);
-      if (got?.sha) {
-        const rel = filePath.replace(/^app\/src\/main\/java\//, '');
-        if (rel !== desired) {
-          await ghDelete(filePath, got.sha);
-        }
-      }
-    }
-  }
-
-  // 遍历模板目录
-  async function walk(dirPath: string, acc: any[] = []) {
-    const list = await ghList(dirPath);
-    if (!list) return acc;
-    for (const it of list) {
-      if (it.type === 'dir') await walk(it.path, acc);
-      else if (it.type === 'file') acc.push(it);
-    }
-    return acc;
-  }
-
-  // 将模板路径改写为目标路径（修正 Java 包路径）
-  function rewriteTargetPath(srcTplPath: string): string {
-    const rel = srcTplPath.replace(/^templates\/[^/]+\//, '');
-    const m = rel.match(/^app\/src\/main\/java\/(.+?)\/([^/]+)\.(java|kt)$/);
-    if (m) {
-      const fileName = `${m[2]}.${m[3]}`;
-      return `app/src/main/java/${pkgPath}/${fileName}`;
-    }
-    return rel;
-  }
-
-  // 文本内容替换（包名、app 名称、strings、namespace/applicationId、去掉 Manifest package）
-  function transformContent(raw: string, srcPath: string) {
-    let s = raw;
-
-    const replacements: Record<string, string> = {
-      '{{APP_ID}}': appId,
-      '__APP_ID__': appId,
-      '$APP_ID$': appId,
-      '@@APP_ID@@': appId,
-
-      '{{APP_NAME}}': appName,
-      '__APP_NAME__': appName,
-      '$APP_NAME$': appName,
-      '@@APP_NAME@@': appName,
-
-      '{{PROMPT}}': prompt,
-      '__PROMPT__': prompt,
-      '$PROMPT$': prompt,
-      '@@PROMPT@@': prompt,
-    };
-    for (const [k, v] of Object.entries(replacements)) s = s.split(k).join(v);
-
-    // 1) build.gradle：namespace + applicationId
-    if (srcPath.endsWith('build.gradle')) {
-      // namespace
-      if (/namespace\s+"[^"]+"/.test(s)) {
-        s = s.replace(/namespace\s+"[^"]+"/, `namespace "${appId}"`);
-      } else {
-        s = s.replace(/android\s*{/, (m) => `${m}\n    namespace "${appId}"`);
-      }
-      // applicationId
-      if (/applicationId\s+"[^"]+"/.test(s)) {
-        s = s.replace(/applicationId\s+"[^"]+"/, `applicationId "${appId}"`);
-      } else {
-        s = s.replace(/defaultConfig\s*{/, (m) => `${m}\n        applicationId "${appId}"`);
-      }
-    }
-
-    // 2) Manifest：删除 package="…"（AGP 8 不允许）
-    if (srcPath.endsWith('AndroidManifest.xml')) {
-      s = s.replace(/<manifest\b([^>]*?)\s+package="[^"]+"([^>]*)>/, (_m, a, b) => `<manifest${a}${b}>`);
-    }
-
-    // 3) 源码：包声明 + 旧包名替换
-    if (/\.(java|kt)$/.test(srcPath)) {
-      s = s.replace(/^package\s+[\w.]+;/m, `package ${appId};`);
-      s = s.replace(/com\.example\.[\w.]+/g, appId);
-    }
-
-    // 4) strings.xml：app_name
-    if (srcPath.endsWith('strings.xml')) {
-      s = s.replace(/(<string name="app_name">)(.*?)(<\/string>)/, `$1${xmlText(appName)}$3`);
-    }
-
-    return s;
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== "POST") {
+    res.status(405).json({ ok: false, error: "Method Not Allowed" });
+    return;
   }
 
   try {
-    // 1) 清理旧包名 MainActivity
-    await cleanOldJava(`app/src/main/java/${pkgPath}`);
+    const { prompt = "", template, appId: rawAppId } = (req.body || {}) as {
+      prompt?: string;
+      template: TemplateKind;
+      appId?: string;
+    };
 
-    // 2) 遍历模板
-    const tplRoot = `templates/${template}`;
-    const items = await walk(tplRoot);
-
-    const written: GhFile[] = [];
-
-    // 3) 写入每个文件（全部 [skip ci]）
-    for (const it of items) {
-      const meta = await ghGet(it.path);
-      if (!meta?.content) continue;
-
-      const targetPath = rewriteTargetPath(it.path);
-      const msg = `feat: generate from template ${template}`;
-
-      if (BINARY_EXT.test(it.path)) {
-        // 二进制：原样 base64 透传
-        written.push(await upsertBinary(targetPath, meta.content as string, msg, true));
-      } else {
-        // 文本：做占位符/包名替换
-        const raw = Buffer.from(meta.content as string, 'base64').toString('utf8');
-        const replaced = transformContent(raw, it.path);
-        written.push(await upsertText(targetPath, replaced, msg, true));
-      }
+    if (!template || !["core-template", "form-template", "simple-template"].includes(template)) {
+      res.status(400).json({ ok: false, error: "template 必须是 core-template | form-template | simple-template 其一" });
+      return;
     }
 
-    // 4) 附加 marker（[skip ci]）
-    written.push(await upsertText('app/src/main/assets/build_marker.txt', marker, 'chore: marker', true));
+    // 统一 appId（默认 com.example.app），并校验合法性
+    const appId = (rawAppId || "com.example.app").trim();
+    if (!/^[a-zA-Z_][\w.]*$/.test(appId) || appId.split(".").length < 2) {
+      res.status(400).json({ ok: false, error: "appId 非法（示例：com.example.app）" });
+      return;
+    }
+    const appIdPath = `app/src/main/java/${appId.replace(/\./g, "/")}`;
 
-    // 5) 仅最后一次不带 [skip ci]：触发 CI
-    written.push(
-      await upsertText(
-        'app/ci_nudge.txt',
-        `${ts}\n${appId}\n${template}\n`,
-        `build: generate from template ${template}`,
-        /* skipCi */ false
-      )
-    );
+    // 统一的 build.gradle（关键：namespace 与 appId 一致）
+    const buildGradle = `plugins {
+  id 'com.android.application'
+}
 
-    return res.status(200).json({ ok: true, appId, template, files: written });
-  } catch (e: any) {
-    return res.status(500).json({ ok: false, error: 'Generate failed', detail: String(e?.message || e) });
+android {
+  namespace "${appId}"
+  compileSdk 34
+
+  defaultConfig {
+    applicationId "${appId}"
+    minSdk 24
+    targetSdk 34
+    versionCode 1
+    versionName "1.0"
   }
+
+  buildTypes {
+    release {
+      minifyEnabled false
+      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  implementation 'androidx.appcompat:appcompat:1.6.1'
+  implementation 'com.google.android.material:material:1.11.0'
+}
+`;
+
+    // Manifest（关键：不写 package，避免 AAPT/R 生成错位）
+    const androidManifest = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <application
+      android:allowBackup="true"
+      android:label="@string/app_name"
+      android:supportsRtl="true"
+      android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+    <activity android:name=".MainActivity">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+
+  </application>
+</manifest>
+`;
+
+    // 不同模板：MainActivity / layout / strings
+    const mainActivity = makeMainActivity(appId, template);
+    const { layoutXml, stringsXml } = makeResources(template, prompt);
+
+    // 额外写一个 build_marker.txt 记录本次 prompt
+    const marker = `__FROM_API__ ${prompt || "no prompt"}  \nTEMPLATE=${template}  \nAPP_ID=${appId}\n`;
+
+    // 组装要提交/更新的文件清单
+    const files = [
+      { path: "app/build.gradle",                            content: buildGradle },
+      { path: "app/src/main/AndroidManifest.xml",            content: androidManifest },
+      { path: `${appIdPath}/MainActivity.java`,              content: mainActivity },
+      { path: "app/src/main/res/layout/activity_main.xml",   content: layoutXml },
+      { path: "app/src/main/res/values/strings.xml",         content: stringsXml },
+      { path: "app/src/main/assets/build_marker.txt",        content: marker },
+    ];
+
+    // 提交到仓库（调用你现有的 /api/push-to-github）
+    const secret = process.env.API_SECRET || "";
+    const r = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/push-to-github`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-secret": secret,
+      },
+      body: JSON.stringify({
+        owner: OWNER,
+        repo: REPO,
+        ref: REF,
+        message: `feat: generate from template ${template}`,
+        files,
+      }),
+    });
+
+    const resp = await r.json();
+    if (!r.ok || !resp?.ok) {
+      res.status(500).json({ ok: false, stage: "push", error: resp?.error || "push-to-github 失败" });
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      appId,
+      template,
+      committed: true,
+      files: files.map(f => f.path),
+    });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
+  }
+}
+
+/** 生成 MainActivity.java（显式 import <appId>.R，避免 R 解析不到） */
+function makeMainActivity(appId: string, template: TemplateKind): string {
+  const imports =
+`package ${appId};
+
+import android.os.Bundle;
+import androidx.appcompat.app.AppCompatActivity;
+import ${appId}.R;`;
+
+  if (template === "simple-template" || template === "core-template") {
+    return `${imports}
+
+public class MainActivity extends AppCompatActivity {
+  @Override
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    setContentView(R.layout.activity_main);
+  }
+}
+`;
+  }
+
+  // form-template：最简单的输入 + 按钮 + 列表
+  return `${imports}
+
+import android.view.View;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ListView;
+import java.util.ArrayList;
+
+public class MainActivity extends AppCompatActivity {
+  private final ArrayList<String> items = new ArrayList<>();
+  private ArrayAdapter<String> adapter;
+
+  @Override
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    setContentView(R.layout.activity_main);
+
+    EditText input = findViewById(R.id.input);
+    Button   add   = findViewById(R.id.btnAdd);
+    ListView list  = findViewById(R.id.list);
+
+    adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, items);
+    list.setAdapter(adapter);
+
+    add.setOnClickListener(new View.OnClickListener() {
+      @Override public void onClick(View v) {
+        String s = input.getText().toString().trim();
+        if (!s.isEmpty()) {
+          items.add(s);
+          adapter.notifyDataSetChanged();
+          input.setText("");
+        }
+      }
+    });
+  }
+}
+`;
+}
+
+/** 生成 layout 与 strings；确保资源完备，从而能生成 R */
+function makeResources(template: TemplateKind, prompt: string): { layoutXml: string; stringsXml: string } {
+  if (template === "form-template") {
+    return {
+      layoutXml: `<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:orientation="vertical"
+  android:padding="16dp">
+
+  <EditText
+    android:id="@+id/input"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:hint="@string/hint_input" />
+
+  <Button
+    android:id="@+id/btnAdd"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="@string/btn_add"
+    android:layout_marginTop="12dp" />
+
+  <ListView
+    android:id="@+id/list"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1"
+    android:layout_marginTop="12dp" />
+</LinearLayout>
+`,
+      stringsXml: `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Demo App</string>
+  <string name="hello_text">${escapeXml(prompt || "Hello from template!")}</string>
+  <string name="hint_input">输入一项</string>
+  <string name="btn_add">添加</string>
+</resources>
+`,
+    };
+  }
+
+  // simple-template / core-template：一个 TextView 即可
+  return {
+    layoutXml: `<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent">
+
+  <TextView
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="@string/hello_text"
+    android:layout_gravity="center"
+    android:textSize="20sp"/>
+</FrameLayout>
+`,
+    stringsXml: `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Demo App</string>
+  <string name="hello_text">${escapeXml(prompt || "Hello from template!")}</string>
+</resources>
+`,
+  };
+}
+
+function escapeXml(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
