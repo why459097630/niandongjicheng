@@ -1,5 +1,5 @@
 import Head from 'next/head'
-import GeneratePanel from '../components/GeneratePanel'
+import GeneratePanel from '../app/components/GeneratePanel' // ← 修正后的导入路径
 
 export default function Home() {
   return (
