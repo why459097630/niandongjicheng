@@ -48,8 +48,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(500).json({ ok: false, error: 'Missing env: GITHUB_TOKEN / GITHUB_OWNER / GITHUB_REPO' })
   }
 
-  // Input
+  // Input（前端强制要求用户选择模板）
   const { prompt = '', template } = (req.body || {}) as { prompt?: string; template?: string }
+  if (!template) return res.status(400).json({ ok: false, error: 'Bad request: template required' })
+
   const slug = (prompt || 'myapp').toLowerCase().replace(/[^a-z0-9]+/g, '').replace(/^\d+/, '') || 'myapp'
   const appId = `com.example.${slug}`
   const appName = (prompt || 'MyApp').slice(0, 30)
@@ -59,32 +61,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const ts = new Date().toISOString()
   const marker = `__PROMPT__${prompt || 'EMPTY'}__ @ ${ts}`
 
-  // Template choose
-  const ALLOWED = ['timer', 'todo', 'webview'] as const
+  // Template choose（只按用户选择，不做自动匹配）
+  const ALLOWED = ['timer', 'todo', 'webview', 'counter', 'note', 'hello'] as const
   type Allowed = (typeof ALLOWED)[number]
+  if (!(ALLOWED as readonly string[]).includes(template)) {
+    return res.status(400).json({ ok: false, error: `Unknown template: ${template}` })
+  }
 
   let tpl: Template
-  if (template && (ALLOWED as readonly string[]).includes(template)) {
-    switch (template as Allowed) {
-      case 'timer': {
-        const num = prompt.match(/\d+/)?.[0] || '60'
-        tpl = makeTimer(appId, parseInt(num, 10) || 60, appName)
-        break
-      }
-      case 'todo':
-        tpl = makeTodo(appId, appName)
-        break
-      case 'webview': {
-        const urlMatch = prompt.match(/https?:\/\/[^\s"'）)]+/i)
-        const url = urlMatch ? urlMatch[0] : 'https://example.com'
-        tpl = makeWebView(appId, url, appName)
-        break
-      }
-      default:
-        tpl = chooseTemplate(prompt, { appId, appName })
+  switch (template as Allowed) {
+    case 'timer': {
+      const num = prompt.match(/\d+/)?.[0] || '60'
+      tpl = makeTimer(appId, parseInt(num, 10) || 60, appName)
+      break
     }
-  } else {
-    tpl = chooseTemplate(prompt, { appId, appName })
+    case 'todo':
+      tpl = makeTodo(appId, appName)
+      break
+    case 'webview': {
+      const urlMatch = prompt.match(/https?:\/\/[^\s"'）)]+/i)
+      const url = urlMatch ? urlMatch[0] : 'https://example.com'
+      tpl = makeWebView(appId, url, appName)
+      break
+    }
+    case 'counter':
+      tpl = makeCounter(appId, appName)
+      break
+    case 'note':
+      tpl = makeNote(appId, appName)
+      break
+    case 'hello':
+    default:
+      tpl = makeHello(appId, appName)
   }
 
   const manifest = makeManifest(tpl.type === 'webview')
@@ -218,28 +226,7 @@ dependencies {
   }
 }
 
-/* ============= Template picking ============= */
-
-function chooseTemplate(prompt: string, ctx: { appId: string; appName: string }): Template {
-  const p = (prompt || '').toLowerCase()
-  const has = (...words: string[]) => words.some((w) => p.includes(w))
-
-  if (has('web', '浏览', '网页', '网址', 'webview')) {
-    const urlMatch = prompt.match(/https?:\/\/[^\s"'）)]+/i)
-    const url = urlMatch ? urlMatch[0] : 'https://example.com'
-    return makeWebView(ctx.appId, url, ctx.appName)
-  }
-  if (has('倒计时', '计时', '冥想', 'timer', 'countdown', '番茄', 'pomodoro')) {
-    const num = prompt.match(/\d+/)?.[0] || '60'
-    return makeTimer(ctx.appId, parseInt(num, 10) || 60, ctx.appName)
-  }
-  if (has('计数', '点击器', 'counter', 'tap')) return makeCounter(ctx.appId, ctx.appName)
-  if (has('待办', '清单', 'todo', '任务')) return makeTodo(ctx.appId, ctx.appName)
-  if (has('记事', '笔记', 'note', 'notepad', 'memo')) return makeNote(ctx.appId, ctx.appName)
-  return makeHello(ctx.appId, ctx.appName)
-}
-
-// Manifest 仅用 @string/app_name，避免把用户输入直接写到 label
+/* ============= Manifest ============= */
 function makeManifest(needInternet: boolean) {
   return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -260,7 +247,6 @@ function makeManifest(needInternet: boolean) {
 }
 
 /* ============= Templates ============= */
-
 function makeHello(appId: string, appName: string): Template {
   const mainActivity = `
 package ${appId};
