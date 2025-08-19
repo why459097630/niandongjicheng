@@ -1,119 +1,109 @@
 // pages/api/generate-apk.ts
-import type { NextApiRequest, NextApiResponse } from "next";
+import type { NextApiRequest, NextApiResponse } from 'next'
 
-type TemplateName = "core-template" | "form-template" | "simple-template";
-type PushFile = { path: string; content: string };
+type Resp = { ok: boolean; error?: string; data?: any }
 
-type OkResp = { ok: true; template: TemplateName; appId: string; files: { path: string }[] };
-type ErrResp = { ok: false; error: string; details?: any };
-
-const ALLOWED_TEMPLATES: TemplateName[] = ["core-template", "form-template", "simple-template"];
-
-// 仓库信息（在 Vercel 环境变量里配置）
-const OWNER = process.env.OWNER || process.env.GITHUB_OWNER || "";
-const REPO  = process.env.REPO  || process.env.GITHUB_REPO  || "";
-const REF   = process.env.REF   || "main";
-
-// 计算 API 根地址（兼容 Vercel / 本地）
-function getBaseUrl(req: NextApiRequest) {
-  const proto =
-    (req.headers["x-forwarded-proto"] as string) ||
-    (process.env.VERCEL ? "https" : "http");
-  const hostHeader =
-    (req.headers["x-forwarded-host"] as string) ||
-    (req.headers["host"] as string) ||
-    process.env.VERCEL_URL ||
-    "localhost:3000";
-  return hostHeader.startsWith("http") ? hostHeader : `${proto}://${hostHeader}`;
-}
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<OkResp | ErrResp>
-) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: "Method Not Allowed" });
+export default async function handler(req: NextApiRequest, res: NextApiResponse<Resp>) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'Method Not Allowed' })
   }
 
   try {
-    if (!OWNER || !REPO) {
-      return res
-        .status(500)
-        .json({ ok: false, error: "Missing OWNER/REPO env variables" });
-    }
+    const { prompt, template } = req.body ?? {}
 
-    const { prompt, template } = (req.body || {}) as {
-      prompt?: string;
-      template?: string;
-    };
-
-    if (!prompt || typeof prompt !== "string") {
-      return res
-        .status(400)
-        .json({ ok: false, error: "Missing or invalid 'prompt'" });
-    }
-
-    const t = (template || "").trim() as TemplateName;
-    if (!ALLOWED_TEMPLATES.includes(t)) {
-      return res.status(400).json({
-        ok: false,
-        error:
-          "Invalid 'template'. Must be one of: core-template | form-template | simple-template",
-      });
-    }
-
-    // 仅写入 marker，避免覆盖工程关键文件导致构建失败
-    const appId = "com.example.app";
-    const marker = [
-      "__FROM_API__",
-      `TEMPLATE: ${t}`,
-      `PROMPT: ${prompt}`,
-      `TIMESTAMP: ${new Date().toISOString()}`,
-      "",
-    ].join("\n");
-
-    const files: PushFile[] = [
-      { path: "app/src/main/assets/build_marker.txt", content: marker },
-    ];
-
-    const baseUrl = getBaseUrl(req);
-    const pushUrl = new URL("/api/push-to-github", baseUrl).toString();
-
-    // 同时把密钥放在 header 与 body，适配后端不同读取方式
-    const secret =
-      process.env.API_SECRET || process.env.NEXT_PUBLIC_API_SECRET || "";
-
-    const r = await fetch(pushUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-secret": secret, // Header 传
-      },
-      body: JSON.stringify({
-        owner: OWNER,
-        repo: REPO,
-        ref: REF,
-        message: `feat: generate from template ${t}`,
-        files,
-        apiSecret: secret, // Body 再传一份，防止后端只读 body
-      }),
-    });
-
-    if (!r.ok) {
-      const text = await r.text().catch(() => "");
+    // 1) 读取密钥（务必在 Vercel 环境变量里设置 API_SECRET 或 NEXT_PUBLIC_API_SECRET）
+    const apiSecret = process.env.API_SECRET || process.env.NEXT_PUBLIC_API_SECRET
+    if (!apiSecret) {
       return res.status(500).json({
         ok: false,
-        error: `push-to-github failed: ${r.status} ${r.statusText}`,
-        details: text,
-      });
+        error: 'Missing API_SECRET/NEXT_PUBLIC_API_SECRET on server',
+      })
     }
 
-    return res
-      .status(200)
-      .json({ ok: true, template: t, appId, files: files.map((f) => ({ path: f.path })) });
+    // 2) 计算 push-to-github 的绝对地址
+    const host =
+      process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : req.headers.host
+          ? `http://${req.headers.host}`
+          : 'http://localhost:3000'
+    const pushUrl = `${host}/api/push-to-github`
+
+    // 3) 根据模板组装要写入的文件（示例：最小集）
+    // 你可按需要把 core-template / form-template / simple-template 的文件内容放进 files 数组
+    const files: Array<{ path: string; content: string }> = [
+      {
+        path: 'app/build.gradle',
+        content: `
+plugins { id 'com.android.application' }
+android {
+  namespace "com.example.app"
+  compileSdk 34
+  defaultConfig {
+    applicationId "com.example.app"
+    minSdk 24
+    targetSdk 34
+    versionCode 1
+    versionName "1.0"
+  }
+  buildTypes {
+    release {
+      minifyEnabled false
+      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+    }
+  }
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+dependencies {
+  implementation 'androidx.appcompat:appcompat:1.6.1'
+  implementation 'com.google.android.material:material:1.11.0'
+  implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+}
+        `.trim(),
+      },
+      // 作为“打标文件”，用于验证是否打进 APK
+      {
+        path: 'app/src/main/assets/build_marker.txt',
+        content: `__FROM_UI__ template=${template ?? 'form-template'}; prompt=${prompt ?? ''}`,
+      },
+    ]
+
+    // 4) 组织 push body（owner/repo/ref 可从环境变量读取，也可从 req.body 传）
+    const owner = process.env.OWNER || 'why459097630'
+    const repo = process.env.REPO || 'Packaging-warehouse'
+    const ref = process.env.REF || 'main'
+    const message = `generate from prompt (${template || 'form-template'})`
+
+    // 5) 调 push-to-github，并且带上 x-api-secret
+    const resp = await fetch(pushUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-secret': apiSecret, // 关键！
+      },
+      body: JSON.stringify({
+        owner,
+        repo,
+        ref,
+        message,
+        files,      // 这里也可以换成 filePath/content/base64 的结构（单文件写入）
+        base64: false,
+      }),
+    })
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      return res
+        .status(resp.status)
+        .json({ ok: false, error: `push-to-github failed: ${resp.status} ${text}` })
+    }
+
+    const data = await resp.json().catch(() => ({}))
+    return res.status(200).json({ ok: true, data })
   } catch (e: any) {
-    return res
-      .status(500)
-      .json({ ok: false, error: e?.message || "Internal Server Error" });
+    return res.status(500).json({ ok: false, error: e?.message || String(e) })
   }
 }
