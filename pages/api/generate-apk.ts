@@ -143,6 +143,36 @@ dependencies {
       } as any,
     })
 
+  // GET single content
+  async function ghGet(path: string, ref = 'main'): Promise<any | null> {
+    const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}?ref=${ref}`)
+    if (r.status === 200) return r.json()
+    return null
+  }
+
+  // LIST a directory
+  async function ghList(path: string, ref = 'main'): Promise<any[] | null> {
+    const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}?ref=${ref}`)
+    if (r.status === 200) {
+      const j = await r.json()
+      return Array.isArray(j) ? j : null
+    }
+    return null
+  }
+
+  // DELETE a file (needs sha)
+  async function ghDelete(path: string, sha: string, branch = 'main', message = 'chore: clean old') {
+    const r = await ghFetch(`${base}/contents/${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ message, sha, branch }),
+    })
+    if (r.status < 200 || r.status >= 300) {
+      const t = await r.text()
+      throw new Error(`Delete ${path} failed: ${r.status} ${t}`)
+    }
+  }
+
+  // UPSERT (create or update)
   async function upsert(
     path: string,
     content: string,
@@ -151,11 +181,9 @@ dependencies {
   ): Promise<GhFile> {
     // get sha if exists
     let sha: string | undefined
-    const get = await ghFetch(`${base}/contents/${encodeURIComponent(path)}?ref=${branch}`)
-    if (get.status === 200) {
-      const j = (await get.json()) as any
-      sha = j?.sha
-    }
+    const got = await ghGet(path, branch)
+    if (got?.sha) sha = got.sha
+
     const body = {
       message,
       branch,
@@ -174,7 +202,33 @@ dependencies {
     return { path, sha: data?.content?.sha as string | undefined }
   }
 
+  // 清理旧的 MainActivity.java（上一次生成不同包名时留下的）
+  async function cleanOldJava(targetPkgPath: string, branch = 'main') {
+    // 我们的包名结构固定为 com/example/<leaf>
+    const root = 'app/src/main/java/com/example'
+    const dirs = await ghList(root, branch)
+    if (!dirs) return
+
+    const desired = `${targetPkgPath}/MainActivity.java`.replace(/^app\/src\/main\/java\//, '')
+    // 逐个 leaf 目录尝试删除 MainActivity.java（只删不等于这次包路径的）
+    for (const d of dirs) {
+      if (d.type !== 'dir') continue
+      const leaf = d.name // e.g. myapp / meditationtimer / app
+      const filePath = `${root}/${leaf}/MainActivity.java`
+      const got = await ghGet(filePath, branch)
+      if (got?.sha) {
+        const rel = filePath.replace(/^app\/src\/main\/java\//, '')
+        if (rel !== desired) {
+          await ghDelete(filePath, got.sha, branch, 'chore: remove old MainActivity.java')
+        }
+      }
+    }
+  }
+
   try {
+    // 先清理旧的 MainActivity.java
+    await cleanOldJava(`app/src/main/java/${pkgPath}`)
+
     const files: GhFile[] = []
     files.push(await upsert('app/build.gradle', buildGradle))
     files.push(await upsert('app/src/main/AndroidManifest.xml', manifest))
