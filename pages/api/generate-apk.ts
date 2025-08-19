@@ -15,6 +15,16 @@ type Template = {
   stringsXml: string
 }
 
+/* ============= Utils ============= */
+// 转义用于 strings.xml 的文本，避免 aapt2 把特殊字符当占位符/属性
+function xmlText(s: string) {
+  return (s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/%/g, '%%') // Android 字符串里的 % 是占位符
+}
+
 /* ============= Handler ============= */
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Result>) {
   // CORS
@@ -59,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (template && (ALLOWED as readonly string[]).includes(template)) {
     switch (template as Allowed) {
       case 'timer': {
-        const num = (prompt.match(/\d+/)?.[0]) || '60'
+        const num = prompt.match(/\d+/)?.[0] || '60'
         tpl = makeTimer(appId, parseInt(num, 10) || 60, appName)
         break
       }
@@ -79,7 +89,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     tpl = chooseTemplate(prompt, { appId, appName })
   }
 
-  const manifest = makeManifest(tpl.type === 'webview', appName)
+  const manifest = makeManifest(tpl.type === 'webview')
 
   // app/build.gradle
   const buildGradle = `
@@ -201,13 +211,14 @@ function chooseTemplate(prompt: string, ctx: { appId: string; appName: string })
   return makeHello(ctx.appId, ctx.appName)
 }
 
-function makeManifest(needInternet: boolean, appName: string) {
+// Manifest 仅引用 @string/app_name，避免把用户输入直接作为属性值
+function makeManifest(needInternet: boolean) {
   return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   ${needInternet ? '<uses-permission android:name="android.permission.INTERNET"/>' : ''}
   <application
       android:allowBackup="true"
-      android:label="${appName}"
+      android:label="@string/app_name"
       android:supportsRtl="true"
       android:theme="@style/Theme.AppCompat.Light.NoActionBar">
       <activity android:name=".MainActivity" android:exported="true">
@@ -269,8 +280,8 @@ public class MainActivity extends AppCompatActivity {
 
   const stringsXml = `
 <resources>
-  <string name="app_name">${appName}</string>
-  <string name="hello_text">Hello from ${appName}!</string>
+  <string name="app_name">${xmlText(appName)}</string>
+  <string name="hello_text">Hello from ${xmlText(appName)}!</string>
 </resources>
 `.trim()
 
@@ -333,7 +344,7 @@ public class MainActivity extends AppCompatActivity {
 
   const stringsXml = `
 <resources>
-  <string name="app_name">${appName}</string>
+  <string name="app_name">${xmlText(appName)}</string>
 </resources>
 `.trim()
 
@@ -405,7 +416,7 @@ public class MainActivity extends AppCompatActivity {
 
   const stringsXml = `
 <resources>
-  <string name="app_name">${appName}</string>
+  <string name="app_name">${xmlText(appName)}</string>
 </resources>
 `.trim()
 
@@ -479,7 +490,7 @@ public class MainActivity extends AppCompatActivity {
 
   const stringsXml = `
 <resources>
-  <string name="app_name">${appName}</string>
+  <string name="app_name">${xmlText(appName)}</string>
 </resources>
 `.trim()
 
@@ -530,7 +541,7 @@ public class MainActivity extends AppCompatActivity {
 
   const stringsXml = `
 <resources>
-  <string name="app_name">${appName}</string>
+  <string name="app_name">${xmlText(appName)}</string>
 </resources>
 `.trim()
 
@@ -572,7 +583,7 @@ public class MainActivity extends AppCompatActivity {
 
   const stringsXml = `
 <resources>
-  <string name="app_name">${appName}</string>
+  <string name="app_name">${xmlText(appName)}</string>
 </resources>
 `.trim()
 
