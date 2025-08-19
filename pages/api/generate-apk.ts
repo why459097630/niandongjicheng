@@ -9,7 +9,6 @@ type Result = Ok | Fail;
 // ———————————————————————————————————————————————————————————
 // 小工具
 // ———————————————————————————————————————————————————————————
-
 function xmlText(s: string) {
   return (s || '')
     .replace(/&/g, '&amp;')
@@ -21,12 +20,12 @@ function xmlText(s: string) {
 const ALLOWED_TEMPLATES = ['core-template', 'form-template', 'simple-template'] as const;
 
 // 二进制文件（必须原样 base64 透传）
-const BINARY_EXT = /\.(jar|png|jpg|jpeg|webp|gif|ico|keystore|jks|aab|apk|aar|so|ttf|otf|mp3|wav|ogg|mp4|webm|pdf|zip|gz|bz2|7z|rar|bin|dex|arsc)$/i;
+const BINARY_EXT =
+  /\.(jar|png|jpg|jpeg|webp|gif|ico|keystore|jks|aab|apk|aar|so|ttf|otf|mp3|wav|ogg|mp4|webm|pdf|zip|gz|bz2|7z|rar|bin|dex|arsc)$/i;
 
 // ———————————————————————————————————————————————————————————
 // 入口
 // ———————————————————————————————————————————————————————————
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Result>) {
   // CORS
   const allow = process.env.ALLOW_ORIGIN || '*';
@@ -142,7 +141,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
   }
 
-  // 删除历史 MainActivity，避免重复
+  // 删除旧包名目录中的 MainActivity，避免冲突
   async function cleanOldJava(targetPkgPath: string) {
     const root = 'app/src/main/java/com/example';
     const list = await ghList(root);
@@ -184,7 +183,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return rel;
   }
 
-  // 文本内容替换（包名、app 名称、strings、namespace 等）
+  // 文本内容替换（包名、app 名称、strings、namespace/applicationId、去掉 Manifest package）
   function transformContent(raw: string, srcPath: string) {
     let s = raw;
 
@@ -206,24 +205,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     };
     for (const [k, v] of Object.entries(replacements)) s = s.split(k).join(v);
 
+    // 1) build.gradle：namespace + applicationId
     if (srcPath.endsWith('build.gradle')) {
-      s = s.replace(/namespace\s+"[^"]+"/, `namespace "${appId}"`);
+      // namespace
+      if (/namespace\s+"[^"]+"/.test(s)) {
+        s = s.replace(/namespace\s+"[^"]+"/, `namespace "${appId}"`);
+      } else {
+        s = s.replace(/android\s*{/, (m) => `${m}\n    namespace "${appId}"`);
+      }
+      // applicationId
+      if (/applicationId\s+"[^"]+"/.test(s)) {
+        s = s.replace(/applicationId\s+"[^"]+"/, `applicationId "${appId}"`);
+      } else {
+        s = s.replace(/defaultConfig\s*{/, (m) => `${m}\n        applicationId "${appId}"`);
+      }
     }
+
+    // 2) Manifest：删除 package="…"（AGP 8 不允许）
     if (srcPath.endsWith('AndroidManifest.xml')) {
-      s = s.replace(/package="[^"]+"/, `package="${appId}"`);
+      s = s.replace(/<manifest\b([^>]*?)\s+package="[^"]+"([^>]*)>/, (_m, a, b) => `<manifest${a}${b}>`);
     }
+
+    // 3) 源码：包声明 + 旧包名替换
     if (/\.(java|kt)$/.test(srcPath)) {
       s = s.replace(/^package\s+[\w.]+;/m, `package ${appId};`);
       s = s.replace(/com\.example\.[\w.]+/g, appId);
     }
+
+    // 4) strings.xml：app_name
     if (srcPath.endsWith('strings.xml')) {
       s = s.replace(/(<string name="app_name">)(.*?)(<\/string>)/, `$1${xmlText(appName)}$3`);
     }
+
     return s;
   }
 
   try {
-    // 1) 清理旧包名下 MainActivity
+    // 1) 清理旧包名 MainActivity
     await cleanOldJava(`app/src/main/java/${pkgPath}`);
 
     // 2) 遍历模板
@@ -244,14 +262,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         // 二进制：原样 base64 透传
         written.push(await upsertBinary(targetPath, meta.content as string, msg, true));
       } else {
-        // 文本：做占位符 + 包名替换
+        // 文本：做占位符/包名替换
         const raw = Buffer.from(meta.content as string, 'base64').toString('utf8');
         const replaced = transformContent(raw, it.path);
         written.push(await upsertText(targetPath, replaced, msg, true));
       }
     }
 
-    // 4) 附加信息（[skip ci]）
+    // 4) 附加 marker（[skip ci]）
     written.push(await upsertText('app/src/main/assets/build_marker.txt', marker, 'chore: marker', true));
 
     // 5) 仅最后一次不带 [skip ci]：触发 CI
