@@ -1,12 +1,23 @@
 // pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-type Ok = { ok: true; appId: string; template: string; files: { path: string; sha?: string }[] }
+/* ============= Types ============= */
+type GhFile = { path: string; sha?: string }
+
+type Ok = { ok: true; appId: string; template: string; files: GhFile[] }
 type Fail = { ok: false; error: string; detail?: any }
 type Result = Ok | Fail
 
+type Template = {
+  type: 'timer' | 'counter' | 'todo' | 'note' | 'webview' | 'hello'
+  mainActivity: string
+  layoutXml: string
+  stringsXml: string
+}
+
+/* ============= Handler ============= */
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Result>) {
-  // --- CORS ---
+  // CORS
   const allow = process.env.ALLOW_ORIGIN || '*'
   res.setHeader('Access-Control-Allow-Origin', allow)
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
@@ -14,32 +25,63 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' })
 
-  // --- Auth ---
+  // Auth
   const secret = (process.env.API_SECRET || '').trim()
   const incoming = String(req.headers['x-api-secret'] || (req.body as any)?.apiSecret || '').trim()
-  if (!secret || incoming !== secret) return res.status(401).json({ ok: false, error: 'Unauthorized: bad x-api-secret' })
-
-  // --- Env ---
-  const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
-  const GITHUB_OWNER = process.env.GITHUB_OWNER || process.env.OWNER
-  const GITHUB_REPO  = process.env.GITHUB_REPO  || process.env.REPO
-  if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-    return res.status(500).json({ ok: false, error: 'Missing env: GITHUB_TOKEN/GITHUB_OWNER/GITHUB_REPO' })
+  if (!secret || incoming !== secret) {
+    return res.status(401).json({ ok: false, error: 'Unauthorized: bad x-api-secret' })
   }
 
-  // --- Input ---
-  const { prompt = '' } = (req.body || {}) as { prompt?: string }
-  const slug = (prompt || 'myapp').toLowerCase().replace(/[^a-z0-9]+/g, '').replace(/^\d+/, '') || 'myapp'
+  // ENV
+  const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+  const GITHUB_OWNER = process.env.GITHUB_OWNER || process.env.OWNER
+  const GITHUB_REPO = process.env.GITHUB_REPO || process.env.REPO
+  if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
+    return res
+      .status(500)
+      .json({ ok: false, error: 'Missing env: GITHUB_TOKEN / GITHUB_OWNER / GITHUB_REPO' })
+  }
+
+  // Input
+  const { prompt = '', template } = (req.body || {}) as { prompt?: string; template?: string }
+  const slug =
+    (prompt || 'myapp').toLowerCase().replace(/[^a-z0-9]+/g, '').replace(/^\d+/, '') || 'myapp'
   const appId = `com.example.${slug}`
   const appName = (prompt || 'MyApp').slice(0, 30)
   const pkgPath = appId.replace(/\./g, '/')
-  const marker  = prompt ? `__PROMPT__${prompt}__` : '__PROMPT__EMPTY__'
+  const marker = prompt ? `__PROMPT__${prompt}__` : '__PROMPT__EMPTY__'
 
-  // --- Template selection ---
-  const tpl = chooseTemplate(prompt, { appId, appName })
+  // Template choose (allow override)
+  const ALLOWED = ['timer', 'todo', 'webview'] as const
+  type Allowed = (typeof ALLOWED)[number]
+
+  let tpl: Template
+  if (template && (ALLOWED as readonly string[]).includes(template)) {
+    switch (template as Allowed) {
+      case 'timer': {
+        const num = (prompt.match(/\d+/)?.[0]) || '60'
+        tpl = makeTimer(appId, parseInt(num, 10) || 60, appName)
+        break
+      }
+      case 'todo':
+        tpl = makeTodo(appId, appName)
+        break
+      case 'webview': {
+        const urlMatch = prompt.match(/https?:\/\/[^\s"'）)]+/i)
+        const url = urlMatch ? urlMatch[0] : 'https://example.com'
+        tpl = makeWebView(appId, url, appName)
+        break
+      }
+      default:
+        tpl = chooseTemplate(prompt, { appId, appName })
+    }
+  } else {
+    tpl = chooseTemplate(prompt, { appId, appName })
+  }
+
   const manifest = makeManifest(tpl.type === 'webview', appName)
 
-  // --- Build.gradle (app) ---
+  // app/build.gradle
   const buildGradle = `
 plugins { id 'com.android.application' }
 
@@ -75,43 +117,55 @@ dependencies {
 }
 `.trim()
 
-  // --- GitHub helpers ---
-  const base = `https://api.github.com/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(GITHUB_REPO)}`
+  // GitHub helpers
+  const base = `https://api.github.com/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(
+    GITHUB_REPO,
+  )}`
+
   const ghFetch = (url: string, init?: RequestInit) =>
     fetch(url, {
       ...init,
       headers: {
-        'Authorization': `Bearer ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github+json',
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github+json',
         'User-Agent': 'niandongjicheng-generator',
-        ...(init?.headers || {})
-      }
+        ...(init?.headers || {}),
+      } as any,
     })
 
-  async function upsert(path: string, content: string, branch = 'main', message = `feat: generate from prompt`) {
+  async function upsert(
+    path: string,
+    content: string,
+    branch = 'main',
+    message = 'feat: generate from prompt',
+  ): Promise<GhFile> {
+    // get sha if exists
     let sha: string | undefined
     const get = await ghFetch(`${base}/contents/${encodeURIComponent(path)}?ref=${branch}`)
     if (get.status === 200) {
-      const j: any = await get.json()
-      sha = j.sha
+      const j = (await get.json()) as any
+      sha = j?.sha
     }
     const body = {
       message,
       branch,
       content: Buffer.from(content, 'utf8').toString('base64'),
-      ...(sha ? { sha } : {})
+      ...(sha ? { sha } : {}),
     }
-    const put = await ghFetch(`${base}/contents/${encodeURIComponent(path)}`, { method: 'PUT', body: JSON.stringify(body) })
+    const put = await ghFetch(`${base}/contents/${encodeURIComponent(path)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    })
     if (put.status < 200 || put.status >= 300) {
       const err = await put.text()
       throw new Error(`Write ${path} failed: ${put.status} ${err}`)
     }
-    const data: any = await put.json()
-    return { path, sha: data?.content?.sha }
+    const data = (await put.json()) as any
+    return { path, sha: data?.content?.sha as string | undefined }
   }
 
   try {
-    const files = []
+    const files: GhFile[] = []
     files.push(await upsert('app/build.gradle', buildGradle))
     files.push(await upsert('app/src/main/AndroidManifest.xml', manifest))
     files.push(await upsert(`app/src/main/java/${pkgPath}/MainActivity.java`, tpl.mainActivity))
@@ -120,52 +174,30 @@ dependencies {
     files.push(await upsert('app/src/main/assets/build_marker.txt', marker))
     return res.status(200).json({ ok: true, appId, template: tpl.type, files })
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: 'Generate failed', detail: String(e?.message || e) })
+    return res
+      .status(500)
+      .json({ ok: false, error: 'Generate failed', detail: String(e?.message || e) })
   }
 }
 
-/* ---------------- Templates ---------------- */
-
-type Template = {
-  type: 'timer' | 'counter' | 'todo' | 'note' | 'webview' | 'hello'
-  mainActivity: string
-  layoutXml: string
-  stringsXml: string
-}
+/* ============= Template picking ============= */
 
 function chooseTemplate(prompt: string, ctx: { appId: string; appName: string }): Template {
   const p = (prompt || '').toLowerCase()
-  const has = (...words: string[]) => words.some(w => p.includes(w))
+  const has = (...words: string[]) => words.some((w) => p.includes(w))
 
-  // WebView（带 URL 提取）
   if (has('web', '浏览', '网页', '网址', 'webview')) {
     const urlMatch = prompt.match(/https?:\/\/[^\s"'）)]+/i)
     const url = urlMatch ? urlMatch[0] : 'https://example.com'
     return makeWebView(ctx.appId, url, ctx.appName)
   }
-
-  // 倒计时/冥想/计时器
-  if (has('倒计时', '计时', '冥想', 'timer', 'countdown', 'pomodoro', '番茄')) {
-    const num = (prompt.match(/\d+/)?.[0]) || '60' // 若描述里出现数字，用作秒数；默认60s
+  if (has('倒计时', '计时', '冥想', 'timer', 'countdown', '番茄', 'pomodoro')) {
+    const num = prompt.match(/\d+/)?.[0] || '60'
     return makeTimer(ctx.appId, parseInt(num, 10) || 60, ctx.appName)
   }
-
-  // 计数器
-  if (has('计数', '点击器', 'counter', 'tap')) {
-    return makeCounter(ctx.appId, ctx.appName)
-  }
-
-  // 待办清单
-  if (has('待办', '清单', 'todo', '任务')) {
-    return makeTodo(ctx.appId, ctx.appName)
-  }
-
-  // 记事/笔记
-  if (has('记事', '笔记', 'note', 'notepad', 'memo')) {
-    return makeNote(ctx.appId, ctx.appName)
-  }
-
-  // 默认：Hello + 标记
+  if (has('计数', '点击器', 'counter', 'tap')) return makeCounter(ctx.appId, ctx.appName)
+  if (has('待办', '清单', 'todo', '任务')) return makeTodo(ctx.appId, ctx.appName)
+  if (has('记事', '笔记', 'note', 'notepad', 'memo')) return makeNote(ctx.appId, ctx.appName)
   return makeHello(ctx.appId, ctx.appName)
 }
 
@@ -188,6 +220,8 @@ function makeManifest(needInternet: boolean, appName: string) {
 </manifest>`.trim()
 }
 
+/* ============= Templates ============= */
+
 function makeHello(appId: string, appName: string): Template {
   const mainActivity = `
 package ${appId};
@@ -208,9 +242,11 @@ public class MainActivity extends AppCompatActivity {
     if (tv != null) tv.setText(getString(R.string.hello_text) + " | " + marker);
   }
   private String readAsset(String path) {
-    try (BufferedReader br = new BufferedReader(new InputStreamReader(getAssets().open(path)))) {
+    try {
+      BufferedReader br = new BufferedReader(new InputStreamReader(getAssets().open(path)));
       StringBuilder sb = new StringBuilder(); String line;
       while ((line = br.readLine()) != null) sb.append(line);
+      br.close();
       return sb.toString();
     } catch (Exception e) { return "no_marker"; }
   }
@@ -398,7 +434,6 @@ public class MainActivity extends AppCompatActivity {
     Button add = findViewById(R.id.btnAdd);
     ListView list = findViewById(R.id.list);
 
-    // load
     String saved = getSharedPreferences("app", MODE_PRIVATE).getString("todos", "");
     if (saved != null && !saved.isEmpty()) items.addAll(Arrays.asList(saved.split("\\n")));
     adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, items);
