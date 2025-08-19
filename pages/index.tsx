@@ -2,7 +2,7 @@
 import Head from 'next/head'
 import dynamic from 'next/dynamic'
 
-// 直接引用你放在 app/components 下的 GeneratePanel（已改为“必须手动选择模板”版本）
+// 你的 GeneratePanel 放在 app/components 下面（前端记得把下拉改成 core/form/simple 三项）
 const GeneratePanel = dynamic(() => import('../app/components/GeneratePanel'), { ssr: false })
 
 export default function Home() {
@@ -18,7 +18,7 @@ export default function Home() {
         <div className="mx-auto max-w-5xl px-4 py-8">
           <h1 className="text-3xl font-bold mb-2">一键生成 APK</h1>
           <p className="text-white/70 mb-6">
-            输入需求，并从下拉框<strong>选择模板</strong>，即可将代码写入仓库并触发 CI 生成 APK。
+            输入需求，并从下拉框<strong>选择模板</strong>（core-template / form-template / simple-template），即可将代码写入仓库并触发 CI。
           </p>
 
           <GeneratePanel />
