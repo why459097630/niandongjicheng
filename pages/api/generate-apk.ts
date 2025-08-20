@@ -1,112 +1,123 @@
 // pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-type Template = 'core-template' | 'form-template' | 'simple-template';
+type Json = Record<string, unknown>;
 
-const VALID_TEMPLATES = new Set<Template>([
+const VALID_TEMPLATES_ARR = [
   'core-template',
   'form-template',
   'simple-template',
-]);
+] as const;
+type TemplateName = (typeof VALID_TEMPLATES_ARR)[number];
+const VALID_TEMPLATES = new Set<string>(VALID_TEMPLATES_ARR as readonly string[]);
 
-/**
- * 小工具：从请求里取 header，兼容大小写
- */
+/** 读 header，统一大小写 */
 function getHeader(req: NextApiRequest, name: string): string | undefined {
   const v = req.headers[name] ?? req.headers[name.toLowerCase()];
   return Array.isArray(v) ? v[0] : v;
 }
 
-/**
- * 组装 push-to-github 的目标地址
- * 优先用环境变量 PUSH_ENDPOINT，其次回退到当前站点的绝对地址
- */
-function resolvePushEndpoint(req: NextApiRequest) {
-  if (process.env.PUSH_ENDPOINT) return process.env.PUSH_ENDPOINT;
-  const proto = (getHeader(req, 'x-forwarded-proto') || 'https') as string;
-  const host = getHeader(req, 'host');
-  return `${proto}://${host}/api/push-to-github`;
+/** 计算同部署下的绝对 baseUrl（Vercel/本地都适用） */
+function getBaseUrl(req: NextApiRequest): string {
+  // 优先使用反向代理头（Vercel）
+  const proto = getHeader(req, 'x-forwarded-proto') || 'https';
+  const host =
+    getHeader(req, 'x-forwarded-host') ||
+    process.env.VERCEL_URL ||
+    getHeader(req, 'host') ||
+    'localhost:3000';
+  return `${proto}://${host}`;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse<Json>) {
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
     return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
   }
 
-  // 1) 简单鉴权
-  const clientSecret = getHeader(req, 'x-api-secret');
-  const serverSecret = process.env.X_API_SECRET || process.env.API_SECRET; // 兼容两种命名
-  if (!serverSecret || clientSecret !== serverSecret) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized' });
-  }
+  // 1) 解析入参
+  const body = (req.body ?? {}) as Partial<{
+    prompt: string;
+    template: string;
+    appId: string;
+  }>;
 
-  // 2) 解析输入
-  const { prompt, template } = (req.body ?? {}) as {
-    prompt?: string;
-    template?: string;
-  };
+  const prompt = (body.prompt ?? '').toString().trim();
+  const template = (body.template ?? '').toString().trim() as TemplateName;
 
-  if (typeof prompt !== 'string' || !prompt.trim()) {
+  if (!prompt) {
     return res.status(400).json({ ok: false, error: 'prompt is required' });
   }
-
-  if (typeof template !== 'string' || !VALID_TEMPLATES.has(template as Template)) {
-    const allowed = Array.from(VALID_TEMPLATES.values()).join(', ');
+  if (!VALID_TEMPLATES.has(template)) {
     return res.status(400).json({
       ok: false,
-      error: `template must be one of ${allowed}`,
+      error: `template must be one of ${VALID_TEMPLATES_ARR.join(', ')}`,
     });
   }
 
-  // 3) 组装需要写入到仓库的文件
-  //    这里先最小可用：把本次 prompt 写到 assets/build_marker.txt，后续再扩展为写入模板文件
-  const files = [
-    {
-      path: 'app/src/main/assets/build_marker.txt',
-      content: `__FROM_API__\nTEMPLATE=${template}\nPROMPT=${prompt}`,
-    },
-  ];
+  // 2) 目标仓库信息（如需改，改这里）
+  const owner = 'why459097630';
+  const repo = 'Packaging-warehouse';
+  const ref = 'main';
 
-  // 4) 准备 push-to-github 的调用
+  // 3) 透传/回退秘钥：优先客户端 header，其次服务端环境变量
+  const clientSecret = getHeader(req, 'x-api-secret');
+  const serverSecret = process.env.X_API_SECRET || process.env.API_SECRET;
+  const apiSecret = clientSecret ?? serverSecret ?? '';
+
+  if (!apiSecret) {
+    return res.status(401).json({
+      ok: false,
+      error:
+        'missing x-api-secret. Please set request header "x-api-secret" or configure env var X_API_SECRET.',
+    });
+  }
+
+  // 4) 组装提交内容：build_marker.txt 用来记录本次 prompt，模板在 push 接口里根据 template 参数落盘
+  const marker = [
+    '__FROM_GENERATE_API__',
+    `time: ${new Date().toISOString()}`,
+    `template: ${template}`,
+    `prompt: ${prompt}`,
+  ].join('\n');
+
   const payload = {
-    owner: process.env.GH_OWNER || 'why459097630',
-    repo: process.env.GH_REPO || 'Packaging-warehouse',
-    ref: process.env.GH_REF || 'main',
+    owner,
+    repo,
+    ref,
     message: `feat: generate from template ${template}`,
-    files,
+    // 让 push 接口去拷贝 /templates/${template} 下的文件
+    template,
+    files: [
+      {
+        path: 'app/src/main/assets/build_marker.txt',
+        content: marker,
+      },
+    ],
     base64: false,
   };
 
-  const endpoint = resolvePushEndpoint(req);
+  // 5) 调用 push-to-github（使用绝对 URL，兼容生产）
+  const baseUrl = getBaseUrl(req);
+  const endpoint = `${baseUrl}/api/push-to-github`;
 
   try {
     const r = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        // 继续把同一份密钥传给 push-to-github
-        'x-api-secret': serverSecret!,
+        // 关键：透传/回退密钥，避免 401
+        'x-api-secret': apiSecret,
       },
       body: JSON.stringify(payload),
     });
 
-    const json = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      return res.status(r.status).json({
-        ok: false,
-        error: json?.error || `push-to-github failed: ${r.status}`,
-      });
-    }
-
-    return res.status(200).json({
-      ok: true,
-      data: json,
-    });
+    // 透传 push 接口的结果与状态码，便于前端准确提示
+    const data = (await r.json().catch(() => ({}))) as Json;
+    return res.status(r.status).json(data);
   } catch (e: any) {
     return res.status(500).json({
       ok: false,
-      error: e?.message || 'internal error',
+      error: `generate-apk failed: ${e?.message || String(e)}`,
     });
   }
 }
