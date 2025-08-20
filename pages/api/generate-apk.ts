@@ -2,9 +2,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { pushToGithubCore, type PushPayload } from './push-to-github'
 
-const VALID_TEMPLATES = new Set(['core-template', 'form-template', 'simple-template'])
+// 用数组 + Set，避免对 Set 进行展开迭代（兼容较低 TS target）
+const TEMPLATE_LIST = ['core-template', 'form-template', 'simple-template'] as const
+const VALID_TEMPLATES = new Set<string>(TEMPLATE_LIST)
 
-// 可用环境变量覆盖
 const OWNER = process.env.GH_OWNER ?? 'why459097630'
 const REPO  = process.env.GH_REPO  ?? 'Packaging-warehouse'
 const REF   = process.env.GH_REF   ?? 'main'
@@ -12,9 +13,11 @@ const REF   = process.env.GH_REF   ?? 'main'
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method !== 'POST') return res.status(405).end()
-    // 简单鉴权（与原逻辑一致）
-    if (req.headers['x-api-secret'] !== process.env.X_API_SECRET)
+
+    // 简单鉴权（与前端一致）
+    if (req.headers['x-api-secret'] !== process.env.X_API_SECRET) {
       return res.status(401).json({ ok: false, error: 'unauthorized' })
+    }
 
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body
     const prompt   = String(body?.prompt ?? '')
@@ -23,7 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!VALID_TEMPLATES.has(template)) {
       return res.status(400).json({
         ok: false,
-        error: `template must be one of: ${[...VALID_TEMPLATES].join('|')}`,
+        error: `template must be one of: ${TEMPLATE_LIST.join('|')}`,
       })
     }
     if (prompt.trim().length < 10) {
@@ -39,9 +42,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ref: REF,
       message: `ci: trigger ${template} @ ${ts}`,
       files: [
-        // 1) 构建触发器（内容随便写点，携带 prompt 更直观）
+        // 触发构建并携带说明
         { path: `app/src/main/assets/build_marker_${ts}.txt`, content: prompt },
-        // 2) 模板标记文件（CI 读取它来套模板 & 校验，避免空包）
+        // 固定写入模板标记，供 CI 套模板 + 校验（防止空包）
         { path: 'app/src/main/assets/template.marker', content: template },
       ],
     }
