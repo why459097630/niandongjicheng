@@ -1,117 +1,216 @@
 // pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import fs from 'fs';
+import path from 'path';
+
+type FileItem = {
+  path: string;          // 目标仓库中的相对路径
+  content: string;       // 文本或 base64 内容
+  base64?: boolean;      // 若为二进制，置为 true
+};
+
+type PushPayload = {
+  owner: string;
+  repo: string;
+  ref: string;
+  message: string;
+  files: FileItem[];
+};
 
 const VALID_TEMPLATES = ['core-template', 'form-template', 'simple-template'] as const;
-type TemplateKey = typeof VALID_TEMPLATES[number];
+type TemplateName = typeof VALID_TEMPLATES[number];
 
-const ensureString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+export const config = {
+  api: {
+    bodyParser: true,
+    sizeLimit: '20mb',
+  },
+};
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+/** 允许作为二进制处理的扩展名 */
+const BINARY_EXTS = [
+  '.png', '.jpg', '.jpeg', '.gif', '.webp',
+  '.ico', '.jar', '.keystore', '.webm', '.mp3', '.mp4', '.wav',
+  // 你可以按需补充
+];
+
+/** 是否二进制文件 */
+function isBinaryExt(file: string) {
+  const ext = path.extname(file).toLowerCase();
+  return BINARY_EXTS.includes(ext);
+}
+
+/** 递归读取模板目录，构造 push-to-github 所需 files 列表 */
+function readTemplateFiles(templateRoot: string, repoRootPrefix = ''): FileItem[] {
+  const out: FileItem[] = [];
+
+  function walk(currentDir: string) {
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const ent of entries) {
+      const abs = path.join(currentDir, ent.name);
+      const rel = path.relative(templateRoot, abs).split(path.sep).join('/'); // POSIX 化
+      const repoPath = repoRootPrefix
+        ? `${repoRootPrefix.replace(/\/+$/, '')}/${rel}`
+        : rel;
+
+      if (ent.isDirectory()) {
+        walk(abs);
+      } else {
+        if (isBinaryExt(abs)) {
+          const buf = fs.readFileSync(abs);
+          out.push({
+            path: repoPath,
+            content: buf.toString('base64'),
+            base64: true,
+          });
+        } else {
+          const text = fs.readFileSync(abs, 'utf8');
+          out.push({
+            path: repoPath,
+            content: text,
+          });
+        }
+      }
+    }
+  }
+
+  walk(templateRoot);
+  return out;
+}
+
+/** 获取本服务的 base URL（用于内部调用 /api/push-to-github） */
+function getBaseUrl(req: NextApiRequest) {
+  const proto =
+    (req.headers['x-forwarded-proto'] as string) ||
+    (req.headers['x-forwarded-protocol'] as string) ||
+    'https';
+  const host =
+    (req.headers['x-forwarded-host'] as string) ||
+    (req.headers['host'] as string);
+  return `${proto}://${host}`;
+}
+
+/** 读取 header 值（兼容数组情况） */
+function readHeader(req: NextApiRequest, key: string) {
+  const v = req.headers[key.toLowerCase()];
+  if (Array.isArray(v)) return v[0];
+  return v as string | undefined;
+}
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+    return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
   }
 
-  // 简单鉴权
-  const apiSecret = process.env.X_API_SECRET;
-  if (!apiSecret) {
-    return res.status(500).json({ ok: false, error: 'Server missing X_API_SECRET' });
+  // --- Auth ---
+  const headerSecret = readHeader(req, 'x-api-secret') || '';
+  const envSecret = process.env.X_API_SECRET || '';
+  if (!headerSecret) {
+    return res
+      .status(401)
+      .json({ ok: false, error: 'Unauthorized: x-api-secret header missing' });
   }
-  if (req.headers['x-api-secret'] !== apiSecret) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized: bad x-api-secret' });
+  if (headerSecret !== envSecret) {
+    return res
+      .status(401)
+      .json({ ok: false, error: 'Unauthorized: bad x-api-secret' });
   }
 
-  // 解析 body
-  const { prompt, template } = req.body ?? {};
-  if (!ensureString(prompt)) {
-    return res.status(400).json({ ok: false, error: 'prompt is required (string)' });
+  // --- Parse Body ---
+  const body: any = req.body && typeof req.body === 'string'
+    ? safeParse(req.body)
+    : req.body;
+
+  const prompt = body?.prompt;
+  const template = body?.template as TemplateName;
+
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(400).json({ ok: false, error: 'param "prompt" is required' });
   }
-  if (!ensureString(template)) {
-    return res.status(400).json({ ok: false, error: 'template is required (string)' });
-  }
-  if (!VALID_TEMPLATES.includes(template as TemplateKey)) {
+  if (typeof template !== 'string' || !VALID_TEMPLATES.includes(template as any)) {
     return res.status(400).json({
       ok: false,
-      error: `template must be one of ${VALID_TEMPLATES.join(', ')}`,
+      error: `param "template" is invalid; must be one of ${VALID_TEMPLATES.join(', ')}`,
     });
   }
 
-  // ===== 构造需要提交到 push-to-github 的文件列表 =====
-  // 这里先放一个 build_marker，模板文件你后面可以继续补充/拼装
-  const files: Array<{ path: string; content: string }> = [
-    {
-      path: 'app/src/main/assets/build_marker.txt',
-      content: `__FROM_GENERATE_APK__\nPrompt: ${prompt}\nTemplate: ${template}`,
-    },
-  ];
+  try {
+    // 1) 读取模板文件
+    const templateDir = path.join(process.cwd(), 'templates', template);
+    if (!fs.existsSync(templateDir)) {
+      return res.status(400).json({ ok: false, error: `template dir not found: ${template}` });
+    }
 
-  // 基本校验，避免 400
-  for (const f of files) {
-    if (!ensureString(f.path) || !ensureString(f.content)) {
-      return res.status(400).json({
+    // 将模板内容提交到仓库根目录（通常模板内已经以 app/** 组织）
+    const files = readTemplateFiles(templateDir);
+
+    // 2) 额外写入 build_marker.txt 以便在 APK 中确认来源
+    const marker = [
+      `prompt: ${prompt}`,
+      `template: ${template}`,
+      `ts: ${new Date().toISOString()}`,
+    ].join('\n');
+
+    files.push({
+      path: 'app/src/main/assets/build_marker.txt',
+      content: marker,
+    });
+
+    // 3) 拼装 push-to-github 请求
+    const payload: PushPayload = {
+      owner: 'why459097630',               // ← 如需改仓库，这里改
+      repo: 'Packaging-warehouse',         // ← 如需改仓库，这里改
+      ref: 'main',
+      message: `feat: generate from template ${template}`,
+      files,
+    };
+
+    const base = getBaseUrl(req);
+    const resp = await fetch(`${base}/api/push-to-github`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-secret': headerSecret, // 继续带上同一个 secret
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await resp.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
+
+    if (!resp.ok) {
+      return res.status(resp.status).json({
         ok: false,
-        error: `Bad file entry: ${JSON.stringify(f)}`,
+        error: 'push-to-github failed',
+        detail: data,
       });
     }
+
+    // 成功
+    return res.status(200).json({
+      ok: true,
+      template,
+      prompt,
+      push: data,
+    });
+  } catch (err: any) {
+    console.error('[generate-apk] error:', err);
+    return res.status(500).json({
+      ok: false,
+      error: 'internal error',
+      detail: err?.message ?? String(err),
+    });
   }
+}
 
-  // 组织 push payload
-  const owner = 'why459097630';
-  const repo = 'Packaging-warehouse';
-  const ref = 'main';
-  const message = `feat: generate from template ${template}`;
-
-  const pushPayload = {
-    owner,
-    repo,
-    ref,
-    message,
-    files,     // 注意：这里是 { path, content }，不是 filePath
-    base64: false,
-  };
-
-  // 计算当前域名（生产环境直接用 vercel.app）
-  const host =
-    (req.headers['x-vercel-deployment-url'] as string) ||
-    (process.env.VERCEL_URL as string) ||
-    'niandongjicheng.vercel.app';
-
-  const pushUrl = `https://${host}/api/push-to-github`;
-
-  // 调用 push-to-github，并把错误透传出来
-  const resp = await fetch(pushUrl, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-secret': apiSecret,
-    },
-    body: JSON.stringify(pushPayload),
-  });
-
-  // 把下游的响应体原样带回，便于你用 PowerShell 看到具体错误
-  const text = await resp.text();
-  const contentType = resp.headers.get('content-type') || '';
-
-  if (!resp.ok) {
-    // 尝试把文本解析为 JSON；解析失败就按文本返回
-    try {
-      const j = JSON.parse(text);
-      return res.status(resp.status).json(j);
-    } catch {
-      return res
-        .status(resp.status)
-        .setHeader('content-type', 'text/plain; charset=utf-8')
-        .send(text || '(empty error body)');
-    }
-  }
-
-  // 成功则把 push 的 JSON 返回
-  try {
-    const j = JSON.parse(text);
-    return res.status(200).json(j);
-  } catch {
-    return res
-      .status(200)
-      .setHeader('content-type', contentType || 'text/plain; charset=utf-8')
-      .send(text);
-  }
+function safeParse(s: string) {
+  try { return JSON.parse(s); } catch { return {}; }
 }
