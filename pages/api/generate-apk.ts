@@ -1,137 +1,149 @@
-// pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const VALID_TEMPLATES = ['core-template', 'form-template', 'simple-template'] as const;
-type Template = (typeof VALID_TEMPLATES)[number];
+type Ok = {
+  ok: true;
+  repo: string;
+  ref: string;
+  markerPath: string;
+  commitMsg: string;
+  commitUrl?: string;
+  contentUrl?: string;
+};
+type Err = { ok: false; error: string; raw?: any };
 
-function json(res: NextApiResponse, code: number, body: any) {
-  res.status(code).json(body);
+const VALID_TEMPLATES = new Set([
+  'core-template',
+  'form-template',
+  'simple-template',
+]);
+
+const owner  = process.env.GITHUB_OWNER!;
+const repo   = process.env.GITHUB_REPO!;
+const branch = process.env.GITHUB_BRANCH || 'main';
+const token  = process.env.GH_TOKEN!;
+const apiSecret = process.env.X_API_SECRET || process.env.API_SECRET;
+
+function bad(res: NextApiResponse<Err>, code: number, msg: string, raw?: any) {
+  return res.status(code).json({ ok: false, error: msg, raw });
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+// GitHub Contents API: create file
+async function createFileViaContentsAPI(path: string, content: string, message: string) {
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`;
+  const body = {
+    message,
+    branch,
+    content: Buffer.from(content, 'utf8').toString('base64'),
+  };
+
+  const r = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'User-Agent': 'apk-generator',
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
+}
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<Ok | Err>
+) {
+  res.setHeader('Cache-Control', 'no-store');
+
+  // CORS（可按需调整域名）
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type,x-api-secret');
+    res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+    return res.status(204).end();
+  }
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
   if (req.method !== 'POST') {
-    return json(res, 405, { ok: false, error: 'Method Not Allowed' });
+    return bad(res, 405, 'Method not allowed');
   }
 
+  // 鉴权
+  const pass = req.headers['x-api-secret'];
+  if (!apiSecret || pass !== apiSecret) {
+    return bad(res, 401, 'Unauthorized');
+  }
+
+  // 解析与校验参数
+  let body: any;
   try {
-    // 保护：接口私钥
-    const secretHeader = req.headers['x-api-secret'];
-    const secretEnv = process.env.X_API_SECRET;
-    if (!secretEnv || !secretHeader || secretHeader !== secretEnv) {
-      return json(res, 401, { ok: false, error: 'Unauthorized: bad x-api-secret' });
-    }
-
-    // 入参校验
-    const { prompt, template, dryRun } = req.body || {};
-    if (typeof prompt !== 'string' || prompt.trim().length < 10) {
-      return json(res, 400, { ok: false, error: 'prompt is required and must be >= 10 chars' });
-    }
-    if (!VALID_TEMPLATES.includes(template)) {
-      return json(res, 400, {
-        ok: false,
-        error: `template must be one of: ${VALID_TEMPLATES.join('|')}`,
-      });
-    }
-
-    // 环境变量：支持 GH_TOKEN / GITHUB_TOKEN 任一
-    const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
-    const owner = process.env.GITHUB_OWNER;
-    const repo = process.env.GITHUB_REPO;
-    const ref = process.env.REF || 'main';
-
-    const missing: string[] = [];
-    if (!token) missing.push('GH_TOKEN/GITHUB_TOKEN');
-    if (!owner) missing.push('GITHUB_OWNER');
-    if (!repo) missing.push('GITHUB_REPO');
-    if (!ref) missing.push('REF');
-
-    if (missing.length) {
-      return json(res, 500, { ok: false, error: `Missing env: ${missing.join(', ')}` });
-    }
-
-    // 生成 marker 内容 & 路径
-    const now = new Date();
-    const iso = now.toISOString().replace(/[-:]/g, '').replace(/\..+/, ''); // 20250820T123456 -> 压缩
-    const markerPath = `app/src/main/assets/build_marker_${iso}.txt`;
-    const commitMsg = `apk: ${template} | ${now.toISOString()}`;
-    const content = Buffer.from(
-      [
-        `prompt: ${prompt}`,
-        `template: ${template}`,
-        `when: ${now.toISOString()}`,
-      ].join('\n'),
-      'utf8',
-    ).toString('base64');
-
-    // 提供干跑：不写 GitHub，只返回 payload，方便线上/本地验证
-    if (dryRun) {
-      return json(res, 200, {
-        ok: true,
-        dryRun: true,
-        repo: `${owner}/${repo}`,
-        ref,
-        markerPath,
-        commitMsg,
-      });
-    }
-
-    // 先验证 token 与 repo 是否可写，提前拿到 200/401/403
-    {
-      const ping = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-        headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'apk-bot' },
-      });
-      if (ping.status === 401 || ping.status === 403) {
-        return json(res, 401, { ok: false, error: `GitHub auth failed: ${ping.status}` });
-      }
-      if (!ping.ok) {
-        const body = await ping.text();
-        return json(res, 502, { ok: false, error: `GitHub repo check ${ping.status}`, body });
-      }
-    }
-
-    // 正式写入 marker
-    const ghRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(markerPath)}`,
-      {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'User-Agent': 'apk-bot',
-        },
-        body: JSON.stringify({
-          message: commitMsg,
-          content,
-          branch: ref,
-        }),
-      },
-    );
-
-    const text = await ghRes.text();
-    if (!ghRes.ok) {
-      // 明确返回 GitHub 的错误给前端（403/422/…），不再 500
-      return json(res, ghRes.status === 401 || ghRes.status === 403 ? 401 : 400, {
-        ok: false,
-        error: `GitHub PUT contents failed: ${ghRes.status}`,
-        body: safeParse(text),
-      });
-    }
-
-    // 成功：返回 commit 与文件链接（供你调试/溯源）
-    const data = safeParse(text);
-    return json(res, 200, {
-      ok: true,
-      ref,
-      markerPath,
-      commit_url: data?.commit?.html_url,
-      content: data,
-    });
-  } catch (err: any) {
-    console.error('generate-apk fatal', err);
-    return json(res, 500, { ok: false, error: 'Internal Error', detail: `${err?.message || err}` });
+    body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  } catch {
+    return bad(res, 400, 'Invalid JSON body');
   }
-}
 
-function safeParse(t: string) {
-  try { return JSON.parse(t); } catch { return t; }
+  const templateRaw = String(body?.template || '').trim();
+  const promptRaw   = String(body?.prompt   || '').trim();
+  const dryRun      = Boolean(body?.dryRun);
+
+  const template = VALID_TEMPLATES.has(templateRaw) ? templateRaw : 'form-template';
+
+  if (!VALID_TEMPLATES.has(template)) {
+    return bad(res, 400, 'template must be one of: core-template|form-template|simple-template');
+  }
+  if (promptRaw.length < 10) {
+    return bad(res, 400, 'prompt too short (>= 10 chars)');
+  }
+
+  // 生成 marker JSON —— 工作流将把 prompt 注入到 APK
+  const marker = {
+    template,
+    prompt: promptRaw,
+    createdAt: new Date().toISOString(),
+  };
+
+  const ts = new Date().toISOString().replace(/[:-]/g, '').replace(/\..+$/, '');
+  const markerPath = `app/src/main/assets/build_marker_${ts}.json`;
+  const commitMsg  = `apk: ${template} | ${ts}`;
+
+  // dryRun：仅验证
+  if (dryRun) {
+    return res.status(200).json({
+      ok: true,
+      repo: `${owner}/${repo}`,
+      ref: branch,
+      markerPath,
+      commitMsg,
+    });
+  }
+
+  // 推送到 GitHub，触发 CI
+  if (!owner || !repo || !token) {
+    return bad(res, 500, 'Missing GitHub environment variables');
+  }
+
+  const { ok, status, data } = await createFileViaContentsAPI(
+    markerPath,
+    JSON.stringify(marker, null, 2),
+    commitMsg
+  );
+
+  if (!ok) {
+    return bad(res, status, 'push-to-github failed', data);
+  }
+
+  const commitUrl  = data?.commit?.html_url;
+  const contentUrl = data?.content?.html_url;
+
+  return res.status(200).json({
+    ok: true,
+    repo: `${owner}/${repo}`,
+    ref: branch,
+    markerPath,
+    commitMsg,
+    commitUrl,
+    contentUrl,
+  });
 }
