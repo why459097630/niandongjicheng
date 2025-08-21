@@ -1,107 +1,141 @@
 // pages/api/generate-apk.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { Octokit } from '@octokit/rest';
+import type { NextApiRequest, NextApiResponse } from 'next'
+import { Octokit } from 'octokit'
 
-const REPO = process.env.GH_REPO!;      // e.g. why459097630/Packaging-warehouse
-const BRANCH = process.env.GH_BRANCH || 'main';
-const GH_PAT = process.env.GH_PAT!;
-const API_SECRET = process.env.X_API_SECRET!;  // 与仓库Secrets一致
-
-// 目标目录（工作流门槛检查的路径）
-const BASE_DIR = 'content_pack/app';
-
-const filesToCommit = (pkgName: string) => {
-  const pkgPath = pkgName.replace(/\./g, '/');
-  const mainKt = `package ${pkgName}
-
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.material3.Text
-
-class MainActivity : ComponentActivity() {
-  override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
-    setContent {
-      Text(text = "Hello from content pack!")
-    }
-  }
+type ReqBody = {
+  template?: 'simple-template' | 'form-template' | 'core-template'
+  packageName?: string
+  appLabel?: string
+  prompt?: string // 业务文案，可用于生成内容
+  commitMessage?: string
 }
-`;
 
-  const layoutXml = `<?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-  xmlns:android="http://schemas.android.com/apk/res/android"
-  xmlns:app="http://schemas.android.com/apk/res-auto"
+const {
+  GH_PAT = '',
+  GH_OWNER = '',
+  GH_REPO = '',
+  X_API_SECRET = '',
+} = process.env
+
+function b64(content: string) {
+  return Buffer.from(content, 'utf8').toString('base64')
+}
+
+// 生成最小可启动的 Android 内容（满足你的硬闸：必须存在 MainActivity.java）
+function genAndroidFiles({
+  packageName = 'com.app.generated',
+  appLabel = 'Generated App',
+  prompt = 'Hello from generated app',
+}: {
+  packageName?: string
+  appLabel?: string
+  prompt?: string
+}) {
+  const pkgPath = packageName.replace(/\./g, '/')
+
+  const manifest = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="${packageName}">
+  <application
+    android:label="${appLabel}"
+    android:icon="@mipmap/ic_launcher">
+    <activity android:name=".MainActivity">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>`.trim()
+
+  const mainActivity = `package ${packageName};
+
+import android.os.Bundle;
+import android.widget.Toast;
+import androidx.appcompat.app.AppCompatActivity;
+
+public class MainActivity extends AppCompatActivity {
+  @Override protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    setContentView(R.layout.activity_main);
+    Toast.makeText(this, "${prompt}", Toast.LENGTH_LONG).show();
+  }
+}`.trim()
+
+  const layout = `<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
   android:layout_width="match_parent"
   android:layout_height="match_parent">
-</androidx.constraintlayout.widget.ConstraintLayout>`;
+  <TextView
+    android:id="@+id/hello"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="${prompt}" />
+</RelativeLayout>`.trim()
 
-  return [
-    {
-      path: `${BASE_DIR}/src/main/java/${pkgPath}/MainActivity.kt`,
-      content: mainKt
-    },
-    {
-      path: `${BASE_DIR}/src/main/res/layout/activity_main.xml`,
-      content: layoutXml
-    }
-  ];
-};
+  return {
+    // 你的工作流检查的是这个路径是否存在
+    mainActivityPath: `content_pack/app/src/main/java/${pkgPath}/MainActivity.java`,
+    files: [
+      {
+        path: `content_pack/app/src/main/AndroidManifest.xml`,
+        content: manifest,
+      },
+      {
+        path: `content_pack/app/src/main/res/layout/activity_main.xml`,
+        content: layout,
+      },
+      {
+        path: `content_pack/app/src/main/java/${pkgPath}/MainActivity.java`,
+        content: mainActivity,
+      },
+    ],
+  }
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    // 1) 校验密钥
-    const secret = req.headers['x-api-secret'] || req.query.secret;
-    if (!secret || secret !== API_SECRET) {
-      return res.status(401).json({ ok: false, message: 'invalid secret' });
+    if (req.method !== 'POST') {
+      res.status(405).json({ ok: false, message: 'Method Not Allowed' })
+      return
     }
 
-    // 2) 解析需求（模板/包名/提示词等）——这里给默认值
-    const { packageName = 'com.ndjc.generated' } = (req.body || {}) as any;
+    // 简单的接口鉴权
+    const tokenFromHeader = req.headers['x-api-secret']
+    if (!X_API_SECRET || tokenFromHeader !== X_API_SECRET) {
+      res.status(401).json({ ok: false, message: 'Unauthorized' })
+      return
+    }
 
-    const octokit = new Octokit({ auth: GH_PAT });
-    const [owner, repo] = REPO.split('/');
+    if (!GH_PAT || !GH_OWNER || !GH_REPO) {
+      res.status(500).json({ ok: false, message: 'Missing GH_* envs' })
+      return
+    }
 
-    // 3) 获取分支最新 commit & tree，用树 API 批量提交
-    const { data: ref } = await octokit.git.getRef({ owner, repo, ref: `heads/${BRANCH}` });
-    const latestCommitSha = ref.object.sha;
+    const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as ReqBody
 
-    const { data: commit } = await octokit.git.getCommit({ owner, repo, commit_sha: latestCommitSha });
-    const baseTree = commit.tree.sha;
+    const { packageName, appLabel, prompt } = body || {}
+    const { files, mainActivityPath } = genAndroidFiles({ packageName, appLabel, prompt })
 
-    // 4) 组装树条目（注意换行 & utf8 -> base64 由API帮我们做）
-    const tree = filesToCommit(packageName).map(f => ({
-      path: f.path,
-      mode: '100644',
-      type: 'blob' as const,
-      content: f.content
-    }));
+    const octokit = new Octokit({ auth: GH_PAT })
 
-    const { data: newTree } = await octokit.git.createTree({
-      owner, repo, tree, base_tree: baseTree
-    });
+    // 逐个文件写入（简单直观；如需原子提交，可改用 git trees API 一次提交）
+    for (const f of files) {
+      await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+        owner: GH_OWNER,
+        repo: GH_REPO,
+        path: f.path,
+        message: body?.commitMessage || `feat(content_pack): write ${f.path}`,
+        content: b64(f.content),
+      })
+    }
 
-    // 5) 新提交
-    const commitMessage = `chore(content-pack): inject MainActivity & layout via API`;
-    const { data: newCommit } = await octokit.git.createCommit({
-      owner, repo,
-      message: commitMessage,
-      tree: newTree.sha,
-      parents: [latestCommitSha]
-    });
-
-    // 6) 移动分支指针
-    await octokit.git.updateRef({
-      owner, repo,
-      ref: `heads/${BRANCH}`,
-      sha: newCommit.sha,
-      force: false
-    });
-
-    return res.status(200).json({ ok: true, committed: tree.map(t => t.path) });
+    res.status(200).json({
+      ok: true,
+      wrote: files.map(f => f.path),
+      hint: `Hard gate key file: ${mainActivityPath}`,
+    })
   } catch (e: any) {
-    console.error(e);
-    return res.status(500).json({ ok: false, error: e?.message || 'unknown error' });
+    console.error(e)
+    res.status(500).json({ ok: false, message: e?.message || 'Internal Error' })
   }
 }
