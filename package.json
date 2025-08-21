@@ -1,34 +1,33 @@
 {
   "name": "packaging-warehouse-api",
+  "version": "1.0.0",
   "private": true,
-  "version": "0.1.0",
-  "description": "Serverless API to generate Android content pack and push back to repo.",
-  "engines": { "node": ">=18.17" },
-  "packageManager": "pnpm@9.0.0",
+  "type": "module",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
-    "vercel-build": "pnpm build"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@octokit/rest": "20.1.2",
-    "https-proxy-agent": "7.0.4",
-    "node-fetch": "2.6.11",
+    "@octokit/rest": "20.1.1",
     "next": "14.2.5",
+    "octokit": "^5.0.3",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "tslib": "2.6.2"
+    "zod": "3.23.8"
   },
   "devDependencies": {
-    "@types/node": "20.12.12",
-    "@types/node-fetch": "2.6.12",
-    "@types/react": "18.2.79",
-    "@types/react-dom": "18.2.25",
+    "@types/node": "20.12.7",
+    "@types/react": "18.2.66",
+    "@types/react-dom": "18.2.22",
     "eslint": "8.57.0",
     "eslint-config-next": "14.2.5",
     "typescript": "5.4.5"
-  }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@9.0.0"
 }
