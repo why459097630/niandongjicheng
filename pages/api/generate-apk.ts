@@ -1,139 +1,107 @@
 // pages/api/generate-apk.ts
-import type { NextApiRequest, NextApiResponse } from 'next'
-import { Octokit } from '@octokit/rest'
-import { Buffer } from 'buffer'
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { Octokit } from '@octokit/rest';
 
-type Payload = {
-  appName?: string
-  packageName?: string // e.g. "com.ndjc.generated"
-  template?: 'core-template' | 'form-template' | 'simple-template'
-  // 这里可以继续扩展你的“业务页面/图片/文案”等数据结构
-}
+const REPO = process.env.GH_REPO!;      // e.g. why459097630/Packaging-warehouse
+const BRANCH = process.env.GH_BRANCH || 'main';
+const GH_PAT = process.env.GH_PAT!;
+const API_SECRET = process.env.X_API_SECRET!;  // 与仓库Secrets一致
 
-function b64(content: string) {
-  return Buffer.from(content, 'utf8').toString('base64')
+// 目标目录（工作流门槛检查的路径）
+const BASE_DIR = 'content_pack/app';
+
+const filesToCommit = (pkgName: string) => {
+  const pkgPath = pkgName.replace(/\./g, '/');
+  const mainKt = `package ${pkgName}
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.material3.Text
+
+class MainActivity : ComponentActivity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    setContent {
+      Text(text = "Hello from content pack!")
+    }
+  }
 }
+`;
+
+  const layoutXml = `<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+  xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent">
+</androidx.constraintlayout.widget.ConstraintLayout>`;
+
+  return [
+    {
+      path: `${BASE_DIR}/src/main/java/${pkgPath}/MainActivity.kt`,
+      content: mainKt
+    },
+    {
+      path: `${BASE_DIR}/src/main/res/layout/activity_main.xml`,
+      content: layoutXml
+    }
+  ];
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method Not Allowed' })
-    const secret = req.headers['x-api-secret']
-    if (!secret || secret !== process.env.X_API_SECRET) {
-      return res.status(401).json({ ok: false, error: 'Unauthorized' })
+    // 1) 校验密钥
+    const secret = req.headers['x-api-secret'] || req.query.secret;
+    if (!secret || secret !== API_SECRET) {
+      return res.status(401).json({ ok: false, message: 'invalid secret' });
     }
 
-    const body: Payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {}
-    const appName = body.appName?.trim() || 'NDJC App'
-    const packageName = (body.packageName || 'com.ndjc.generated').replace(/[^a-zA-Z0-9_.]/g, '')
-    const branch = process.env.GH_BRANCH || 'main'
-    const owner = process.env.GH_OWNER!
-    const repo = process.env.GH_REPO!
-    const token = process.env.GH_TOKEN!
+    // 2) 解析需求（模板/包名/提示词等）——这里给默认值
+    const { packageName = 'com.ndjc.generated' } = (req.body || {}) as any;
 
-    if (!owner || !repo || !token) {
-      return res.status(500).json({ ok: false, error: 'Missing GH env: GH_OWNER/GH_REPO/GH_TOKEN' })
-    }
+    const octokit = new Octokit({ auth: GH_PAT });
+    const [owner, repo] = REPO.split('/');
 
-    const octokit = new Octokit({ auth: token })
+    // 3) 获取分支最新 commit & tree，用树 API 批量提交
+    const { data: ref } = await octokit.git.getRef({ owner, repo, ref: `heads/${BRANCH}` });
+    const latestCommitSha = ref.object.sha;
 
-    // 生成一个最小可编译的内容包（你可把下列文件替换为 LLM 产生的业务代码）
-    // 最终写入到 content_pack/app/ 目录，后续工作流会把它注入 app/
-    const pkgPath = packageName.replace(/\./g, '/')
-    const root = 'content_pack/app'
+    const { data: commit } = await octokit.git.getCommit({ owner, repo, commit_sha: latestCommitSha });
+    const baseTree = commit.tree.sha;
 
-    const files: Array<{ path: string; content: string }> = [
-      {
-        path: `${root}/src/main/AndroidManifest.xml`,
-        content: `<?xml version="1.0" encoding="utf-8"?>
-<manifest package="${packageName}" xmlns:android="http://schemas.android.com/apk/res/android">
-  <application
-      android:label="${appName}"
-      android:icon="@mipmap/ic_launcher"
-      android:allowBackup="true"
-      android:supportsRtl="true"
-      android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
-    <activity android:name=".MainActivity">
-      <intent-filter>
-        <action android:name="android.intent.action.MAIN"/>
-        <category android:name="android.intent.category.LAUNCHER"/>
-      </intent-filter>
-    </activity>
-  </application>
-</manifest>`
-      },
-      {
-        path: `${root}/src/main/java/${pkgPath}/MainActivity.java`,
-        content: `package ${packageName};
+    // 4) 组装树条目（注意换行 & utf8 -> base64 由API帮我们做）
+    const tree = filesToCommit(packageName).map(f => ({
+      path: f.path,
+      mode: '100644',
+      type: 'blob' as const,
+      content: f.content
+    }));
 
-import android.os.Bundle;
-import androidx.appcompat.app.AppCompatActivity;
-import android.widget.TextView;
-import android.widget.ScrollView;
-import android.widget.LinearLayout;
+    const { data: newTree } = await octokit.git.createTree({
+      owner, repo, tree, base_tree: baseTree
+    });
 
-public class MainActivity extends AppCompatActivity {
-  @Override protected void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    ScrollView sv = new ScrollView(this);
-    LinearLayout ll = new LinearLayout(this);
-    ll.setOrientation(LinearLayout.VERTICAL);
-    TextView tv = new TextView(this);
-    tv.setText("Hello from content pack! App: ${appName}\\nPackage: ${packageName}\\n\\n这里可以把你的业务页/组件渲染出来。");
-    tv.setTextSize(18f);
-    int pad = (int)(16 * getResources().getDisplayMetrics().density);
-    tv.setPadding(pad, pad, pad, pad);
-    ll.addView(tv);
-    sv.addView(ll);
-    setContentView(sv);
-  }
-}`
-      },
-      {
-        path: `${root}/src/main/res/values/strings.xml`,
-        content: `<?xml version="1.0" encoding="utf-8"?>
-<resources>
-  <string name="app_name">${appName}</string>
-</resources>`
-      },
-      // 最小化资源，图标资源保持沿用模板里的 mipmap/ic_launcher
-      { path: `${root}/.marker`, content: `generated:${Date.now()}` }
-    ]
-
-    // 读取 HEAD，构建一个 tree 一次性提交，避免多文件多次请求超限
-    const { data: baseRef } = await octokit.git.getRef({ owner, repo, ref: `heads/${branch}` })
-    const baseSha = baseRef.object.sha
-
-    // 先把文件转为 tree entries
-    const { data: tree } = await octokit.git.createTree({
+    // 5) 新提交
+    const commitMessage = `chore(content-pack): inject MainActivity & layout via API`;
+    const { data: newCommit } = await octokit.git.createCommit({
       owner, repo,
-      base_tree: baseSha,
-      tree: files.map(f => ({
-        path: f.path,
-        mode: '100644',
-        type: 'blob',
-        content: f.content
-      }))
-    })
+      message: commitMessage,
+      tree: newTree.sha,
+      parents: [latestCommitSha]
+    });
 
-    const commitMsg = `content-pack: ${appName} (${packageName})`
-    const { data: commit } = await octokit.git.createCommit({
-      owner, repo,
-      message: commitMsg,
-      tree: tree.sha,
-      parents: [baseSha],
-      author: { name: 'ndjc-bot', email: 'ndjc-bot@example.com' }
-    })
-
+    // 6) 移动分支指针
     await octokit.git.updateRef({
       owner, repo,
-      ref: `heads/${branch}`,
-      sha: commit.sha,
+      ref: `heads/${BRANCH}`,
+      sha: newCommit.sha,
       force: false
-    })
+    });
 
-    return res.status(200).json({ ok: true, commit: commit.sha, packageName, appName })
+    return res.status(200).json({ ok: true, committed: tree.map(t => t.path) });
   } catch (e: any) {
-    console.error(e)
-    return res.status(500).json({ ok: false, error: String(e?.message || e) })
+    console.error(e);
+    return res.status(500).json({ ok: false, error: e?.message || 'unknown error' });
   }
 }
