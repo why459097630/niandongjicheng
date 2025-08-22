@@ -2,185 +2,147 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { Octokit } from 'octokit'
 
-// 如果你的 env.ts 放在仓库根目录 /lib/env.ts，请保持如下导入；
-// 若位置不同，改成相对路径即可（不要用别名导入，避免路径解析问题）。
-// @ts-ignore - 在没有这个文件时也允许直接从 process.env 读取
-import { serverEnv as envFromFile } from '../../lib/env'
+const {
+  GH_OWNER,
+  GH_REPO,
+  GH_BRANCH = 'main',
+  GH_PAT,
+  WORKFLOW_ID = 'android-build-matrix.yml',
+  API_SECRET,
+} = process.env
 
-type Data =
-  | { ok: true; commit: string; dispatch: 'queued' | 'skipped'; path: string }
-  | {
-      ok: false
-      where?: string
-      status?: number
-      message?: string
-      gh?: any
-      errors?: any
-    }
-
-const env = {
-  GH_OWNER: envFromFile?.GH_OWNER ?? process.env.GH_OWNER ?? '',
-  GH_REPO: envFromFile?.GH_REPO ?? process.env.GH_REPO ?? '',
-  GH_PAT: envFromFile?.GH_PAT ?? process.env.GH_PAT ?? '',
-  GH_BRANCH: envFromFile?.GH_BRANCH ?? process.env.GH_BRANCH ?? 'main',
-  API_SECRET: envFromFile?.API_SECRET ?? process.env.API_SECRET ?? '',
-  X_API_SECRET: envFromFile?.X_API_SECRET ?? process.env.X_API_SECRET ?? '',
-}
-
-function required(name: keyof typeof env) {
-  if (!env[name]) throw new Error(`Missing env ${name}`)
-}
-
-required('GH_OWNER')
-required('GH_REPO')
-required('GH_PAT')
-
-const octokit = new Octokit({ auth: env.GH_PAT })
-
-/** 读取文件 sha（若不存在返回 undefined） */
-async function getFileSha(params: {
-  owner: string
-  repo: string
-  path: string
-  ref: string
-}): Promise<string | undefined> {
-  try {
-    const res = await octokit.rest.repos.getContent(params as any)
-    // 当 path 指向文件时，data 为一个对象而不是数组
-    const data: any = res.data
-    if (data && typeof data === 'object' && 'sha' in data) return data.sha as string
-    return undefined
-  } catch (e: any) {
-    if (e?.status === 404) return undefined
-    throw e
+function assertEnv() {
+  if (!GH_OWNER || !GH_REPO || !GH_BRANCH || !GH_PAT || !WORKFLOW_ID) {
+    throw new Error('Missing GH_* envs or WORKFLOW_ID')
   }
 }
 
-/** 创建或更新文件（自动携带 sha） */
-async function upsertFile(params: {
-  owner: string
-  repo: string
-  path: string
-  branch: string
-  message: string
-  contentBase64: string
-}) {
-  const sha = await getFileSha({
-    owner: params.owner,
-    repo: params.repo,
-    path: params.path,
-    ref: params.branch,
-  })
+type FileItem = { path: string; content: string } // utf-8 文本文件
 
-  const res = await octokit.rest.repos.createOrUpdateFileContents({
-    owner: params.owner,
-    repo: params.repo,
-    path: params.path,
-    branch: params.branch,
-    message: params.message,
-    content: params.contentBase64,
-    sha,
-  })
-
-  return res.data?.commit?.sha as string
-}
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<Data>
+async function commitFiles(
+  octokit: Octokit,
+  files: FileItem[],
+  message: string,
 ) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, message: 'Method Not Allowed' })
-  }
+  // 1) 拿 branch 最新 commit
+  const { data: ref } = await octokit.rest.git.getRef({
+    owner: GH_OWNER!, repo: GH_REPO!, ref: `heads/${GH_BRANCH!}`
+  })
+  const headSha = ref.object.sha
 
-  // 简单的服务端密钥校验（任选其一）
-  const headerSecret = req.headers['x-api-secret'] as string | undefined
-  if (env.API_SECRET || env.X_API_SECRET) {
-    const expected = env.X_API_SECRET || env.API_SECRET
-    if (!headerSecret || headerSecret !== expected) {
-      return res.status(401).json({ ok: false, message: 'Unauthorized' })
-    }
-  }
+  const { data: headCommit } = await octokit.rest.git.getCommit({
+    owner: GH_OWNER!, repo: GH_REPO!, commit_sha: headSha
+  })
 
+  // 2) 创建 blobs
+  const blobs = await Promise.all(
+    files.map(async f => {
+      const { data } = await octokit.rest.git.createBlob({
+        owner: GH_OWNER!, repo: GH_REPO!,
+        content: Buffer.from(f.content, 'utf8').toString('base64'),
+        encoding: 'base64',
+      })
+      return { path: f.path, sha: data.sha }
+    })
+  )
+
+  // 3) 创建新 tree
+  const { data: tree } = await octokit.rest.git.createTree({
+    owner: GH_OWNER!, repo: GH_REPO!,
+    base_tree: headCommit.tree.sha,
+    tree: blobs.map(b => ({
+      path: b.path, mode: '100644', type: 'blob', sha: b.sha
+    }))
+  })
+
+  // 4) 创建 commit
+  const { data: commit } = await octokit.rest.git.createCommit({
+    owner: GH_OWNER!, repo: GH_REPO!,
+    message,
+    tree: tree.sha,
+    parents: [headSha],
+  })
+
+  // 5) 更新分支指针
+  await octokit.rest.git.updateRef({
+    owner: GH_OWNER!, repo: GH_REPO!, ref: `heads/${GH_BRANCH!}`,
+    sha: commit.sha, force: false
+  })
+
+  return commit.sha
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
+    if (req.method !== 'POST') return res.status(405).json({ ok: false, message: 'Method Not Allowed' })
+    if (req.headers['x-api-secret'] !== API_SECRET) return res.status(401).json({ ok: false, message: 'unauthorized' })
+
+    assertEnv()
+    const octokit = new Octokit({ auth: GH_PAT })
+
+    // ------- 1) 收集表单 / 生成文件 -------
     const {
+      template = 'form-template',
       prompt = '',
-      template = 'form-template', // 允许: 'form-template' | 'core-template' | 'simple-template'
-      owner = env.GH_OWNER,
-      repo = env.GH_REPO,
-      branch = env.GH_BRANCH || 'main',
-      // 你可以扩展更多字段：appName / packageName / icon 等
-      ...rest
-    } = (req.body || {}) as Record<string, any>
+      apk_name = 'MyApp',
+      version_name = '1.0.0',
+      version_code = '1',
+      reason = '',
+    } = (req.body || {}) as Record<string, string>
 
-    // 1) 组装要写入仓库的 pack.json（确保是字符串 → base64）
-    const pack = {
-      version: 1,
-      createdAt: new Date().toISOString(),
-      template,
-      prompt,
-      payload: rest, // 将额外字段也存进去，Android 侧可自由读取
-    }
-    const json = JSON.stringify(pack, null, 2)
-    const contentBase64 = Buffer.from(json, 'utf8').toString('base64')
+    // 这里替换成你真实生成的内容；先用最小示例保证流程跑通
+    const files: FileItem[] = [
+      {
+        path: 'app/src/main/AndroidManifest.xml',
+        content: `<?xml version="1.0" encoding="utf-8"?>
+<manifest package="com.app.generated" xmlns:android="http://schemas.android.com/apk/res/android">
+  <application android:label="${apk_name}">
+    <activity android:name=".MainActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>`
+      },
+      {
+        path: 'app/src/main/res/values/strings.xml',
+        content: `<resources><string name="app_name">${apk_name}</string></resources>`
+      },
+      {
+        path: 'README.md',
+        content: `Generated by API
+template: ${template}
+prompt: ${prompt}
+reason: ${reason}
+`
+      },
+    ]
 
-    const path = 'content_pack/pack.json'
-    const message = `chore(api): update ${path} via API`
+    // ------- 2) 先写入安卓仓库 -------
+    const commitSha = await commitFiles(
+      octokit,
+      files,
+      `feat(api): generate ${apk_name} v${version_name} (${reason || 'no-reason'})`
+    )
 
-    // 2) 提交到目标仓库（自动 create 或 update）
-    const commitSha = await upsertFile({
-      owner,
-      repo,
-      path,
-      branch,
-      message,
-      contentBase64,
+    // ------- 3) 再触发 CI（yml 里 inputs 必须完全一致，含 reason） -------
+    await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+      owner: GH_OWNER!, repo: GH_REPO!,
+      workflow_id: WORKFLOW_ID!,
+      ref: GH_BRANCH!,
+      inputs: {
+        template, prompt,
+        owner: GH_OWNER!, repo: GH_REPO!,
+        branch: GH_BRANCH!,
+        apk_name, version_name, version_code,
+        reason,
+      }
     })
 
-    // 3) 触发 workflow_dispatch；若没有权限/未开启也不会阻断（返回 queued | skipped）
-    let dispatch: 'queued' | 'skipped' = 'skipped'
-    try {
-      await octokit.rest.actions.createWorkflowDispatch({
-        owner,
-        repo,
-        workflow_id: 'android-build-matrix.yml', // 与 .github/workflows 下文件名一致
-        ref: branch,
-        inputs: {
-          reason: 'api',
-          template,
-        } as any,
-      })
-      dispatch = 'queued'
-    } catch (e: any) {
-      // 如果你依赖 push 触发（on.push.paths 包含 content_pack/**），这里失败也能靠 push 启动构建
-      console.warn('DISPATCH_FAILED', {
-        status: e?.status,
-        message: e?.message,
-        response: e?.response?.data,
-      })
-    }
-
-    return res.status(200).json({
-      ok: true,
-      commit: commitSha,
-      dispatch,
-      path,
-    })
-  } catch (err: any) {
-    // 把 GitHub 的详细报错透出，方便排查
-    console.error('GH_ERROR', {
-      status: err?.status,
-      url: err?.request?.url,
-      message: err?.message,
-      response: err?.response?.data,
-    })
-    return res.status(500).json({
-      ok: false,
-      where: err?.request?.url ?? 'unknown',
-      status: err?.status ?? 500,
-      message: err?.message ?? 'GitHub request failed',
-      gh: err?.response?.data?.message,
-      errors: err?.response?.data?.errors,
-    })
+    return res.status(200).json({ ok: true, commit: commitSha })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, message: e?.message || 'internal error' })
   }
 }
