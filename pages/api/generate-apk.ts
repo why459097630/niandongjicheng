@@ -1,166 +1,155 @@
-// pages/api/generate-apk.ts
+// /pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { Octokit } from 'octokit';
-import { ENV } from '@/lib/env'; // 这里的 ENV 就是 server 侧 env（上面文件已兼容导出）
+import { Octokit } from '@octokit/rest';
+import env from '@/lib/env';
 
-type Data =
-  | { ok: true; commitUrl: string }
-  | { ok: false; message: string };
+type Body = {
+  prompt?: string;
+  template?: string;
+  owner?: string;
+  repo?: string;
+  branch?: string;
+  secret?: string;
+};
 
-// 简单的 CORS（你有 ALLOW_ORIGIN 的话放开）
-function setCors(res: NextApiResponse) {
-  const allow = process.env.ALLOW_ORIGIN || '*';
-  res.setHeader('Access-Control-Allow-Origin', allow);
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-SECRET');
+function str(v: unknown, def = ''): string {
+  if (v == null) return def;
+  return String(v);
+}
+
+function required(name: string, v?: string) {
+  if (!v || !v.trim()) {
+    throw new Error(`${name} is required`);
+  }
+}
+
+async function putFile(
+  octokit: Octokit,
+  p: { owner: string; repo: string; branch: string },
+  path: string,
+  content: string,
+  message: string,
+) {
+  let sha: string | undefined;
+  try {
+    const { data } = await octokit.repos.getContent({
+      owner: p.owner,
+      repo: p.repo,
+      path,
+      ref: p.branch,
+    });
+    if (Array.isArray(data)) {
+      // 目录，无需 sha
+    } else if ('sha' in data) {
+      sha = (data as any).sha;
+    }
+  } catch {
+    // 404 -> 新文件，忽略
+  }
+
+  const base64 = Buffer.from(content, 'utf8').toString('base64');
+
+  await octokit.repos.createOrUpdateFileContents({
+    owner: p.owner,
+    repo: p.repo,
+    path,
+    message,
+    content: base64,
+    branch: p.branch,
+    sha,
+  });
 }
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<Data>
+  res: NextApiResponse,
 ) {
-  setCors(res);
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
   if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, message: 'Method Not Allowed' });
-  }
-
-  // 1) 校验服务端密钥，防止未授权调用
-  const headerSecret =
-    (req.headers['x-api-secret'] as string | undefined) ?? '';
-  const valid =
-    headerSecret === ENV.API_SECRET || headerSecret === ENV.X_API_SECRET;
-
-  if (!valid) {
-    return res.status(401).json({ ok: false, message: 'Unauthorized' });
-  }
-
-  // 2) 解析请求体（避免 string | undefined 的 TS 报错）
-  const prompt = String(req.body?.prompt ?? '').trim();
-  const template = String(req.body?.template ?? 'form-template').trim();
-
-  if (!prompt) {
-    return res
-      .status(400)
-      .json({ ok: false, message: 'missing "prompt" in body' });
-  }
-
-  // 3) 读取写入目标（都给出默认值，保证是 string，避免 TS 报错）
-  const owner = String(req.body?.owner ?? ENV.GH_OWNER || '').trim();
-  const repo = String(req.body?.repo ?? ENV.GH_REPO || '').trim();
-  const branch = String(req.body?.branch ?? ENV.GH_BRANCH || 'main').trim();
-
-  if (!owner || !repo) {
-    return res.status(400).json({
-      ok: false,
-      message: 'missing GH_OWNER / GH_REPO (check env or request body)',
-    });
-  }
-
-  // 4) 初始化 Octokit
-  if (!ENV.GH_PAT) {
-    return res
-      .status(500)
-      .json({ ok: false, message: 'missing GH_PAT in server env' });
-  }
-  const octokit = new Octokit({ auth: ENV.GH_PAT });
-
-  // 小工具：获取某文件 sha（用来 upsert）
-  async function getSha(path: string): Promise<string | undefined> {
-    try {
-      const r = await octokit.rest.repos.getContent({
-        owner,
-        repo,
-        path,
-        ref: `heads/${branch}`,
-      });
-
-      if (!Array.isArray(r.data) && r.data.type === 'file') {
-        return r.data.sha;
-      }
-    } catch {
-      // 不存在则忽略
-    }
-    return undefined;
-  }
-
-  // 小工具：创建/更新文件（确保真写入）
-  async function upsertFile(path: string, content: string, message: string) {
-    const sha = await getSha(path);
-    await octokit.rest.repos.createOrUpdateFileContents({
-      owner,
-      repo,
-      path,
-      branch,
-      message,
-      content: Buffer.from(content, 'utf8').toString('base64'),
-      sha, // 有 sha 则更新，否则创建
-    });
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ ok: false, message: 'Only POST allowed' });
   }
 
   try {
-    // 5) 真正写入 content_pack/app/ 下的内容（CI 会依赖这个目录，不写就会打出空 APK）
-    const root = 'content_pack';
+    const body: Body =
+      typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
 
-    // meta 信息，便于回溯
-    const metaJson = JSON.stringify(
-      {
-        template,
-        createdAt: new Date().toISOString(),
-      },
-      null,
-      2
+    // 1) 校验 secret（优先 header，其次 body）
+    const receivedSecret =
+      str(req.headers['x-api-secret']) || str(body.secret) || '';
+    const serverSecret = env.API_SECRET || env.X_API_SECRET || '';
+    if (serverSecret && receivedSecret !== serverSecret) {
+      return res.status(401).json({ ok: false, message: 'invalid api secret' });
+    }
+
+    // 2) 基础参数（注意 ?? 与 || 的括号顺序）
+    const owner = str((body.owner ?? env.GH_OWNER) || '').trim();
+    const repo = str((body.repo ?? env.GH_REPO) || '').trim();
+    const branch = str((body.branch ?? env.GH_BRANCH || 'main') || 'main').trim();
+    const template = str(body.template || 'form-template');
+    const prompt = str(body.prompt || '');
+
+    required('GH_OWNER', owner);
+    required('GH_REPO', repo);
+    required('GH_PAT', env.GH_PAT);
+
+    // 3) Octokit
+    const octokit = new Octokit({ auth: env.GH_PAT });
+
+    // 4) 写入“内容包”，确保安卓流水线能检测到
+    const packRoot = 'content_pack/app';
+    const manifest = {
+      template,
+      updatedAt: new Date().toISOString(),
+      // 这里写一些你安卓侧需要读取的 meta
+    };
+    const readme = `# Content Pack
+
+Prompt:
+${prompt}
+`;
+
+    await putFile(
+      octokit,
+      { owner, repo, branch },
+      `${packRoot}/manifest.json`,
+      JSON.stringify(manifest, null, 2),
+      'ci(api): update content pack manifest',
     );
 
-    // 这些路径是“硬门槛”，前面的 CI 日志报错就因为没有它们
-    await upsertFile(
-      `${root}/meta.json`,
-      metaJson,
-      `ci(content-pack): update ${root}/meta.json`
+    await putFile(
+      octokit,
+      { owner, repo, branch },
+      `${packRoot}/README.md`,
+      readme,
+      'ci(api): update content pack readme',
     );
 
-    // 你可以按你的模板把更多结构化文件写进去（这里先保证最小集）
-    await upsertFile(
-      `${root}/app/prompt.txt`,
+    // 如需把 prompt 也单独存成文件，可再写一份：
+    await putFile(
+      octokit,
+      { owner, repo, branch },
+      `${packRoot}/prompt.txt`,
       prompt,
-      `ci(content-pack): write ${root}/app/prompt.txt`
+      'ci(api): update content pack prompt',
     );
 
-    // 举例：写一个非常简单的 config，真实项目里你可以生成配置化 JSON
-    const appConfig = JSON.stringify(
-      {
-        name: 'Auto App',
-        description: 'Generated by API',
-        template,
-      },
-      null,
-      2
-    );
-    await upsertFile(
-      `${root}/app/config.json`,
-      appConfig,
-      `ci(content-pack): write ${root}/app/config.json`
-    );
-
-    // 6) 返回最后一次提交的链接，方便你核对是否真的写入了
-    const commit = await octokit.rest.repos.listCommits({
+    return res.status(200).json({
+      ok: true,
+      message: 'content pack updated',
+      branch,
       owner,
       repo,
-      per_page: 1,
-      sha: branch,
+      files: [
+        `${packRoot}/manifest.json`,
+        `${packRoot}/README.md`,
+        `${packRoot}/prompt.txt`,
+      ],
     });
-
-    const commitUrl = commit.data[0]?.html_url ?? '';
-
-    return res.status(200).json({ ok: true, commitUrl });
-  } catch (e: any) {
-    console.error('generate-apk error:', e?.message || e);
+  } catch (err: any) {
+    console.error(err);
     return res.status(500).json({
       ok: false,
-      message: e?.message || 'failed to write content_pack files',
+      message: err?.message || 'unexpected error',
     });
   }
 }
