@@ -1,136 +1,121 @@
+// pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { Octokit } from 'octokit';
-import { serverEnv as ENV } from '@/lib/env';
 
-type Ok = {
-  ok: true;
-  owner: string;
-  repo: string;
-  branch: string;
-  files: string[];
-  commit: string;
-};
+type Ok = { ok: true; commitUrl: string; runTriggered: boolean };
+type Fail = { ok: false; message: string; detail?: any };
 
-type Err = {
-  ok: false;
-  message: string;
-};
+const REQUIRED_VARS = ['GH_OWNER', 'GH_REPO', 'GH_PAT'] as const;
 
-function toStringSafe(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  // 防止对象/数组 toString 出奇怪内容，这里直接 String 即可
-  return String(v);
-}
-
-function b64(s: string): string {
-  return Buffer.from(s, 'utf8').toString('base64');
-}
-
-async function getShaIfExists(o: Octokit, owner: string, repo: string, path: string, ref: string) {
-  try {
-    const res = await o.rest.repos.getContent({ owner, repo, path, ref });
-    // 目录会返回数组；文件返回对象
-    if (!Array.isArray(res.data) && 'sha' in res.data && typeof (res.data as any).sha === 'string') {
-      return (res.data as any).sha as string;
-    }
-  } catch (e: any) {
-    // 404 = 不存在，返回 undefined 即可
-    if (e?.status !== 404) throw e;
-  }
-  return undefined;
-}
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse<Ok | Err>) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse<Ok | Fail>) {
   if (req.method !== 'POST') {
     return res.status(405).json({ ok: false, message: 'Only POST allowed' });
   }
 
-  // 1) 校验密钥
-  const headerSecret = toStringSafe(req.headers['x-api-secret']);
-  const bodySecret = toStringSafe((req.body as any)?.secret);
-  const secretOk =
-    headerSecret === ENV.API_SECRET ||
-    headerSecret === ENV.X_API_SECRET ||
-    bodySecret === ENV.API_SECRET ||
-    bodySecret === ENV.X_API_SECRET;
-
-  if (!secretOk) {
-    return res.status(401).json({ ok: false, message: 'Unauthorized: bad secret' });
+  // （可选）简单鉴权
+  const headerSecret = req.headers['x-api-secret'] ?? '';
+  const must = process.env.API_SECRET ?? process.env.X_API_SECRET ?? '';
+  if (must && headerSecret !== must) {
+    return res.status(401).json({ ok: false, message: 'unauthorized (x-api-secret mismatch)' });
   }
 
-  // 2) 解析输入 & 兜底
-  const body: any = (req.body ?? {});
-  const owner = (toStringSafe(body.owner) || ENV.GH_OWNER || '').trim();
-  const repo = (toStringSafe(body.repo) || ENV.GH_REPO || '').trim();
-  const branch = (toStringSafe(body.branch) || ENV.GH_BRANCH || 'main').trim();
-
-  if (!owner || !repo) {
-    return res.status(400).json({ ok: false, message: 'Missing owner/repo' });
+  // 检查必要环境变量
+  for (const k of REQUIRED_VARS) {
+    if (!process.env[k]) return res.status(500).json({ ok: false, message: `missing env: ${k}` });
   }
-  if (!ENV.GH_PAT) {
-    return res.status(500).json({ ok: false, message: 'Missing GH_PAT in server env' });
-  }
+  const owner = process.env.GH_OWNER!;
+  const repo = process.env.GH_REPO!;
+  const token = process.env.GH_PAT!;
+  const branch = process.env.GH_BRANCH || 'main';
 
-  // 3) 准备内容（确保 CI 识别 content_pack/app 非空）
-  const prompt = toStringSafe(body.prompt);
-  const template = (toStringSafe(body.template) || 'form-template').trim();
-  const ts = new Date().toISOString();
-
-  const meta = {
-    template,
-    prompt,
-    generatedAt: ts,
-    by: 'api/generate-apk'
+  const { prompt = '', template = 'form-template' } = (req.body || {}) as {
+    prompt?: string; template?: string;
   };
+  if (!String(prompt).trim()) {
+    return res.status(400).json({ ok: false, message: 'prompt required' });
+  }
 
-  // 你实际业务的数据，可按需扩展
-  const content = {
-    pages: [
-      { type: 'title', text: 'Hello from API' },
-      { type: 'section', text: 'This content was written by the API.' },
-      { type: 'prompt', text: prompt }
-    ]
-  };
+  const octokit = new Octokit({ auth: token });
 
-  // 4) 写入仓库
+  // 1) 写入 content pack
+  const path = 'content-packs/current.json';
+  const contentJson = JSON.stringify(
+    {
+      prompt: String(prompt).trim(),
+      template,
+      updatedAt: new Date().toISOString(),
+      // 你需要的其它字段也可追加
+    },
+    null,
+    2
+  );
+  const contentB64 = Buffer.from(contentJson, 'utf8').toString('base64');
+
+  // 读取旧 sha（若不存在则忽略）
+  let oldSha: string | undefined;
   try {
-    const octokit = new Octokit({ auth: ENV.GH_PAT });
-
-    const filesToWrite: Record<string, string> = {
-      'content_pack/app/meta.json': JSON.stringify(meta, null, 2) + '\n',
-      'content_pack/app/content.json': JSON.stringify(content, null, 2) + '\n',
-      // 防止被判空，再补一个 README
-      'content_pack/README.md': `# Content Pack\n\nGenerated at ${ts}\n`
-    };
-
-    const commitMsg = `chore(api): write content_pack for ${template} at ${ts}`;
-
-    const written: string[] = [];
-    for (const [path, raw] of Object.entries(filesToWrite)) {
-      const sha = await getShaIfExists(octokit, owner, repo, path, branch);
-      await octokit.rest.repos.createOrUpdateFileContents({
-        owner,
-        repo,
-        path,
-        message: commitMsg,
-        content: b64(raw),
-        branch,
-        sha // 如果文件已存在，必须带 sha；不存在则不带
-      });
-      written.push(path);
-    }
-
-    // 5) 成功返回
-    return res.status(200).json({
-      ok: true,
-      owner,
-      repo,
-      branch,
-      files: written,
-      commit: commitMsg
+    const r = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
+      owner, repo, path, ref: branch,
     });
-  } catch (e: any) {
-    const msg = e?.message || 'unknown error';
-    return res.status(500).json({ ok: false, message: `GitHub API error: ${msg}` });
+    // @ts-ignore
+    oldSha = r.data.sha;
+  } catch (_) {
+    oldSha = undefined;
   }
+
+  // 提交
+  const put = await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+    owner,
+    repo,
+    path,
+    message: `feat(content-pack): update ${path}`,
+    content: contentB64,
+    branch,
+    sha: oldSha,
+    committer: { name: 'apk-bot', email: 'bot@example.com' },
+    author: { name: 'apk-bot', email: 'bot@example.com' },
+  });
+
+  const commitSha = (put.data as any).commit?.sha as string;
+  const commitUrl = (put.data as any).commit?.html_url as string;
+
+  // 2) 触发 CI（两条路都发一下，任一生效即可）
+  let triggered = false;
+  try {
+    // 2.1 repository_dispatch （需要 workflow 里监听 types: [build-apk]）
+    await octokit.request('POST /repos/{owner}/{repo}/dispatches', {
+      owner, repo,
+      event_type: 'build-apk',
+      client_payload: {
+        path,
+        commitSha,
+        template,
+      },
+    });
+    triggered = true;
+  } catch (e) {
+    // ignore，继续用 workflow_dispatch 再试一次
+  }
+
+  try {
+    // 2.2 workflow_dispatch （直接点名 workflow 文件）
+    await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+      owner, repo,
+      workflow_id: '.github/workflows/android-build-matrix.yml',
+      ref: branch,
+      inputs: {
+        template,
+        commit_sha: commitSha,
+      },
+    });
+    triggered = true;
+  } catch (e) {
+    // 两种都失败才算没触发
+  }
+
+  return res.status(200).json({
+    ok: true,
+    commitUrl,
+    runTriggered: triggered,
+  });
 }
