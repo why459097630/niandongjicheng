@@ -1,141 +1,160 @@
 // pages/api/generate-apk.ts
-import type { NextApiRequest, NextApiResponse } from 'next'
-import { Octokit } from 'octokit'
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { Octokit } from 'octokit';
 
-type ReqBody = {
-  template?: 'simple-template' | 'form-template' | 'core-template'
-  packageName?: string
-  appLabel?: string
-  prompt?: string // 业务文案，可用于生成内容
-  commitMessage?: string
+/**
+ * 轻量 env 读取（无需依赖额外文件）
+ */
+function getEnv() {
+  const GH_OWNER = process.env.GH_OWNER || '';
+  const GH_REPO = process.env.GH_REPO || '';
+  const GH_PAT = process.env.GH_PAT || '';
+  const SERVER_SECRET =
+    process.env.API_SECRET ||
+    process.env.X_API_SECRET ||
+    process.env.NEXT_PUBLIC_API_SECRET || // 兼容：未配置服务器专用密钥时也可使用该值
+    '';
+
+  return { GH_OWNER, GH_REPO, GH_PAT, SERVER_SECRET };
 }
 
-const {
-  GH_PAT = '',
-  GH_OWNER = '',
-  GH_REPO = '',
-  X_API_SECRET = '',
-} = process.env
+type GenerateBody = {
+  prompt?: string;
+  template?: string; // 'core-template' | 'form-template' | 'simple-template' 等
+  appName?: string;
+  packageId?: string;
+  // 允许前端携带更详细的 payload
+  payload?: Record<string, any>;
+};
 
-function b64(content: string) {
-  return Buffer.from(content, 'utf8').toString('base64')
-}
+type OkResp = {
+  ok: true;
+  path: string;
+  commitSha: string;
+  commitUrl: string;
+};
 
-// 生成最小可启动的 Android 内容（满足你的硬闸：必须存在 MainActivity.java）
-function genAndroidFiles({
-  packageName = 'com.app.generated',
-  appLabel = 'Generated App',
-  prompt = 'Hello from generated app',
-}: {
-  packageName?: string
-  appLabel?: string
-  prompt?: string
-}) {
-  const pkgPath = packageName.replace(/\./g, '/')
+type ErrResp = {
+  ok: false;
+  message: string;
+  detail?: any;
+};
 
-  const manifest = `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="${packageName}">
-  <application
-    android:label="${appLabel}"
-    android:icon="@mipmap/ic_launcher">
-    <activity android:name=".MainActivity">
-      <intent-filter>
-        <action android:name="android.intent.action.MAIN" />
-        <category android:name="android.intent.category.LAUNCHER" />
-      </intent-filter>
-    </activity>
-  </application>
-</manifest>`.trim()
-
-  const mainActivity = `package ${packageName};
-
-import android.os.Bundle;
-import android.widget.Toast;
-import androidx.appcompat.app.AppCompatActivity;
-
-public class MainActivity extends AppCompatActivity {
-  @Override protected void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    setContentView(R.layout.activity_main);
-    Toast.makeText(this, "${prompt}", Toast.LENGTH_LONG).show();
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<OkResp | ErrResp>
+) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, message: 'Method not allowed' });
   }
-}`.trim()
 
-  const layout = `<?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-  android:layout_width="match_parent"
-  android:layout_height="match_parent">
-  <TextView
-    android:id="@+id/hello"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:text="${prompt}" />
-</RelativeLayout>`.trim()
+  const { GH_OWNER, GH_REPO, GH_PAT, SERVER_SECRET } = getEnv();
 
-  return {
-    // 你的工作流检查的是这个路径是否存在
-    mainActivityPath: `content_pack/app/src/main/java/${pkgPath}/MainActivity.java`,
-    files: [
-      {
-        path: `content_pack/app/src/main/AndroidManifest.xml`,
-        content: manifest,
-      },
-      {
-        path: `content_pack/app/src/main/res/layout/activity_main.xml`,
-        content: layout,
-      },
-      {
-        path: `content_pack/app/src/main/java/${pkgPath}/MainActivity.java`,
-        content: mainActivity,
-      },
-    ],
+  // —— 必要环境检测（GitHub 相关）
+  if (!GH_OWNER || !GH_REPO || !GH_PAT) {
+    return res.status(500).json({
+      ok: false,
+      message: 'missing GH_* envs',
+      detail: { GH_OWNER: !!GH_OWNER, GH_REPO: !!GH_REPO, GH_PAT: !!GH_PAT },
+    });
   }
-}
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // —— 统一鉴权（只在配置了服务端密钥时才强制校验）
+  const needCheck = Boolean(SERVER_SECRET);
+  const headerSecret = (req.headers['x-api-secret'] as string | undefined) ?? '';
+  if (needCheck && headerSecret !== SERVER_SECRET) {
+    return res.status(401).json({ ok: false, message: 'invalid or missing secret' });
+  }
+
+  // —— 解析请求体
+  const body = (req.body || {}) as GenerateBody;
+
+  // 给出默认值，避免空字段
+  const now = new Date().toISOString();
+  const prompt = body.prompt ?? '';
+  const template = body.template ?? 'form-template';
+  const appName = body.appName ?? 'MyGeneratedApp';
+  const packageId = body.packageId ?? 'com.example.generated';
+  const extraPayload = body.payload ?? {};
+
+  // 这是 CI 识别的“内容包”文件（你的工作流里已有“Inject content pack (if any)”）
+  const targetPath = 'content_pack/app.json';
+
+  // 组装内容写入（可按你的 CI 读取格式调整字段名）
+  const contentPack = {
+    meta: {
+      source: 'api/generate-apk',
+      at: now,
+    },
+    app: {
+      name: appName,
+      packageId,
+      template, // 比如 'form-template'
+      prompt,   // 用户输入的说明
+    },
+    payload: {
+      ...extraPayload, // 允许前端扩大数据
+    },
+  };
+
+  const octokit = new Octokit({ auth: GH_PAT });
+
   try {
-    if (req.method !== 'POST') {
-      res.status(405).json({ ok: false, message: 'Method Not Allowed' })
-      return
+    // 1) 先尝试获取文件，若存在则拿到 sha 以便覆盖
+    let sha: string | undefined;
+    try {
+      const getResp = await octokit.request(
+        'GET /repos/{owner}/{repo}/contents/{path}',
+        {
+          owner: GH_OWNER,
+          repo: GH_REPO,
+          path: targetPath,
+          headers: { 'If-None-Match': '' }, // 防止缓存
+        }
+      );
+      // @ts-ignore
+      sha = getResp.data?.sha;
+    } catch (e: any) {
+      // 404 代表文件不存在，忽略
+      if (e?.status !== 404) {
+        throw e;
+      }
     }
 
-    // 简单的接口鉴权
-    const tokenFromHeader = req.headers['x-api-secret']
-    if (!X_API_SECRET || tokenFromHeader !== X_API_SECRET) {
-      res.status(401).json({ ok: false, message: 'Unauthorized' })
-      return
-    }
+    // 2) 以 base64 写入（覆盖或新建）
+    const contentBase64 = Buffer.from(
+      JSON.stringify(contentPack, null, 2),
+      'utf-8'
+    ).toString('base64');
 
-    if (!GH_PAT || !GH_OWNER || !GH_REPO) {
-      res.status(500).json({ ok: false, message: 'Missing GH_* envs' })
-      return
-    }
-
-    const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as ReqBody
-
-    const { packageName, appLabel, prompt } = body || {}
-    const { files, mainActivityPath } = genAndroidFiles({ packageName, appLabel, prompt })
-
-    const octokit = new Octokit({ auth: GH_PAT })
-
-    // 逐个文件写入（简单直观；如需原子提交，可改用 git trees API 一次提交）
-    for (const f of files) {
-      await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+    const putResp = await octokit.request(
+      'PUT /repos/{owner}/{repo}/contents/{path}',
+      {
         owner: GH_OWNER,
         repo: GH_REPO,
-        path: f.path,
-        message: body?.commitMessage || `feat(content_pack): write ${f.path}`,
-        content: b64(f.content),
-      })
-    }
+        path: targetPath,
+        message: `chore(content-pack): update by API at ${now}`,
+        content: contentBase64,
+        sha, // 有 sha -> 覆盖；无 sha -> 新建
+        branch: 'main',
+      }
+    );
 
-    res.status(200).json({
+    const commitSha = putResp.data.commit.sha;
+    const commitUrl = putResp.data.commit.html_url;
+
+    // 3) 返回成功；push 将触发你的 Android CI 构建，不再空包
+    return res.status(200).json({
       ok: true,
-      wrote: files.map(f => f.path),
-      hint: `Hard gate key file: ${mainActivityPath}`,
-    })
-  } catch (e: any) {
-    console.error(e)
-    res.status(500).json({ ok: false, message: e?.message || 'Internal Error' })
+      path: targetPath,
+      commitSha,
+      commitUrl,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      ok: false,
+      message: 'failed to write content pack',
+      detail: err?.response?.data || err?.message || String(err),
+    });
   }
 }
