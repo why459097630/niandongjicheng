@@ -1,183 +1,170 @@
-import React, { useState } from 'react';
+import { useState, FormEvent } from 'react';
+import type { NextPage } from 'next';
 
-/** 仅在前端使用公开变量（必须以 NEXT_PUBLIC_ 开头） */
-const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
-const PUBLIC_API_SECRET = process.env.NEXT_PUBLIC_API_SECRET ?? '';
+type ApiOk = { ok: true; commitUrl: string; runTriggered: boolean };
+type ApiFail = { ok: false; message: string; detail?: any };
+type ApiResp = ApiOk | ApiFail;
 
-type Template = 'core-template' | 'form-template' | 'simple-template';
+const IndexPage: NextPage = () => {
+  const [prompt, setPrompt] = useState<string>('');
+  const [template, setTemplate] = useState<string>('form-template');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [msg, setMsg] = useState<string>('');
+  const [okUrl, setOkUrl] = useState<string>('');
 
-// 根据你的返回体随便放宽一些；至少不要用 unknown
-type ApiResponse = Record<string, any>;
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setMsg('');
+    setOkUrl('');
+    if (!prompt.trim()) {
+      setMsg('请先填写需求描述（prompt）');
+      return;
+    }
 
-export default function Home() {
-  const [prompt, setPrompt] = useState('');
-  const [template, setTemplate] = useState<Template>('form-template');
-  const [loading, setLoading] = useState(false);
-  const [resp, setResp] = useState<ApiResponse | null>(null); // ✅ 不用 unknown
-  const [error, setError] = useState<string | null>(null);
-
-  const generate = async () => {
     setLoading(true);
-    setError(null);
-    setResp(null);
-
     try {
-      // 有外部网关就走外部；否则直接打 Next 内部 API
-      const url =
-        (PUBLIC_API_BASE ? PUBLIC_API_BASE.replace(/\/+$/, '') : '') +
-        '/api/generate-apk';
-
-      const res = await fetch(url, {
+      // ✅ 同源调用：不再写完整域名，也不再使用 NEXT_PUBLIC_API_BASE
+      const resp = await fetch('/api/generate-apk', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(PUBLIC_API_SECRET ? { 'x-api-secret': PUBLIC_API_SECRET } : {}),
+          // 可选：若服务器配置了 API_SECRET/X_API_SECRET，就在前端通过公开环境变量传过去
+          'x-api-secret': process.env.NEXT_PUBLIC_API_SECRET ?? '',
         },
-        body: JSON.stringify({ prompt, template }),
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          template,
+        }),
       });
 
-      const data: ApiResponse = await res.json().catch(() => ({}));
+      const data: ApiResp = await resp.json();
 
-      if (!res.ok) {
-        setError(
-          typeof data?.message === 'string'
-            ? data.message
-            : `Request failed: ${res.status}`
-        );
-        setResp(data);
+      if (!resp.ok || !data.ok) {
+        const reason = !resp.ok ? `${resp.status} ${resp.statusText}` : (data as ApiFail).message;
+        setMsg(`生成失败：${reason}`);
         return;
       }
 
-      setResp(data);
-    } catch (e: any) {
-      setError(e?.message || 'Network error');
+      setOkUrl((data as ApiOk).commitUrl);
+      setMsg('已写入仓库并触发构建（如配置），请到 GitHub Actions 查看进度。');
+    } catch (err: any) {
+      setMsg(`网络错误：${err?.message || err}`);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main style={{ maxWidth: 880, margin: '40px auto', padding: 16 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>
-        一键生成 APK
-      </h1>
+    <main style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'linear-gradient(135deg, #121826, #1f2937)',
+      color: '#fff',
+      padding: '40px 20px',
+      boxSizing: 'border-box'
+    }}>
+      <div style={{
+        width: '100%',
+        maxWidth: 840,
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16,
+        padding: 24
+      }}>
+        <h1 style={{ fontSize: 28, margin: 0, marginBottom: 12 }}>一键生成 APK</h1>
+        <p style={{ opacity: 0.85, marginTop: 0 }}>
+          输入需求，并从下拉框选择模板（core-template / form-template / simple-template），会把内容写入仓库并触发 CI。
+        </p>
 
-      <section
-        style={{
-          border: '1px solid #333',
-          borderRadius: 12,
-          padding: 16,
-          background: '#0f1220',
-        }}
-      >
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: 'block', marginBottom: 8 }}>需求描述</label>
+        <form onSubmit={onSubmit}>
+          <label style={{ display: 'block', marginBottom: 8 }}>需求描述（prompt）</label>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="例如：生成一个介绍茶品的安卓 app，可以上传照片和文字介绍，可以标价，要有登录系统..."
+            placeholder="例如：生成一个介绍茶品的安卓 app，要可以上传照片和文字介绍，可以标价，要有登录系统"
             rows={6}
             style={{
               width: '100%',
               resize: 'vertical',
               borderRadius: 8,
               padding: 12,
-              border: '1px solid #444',
-              background: '#0b0e1a',
-              color: '#eaeaea',
+              border: '1px solid rgba(255,255,255,0.14)',
+              background: 'rgba(0,0,0,0.25)',
+              color: '#fff',
+              outline: 'none'
             }}
           />
-        </div>
 
-        <div style={{ marginBottom: 12 }}>
+          <div style={{ height: 16 }} />
+
           <label style={{ display: 'block', marginBottom: 8 }}>模板</label>
           <select
             value={template}
-            onChange={(e) => setTemplate(e.target.value as Template)}
+            onChange={(e) => setTemplate(e.target.value)}
             style={{
               width: '100%',
               borderRadius: 8,
-              padding: 10,
-              border: '1px solid #444',
-              background: '#0b0e1a',
-              color: '#eaeaea',
+              padding: '10px 12px',
+              border: '1px solid rgba(255,255,255,0.14)',
+              background: 'rgba(0,0,0,0.25)',
+              color: '#fff',
+              outline: 'none'
             }}
           >
-            <option value="core-template">Core 模板</option>
-            <option value="form-template">Form 模板</option>
-            <option value="simple-template">Simple 模板</option>
+            <option value="form-template">Form 模板（form-template）</option>
+            <option value="core-template">Core 模板（core-template）</option>
+            <option value="simple-template">Simple 模板（simple-template）</option>
           </select>
-        </div>
 
-        <button
-          disabled={loading}
-          onClick={generate}
-          style={{
-            width: '100%',
-            padding: '12px 16px',
-            borderRadius: 10,
-            background: loading ? '#3a3a3a' : '#5b7cff',
-            color: '#fff',
-            border: 'none',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontWeight: 600,
-          }}
-        >
-          {loading ? '正在生成…' : 'Generate APK'}
-        </button>
+          <div style={{ height: 16 }} />
 
-        {/* 公开变量缺失的友好提示（不影响编译和调用） */}
-        {!PUBLIC_API_SECRET && (
-          <p
+          <button
+            type="submit"
+            disabled={loading}
             style={{
-              marginTop: 12,
-              padding: 12,
-              background: '#331d1d',
-              color: '#ff9b9b',
-              border: '1px solid #5b2a2a',
+              width: '100%',
+              height: 44,
               borderRadius: 8,
-              fontSize: 13,
-              lineHeight: 1.5,
+              background: loading ? 'rgba(59,130,246,0.6)' : '#3b82f6',
+              border: 'none',
+              color: '#fff',
+              fontWeight: 600,
+              cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
-            未检测到 <code>NEXT_PUBLIC_API_SECRET</code>。请在 Vercel 或
-            本地 <code>.env.local</code> 中配置。
-          </p>
-        )}
-      </section>
+            {loading ? '生成中…' : 'Generate APK'}
+          </button>
+        </form>
 
-      <section style={{ marginTop: 16 }}>
-        {!!error && ( // ✅ 用布尔值控制渲染
-          <pre
+        <div style={{ height: 16 }} />
+
+        {msg && (
+          <div
             style={{
-              padding: 12,
-              background: '#331d1d',
-              color: '#ff9b9b',
-              border: '1px solid #5b2a2a',
+              padding: '12px 14px',
               borderRadius: 8,
-              overflowX: 'auto',
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              lineHeight: 1.5
             }}
           >
-            {error}
-          </pre>
+            {msg}
+            {okUrl && (
+              <>
+                <br/>
+                提交链接：&nbsp;
+                <a href={okUrl} target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>
+                  {okUrl}
+                </a>
+              </>
+            )}
+          </div>
         )}
-
-        {!!resp && ( // ✅ 不要直接用 resp &&，显式转布尔，且 resp 非 unknown
-          <pre
-            style={{
-              marginTop: 12,
-              padding: 12,
-              background: '#0b0e1a',
-              color: '#eaeaea',
-              border: '1px solid #333',
-              borderRadius: 8,
-              overflowX: 'auto',
-            }}
-          >
-            {JSON.stringify(resp, null, 2)}
-          </pre>
-        )}
-      </section>
+      </div>
     </main>
   );
-}
+};
+
+export default IndexPage;
