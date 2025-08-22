@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
 
-/**
- * 只在前端使用公开变量（必须以 NEXT_PUBLIC_ 开头）
- * 注意：这些值会被打包进浏览器，请勿放任何私密信息
- */
+/** 仅在前端使用公开变量（必须以 NEXT_PUBLIC_ 开头） */
 const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 const PUBLIC_API_SECRET = process.env.NEXT_PUBLIC_API_SECRET ?? '';
 
 type Template = 'core-template' | 'form-template' | 'simple-template';
 
+// 根据你的返回体随便放宽一些；至少不要用 unknown
+type ApiResponse = Record<string, any>;
+
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [template, setTemplate] = useState<Template>('form-template');
   const [loading, setLoading] = useState(false);
-  const [resp, setResp] = useState<unknown>(null);
+  const [resp, setResp] = useState<ApiResponse | null>(null); // ✅ 不用 unknown
   const [error, setError] = useState<string | null>(null);
 
   const generate = async () => {
@@ -22,7 +22,7 @@ export default function Home() {
     setResp(null);
 
     try {
-      // 如果设置了外部 API_BASE，就打到外部；否则走 Next 内部路由
+      // 有外部网关就走外部；否则直接打 Next 内部 API
       const url =
         (PUBLIC_API_BASE ? PUBLIC_API_BASE.replace(/\/+$/, '') : '') +
         '/api/generate-apk';
@@ -31,16 +31,12 @@ export default function Home() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // 如果后端需要校验公开秘钥，则把它带上（为空就不传）
           ...(PUBLIC_API_SECRET ? { 'x-api-secret': PUBLIC_API_SECRET } : {}),
         },
-        body: JSON.stringify({
-          prompt,
-          template,
-        }),
+        body: JSON.stringify({ prompt, template }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data: ApiResponse = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(
@@ -79,7 +75,7 @@ export default function Home() {
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="例如：生成一个介绍茶品的安卓 app..."
+            placeholder="例如：生成一个介绍茶品的安卓 app，可以上传照片和文字介绍，可以标价，要有登录系统..."
             rows={6}
             style={{
               width: '100%',
@@ -130,7 +126,7 @@ export default function Home() {
           {loading ? '正在生成…' : 'Generate APK'}
         </button>
 
-        {/* 提示公开变量是否缺失（仅 UI 友好提示，不影响编译） */}
+        {/* 公开变量缺失的友好提示（不影响编译和调用） */}
         {!PUBLIC_API_SECRET && (
           <p
             style={{
@@ -151,7 +147,7 @@ export default function Home() {
       </section>
 
       <section style={{ marginTop: 16 }}>
-        {error && (
+        {!!error && ( // ✅ 用布尔值控制渲染
           <pre
             style={{
               padding: 12,
@@ -166,7 +162,7 @@ export default function Home() {
           </pre>
         )}
 
-        {resp && (
+        {!!resp && ( // ✅ 不要直接用 resp &&，显式转布尔，且 resp 非 unknown
           <pre
             style={{
               marginTop: 12,
