@@ -1,160 +1,166 @@
 // pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { Octokit } from 'octokit';
+import { ENV } from '@/lib/env'; // 这里的 ENV 就是 server 侧 env（上面文件已兼容导出）
 
-/**
- * 轻量 env 读取（无需依赖额外文件）
- */
-function getEnv() {
-  const GH_OWNER = process.env.GH_OWNER || '';
-  const GH_REPO = process.env.GH_REPO || '';
-  const GH_PAT = process.env.GH_PAT || '';
-  const SERVER_SECRET =
-    process.env.API_SECRET ||
-    process.env.X_API_SECRET ||
-    process.env.NEXT_PUBLIC_API_SECRET || // 兼容：未配置服务器专用密钥时也可使用该值
-    '';
+type Data =
+  | { ok: true; commitUrl: string }
+  | { ok: false; message: string };
 
-  return { GH_OWNER, GH_REPO, GH_PAT, SERVER_SECRET };
+// 简单的 CORS（你有 ALLOW_ORIGIN 的话放开）
+function setCors(res: NextApiResponse) {
+  const allow = process.env.ALLOW_ORIGIN || '*';
+  res.setHeader('Access-Control-Allow-Origin', allow);
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-SECRET');
 }
-
-type GenerateBody = {
-  prompt?: string;
-  template?: string; // 'core-template' | 'form-template' | 'simple-template' 等
-  appName?: string;
-  packageId?: string;
-  // 允许前端携带更详细的 payload
-  payload?: Record<string, any>;
-};
-
-type OkResp = {
-  ok: true;
-  path: string;
-  commitSha: string;
-  commitUrl: string;
-};
-
-type ErrResp = {
-  ok: false;
-  message: string;
-  detail?: any;
-};
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<OkResp | ErrResp>
+  res: NextApiResponse<Data>
 ) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, message: 'Method not allowed' });
+  setCors(res);
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
   }
 
-  const { GH_OWNER, GH_REPO, GH_PAT, SERVER_SECRET } = getEnv();
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, message: 'Method Not Allowed' });
+  }
 
-  // —— 必要环境检测（GitHub 相关）
-  if (!GH_OWNER || !GH_REPO || !GH_PAT) {
-    return res.status(500).json({
+  // 1) 校验服务端密钥，防止未授权调用
+  const headerSecret =
+    (req.headers['x-api-secret'] as string | undefined) ?? '';
+  const valid =
+    headerSecret === ENV.API_SECRET || headerSecret === ENV.X_API_SECRET;
+
+  if (!valid) {
+    return res.status(401).json({ ok: false, message: 'Unauthorized' });
+  }
+
+  // 2) 解析请求体（避免 string | undefined 的 TS 报错）
+  const prompt = String(req.body?.prompt ?? '').trim();
+  const template = String(req.body?.template ?? 'form-template').trim();
+
+  if (!prompt) {
+    return res
+      .status(400)
+      .json({ ok: false, message: 'missing "prompt" in body' });
+  }
+
+  // 3) 读取写入目标（都给出默认值，保证是 string，避免 TS 报错）
+  const owner = String(req.body?.owner ?? ENV.GH_OWNER || '').trim();
+  const repo = String(req.body?.repo ?? ENV.GH_REPO || '').trim();
+  const branch = String(req.body?.branch ?? ENV.GH_BRANCH || 'main').trim();
+
+  if (!owner || !repo) {
+    return res.status(400).json({
       ok: false,
-      message: 'missing GH_* envs',
-      detail: { GH_OWNER: !!GH_OWNER, GH_REPO: !!GH_REPO, GH_PAT: !!GH_PAT },
+      message: 'missing GH_OWNER / GH_REPO (check env or request body)',
     });
   }
 
-  // —— 统一鉴权（只在配置了服务端密钥时才强制校验）
-  const needCheck = Boolean(SERVER_SECRET);
-  const headerSecret = (req.headers['x-api-secret'] as string | undefined) ?? '';
-  if (needCheck && headerSecret !== SERVER_SECRET) {
-    return res.status(401).json({ ok: false, message: 'invalid or missing secret' });
+  // 4) 初始化 Octokit
+  if (!ENV.GH_PAT) {
+    return res
+      .status(500)
+      .json({ ok: false, message: 'missing GH_PAT in server env' });
+  }
+  const octokit = new Octokit({ auth: ENV.GH_PAT });
+
+  // 小工具：获取某文件 sha（用来 upsert）
+  async function getSha(path: string): Promise<string | undefined> {
+    try {
+      const r = await octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path,
+        ref: `heads/${branch}`,
+      });
+
+      if (!Array.isArray(r.data) && r.data.type === 'file') {
+        return r.data.sha;
+      }
+    } catch {
+      // 不存在则忽略
+    }
+    return undefined;
   }
 
-  // —— 解析请求体
-  const body = (req.body || {}) as GenerateBody;
-
-  // 给出默认值，避免空字段
-  const now = new Date().toISOString();
-  const prompt = body.prompt ?? '';
-  const template = body.template ?? 'form-template';
-  const appName = body.appName ?? 'MyGeneratedApp';
-  const packageId = body.packageId ?? 'com.example.generated';
-  const extraPayload = body.payload ?? {};
-
-  // 这是 CI 识别的“内容包”文件（你的工作流里已有“Inject content pack (if any)”）
-  const targetPath = 'content_pack/app.json';
-
-  // 组装内容写入（可按你的 CI 读取格式调整字段名）
-  const contentPack = {
-    meta: {
-      source: 'api/generate-apk',
-      at: now,
-    },
-    app: {
-      name: appName,
-      packageId,
-      template, // 比如 'form-template'
-      prompt,   // 用户输入的说明
-    },
-    payload: {
-      ...extraPayload, // 允许前端扩大数据
-    },
-  };
-
-  const octokit = new Octokit({ auth: GH_PAT });
+  // 小工具：创建/更新文件（确保真写入）
+  async function upsertFile(path: string, content: string, message: string) {
+    const sha = await getSha(path);
+    await octokit.rest.repos.createOrUpdateFileContents({
+      owner,
+      repo,
+      path,
+      branch,
+      message,
+      content: Buffer.from(content, 'utf8').toString('base64'),
+      sha, // 有 sha 则更新，否则创建
+    });
+  }
 
   try {
-    // 1) 先尝试获取文件，若存在则拿到 sha 以便覆盖
-    let sha: string | undefined;
-    try {
-      const getResp = await octokit.request(
-        'GET /repos/{owner}/{repo}/contents/{path}',
-        {
-          owner: GH_OWNER,
-          repo: GH_REPO,
-          path: targetPath,
-          headers: { 'If-None-Match': '' }, // 防止缓存
-        }
-      );
-      // @ts-ignore
-      sha = getResp.data?.sha;
-    } catch (e: any) {
-      // 404 代表文件不存在，忽略
-      if (e?.status !== 404) {
-        throw e;
-      }
-    }
+    // 5) 真正写入 content_pack/app/ 下的内容（CI 会依赖这个目录，不写就会打出空 APK）
+    const root = 'content_pack';
 
-    // 2) 以 base64 写入（覆盖或新建）
-    const contentBase64 = Buffer.from(
-      JSON.stringify(contentPack, null, 2),
-      'utf-8'
-    ).toString('base64');
-
-    const putResp = await octokit.request(
-      'PUT /repos/{owner}/{repo}/contents/{path}',
+    // meta 信息，便于回溯
+    const metaJson = JSON.stringify(
       {
-        owner: GH_OWNER,
-        repo: GH_REPO,
-        path: targetPath,
-        message: `chore(content-pack): update by API at ${now}`,
-        content: contentBase64,
-        sha, // 有 sha -> 覆盖；无 sha -> 新建
-        branch: 'main',
-      }
+        template,
+        createdAt: new Date().toISOString(),
+      },
+      null,
+      2
     );
 
-    const commitSha = putResp.data.commit.sha;
-    const commitUrl = putResp.data.commit.html_url;
+    // 这些路径是“硬门槛”，前面的 CI 日志报错就因为没有它们
+    await upsertFile(
+      `${root}/meta.json`,
+      metaJson,
+      `ci(content-pack): update ${root}/meta.json`
+    );
 
-    // 3) 返回成功；push 将触发你的 Android CI 构建，不再空包
-    return res.status(200).json({
-      ok: true,
-      path: targetPath,
-      commitSha,
-      commitUrl,
+    // 你可以按你的模板把更多结构化文件写进去（这里先保证最小集）
+    await upsertFile(
+      `${root}/app/prompt.txt`,
+      prompt,
+      `ci(content-pack): write ${root}/app/prompt.txt`
+    );
+
+    // 举例：写一个非常简单的 config，真实项目里你可以生成配置化 JSON
+    const appConfig = JSON.stringify(
+      {
+        name: 'Auto App',
+        description: 'Generated by API',
+        template,
+      },
+      null,
+      2
+    );
+    await upsertFile(
+      `${root}/app/config.json`,
+      appConfig,
+      `ci(content-pack): write ${root}/app/config.json`
+    );
+
+    // 6) 返回最后一次提交的链接，方便你核对是否真的写入了
+    const commit = await octokit.rest.repos.listCommits({
+      owner,
+      repo,
+      per_page: 1,
+      sha: branch,
     });
-  } catch (err: any) {
+
+    const commitUrl = commit.data[0]?.html_url ?? '';
+
+    return res.status(200).json({ ok: true, commitUrl });
+  } catch (e: any) {
+    console.error('generate-apk error:', e?.message || e);
     return res.status(500).json({
       ok: false,
-      message: 'failed to write content pack',
-      detail: err?.response?.data || err?.message || String(err),
+      message: e?.message || 'failed to write content_pack files',
     });
   }
 }
