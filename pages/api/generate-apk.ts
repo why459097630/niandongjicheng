@@ -1,103 +1,139 @@
 // /pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-type Body = {
+type BodyIn = {
   template?: string;
   appName?: string;
   apiBase?: string;
   apiSecret?: string;
 };
 
-const EVENT_TYPE = 'generate-apk';
+// CORS 头（便于你本地或跨域调试）
+function corsHeaders() {
+  const origin = process.env.ALLOW_ORIGIN || '*';
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,x-api-secret',
+  };
+}
+
+function send(
+  res: NextApiResponse,
+  status: number,
+  data: Record<string, any>
+) {
+  res.status(status).setHeader('Vary', 'Origin');
+  Object.entries(corsHeaders()).forEach(([k, v]) => res.setHeader(k, v));
+  res.json(data);
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // 只允许 POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
+  // 处理预检
+  if (req.method === 'OPTIONS') {
+    res.status(204);
+    Object.entries(corsHeaders()).forEach(([k, v]) => res.setHeader(k, v));
+    return res.end();
   }
 
-  try {
-    // 1) 可选的 header 验证（与 Vercel 环境变量 NEXT_PUBLIC_X_API_SECRET 一致）
-    const must = process.env.NEXT_PUBLIC_X_API_SECRET || '';
-    if (must) {
-      const headerSecret = (req.headers['x-api-secret'] as string) || '';
-      if (headerSecret !== must) {
-        return res.status(401).json({ ok: false, error: 'Unauthorized: secret mismatch' });
-      }
-    }
+  if (req.method !== 'POST') {
+    return send(res, 405, { ok: false, error: 'Method Not Allowed' });
+  }
 
-    // 2) 解析 JSON
-    const raw = typeof req.body === 'object' ? req.body : JSON.parse(req.body || '{}');
-    const body = raw as Body;
+  // ——密钥校验（可选）——
+  // • 推荐只设置 X_API_SECRET（服务端可见）；兼容你之前的 NEXT_PUBLIC_X_API_SECRET；
+  // • 两者都没设置则不做校验（不会 401）。
+  const envSecret =
+    (process.env.X_API_SECRET ?? '').trim() ||
+    (process.env.NEXT_PUBLIC_X_API_SECRET ?? '').trim();
 
-    const template  = (body.template  ?? '').toString().trim();
-    const appName   = (body.appName   ?? '').toString().trim();
-    const apiBase   = (body.apiBase   ?? '').toString().trim();
-    const apiSecret = (body.apiSecret ?? '').toString().trim();
+  const headerSecret =
+    (req.headers['x-api-secret'] as string | undefined)?.trim() || '';
 
-    // 3) 必填校验（apiSecret 可按需改为必填）
-    const miss: string[] = [];
-    if (!template) miss.push('template');
-    if (!appName)  miss.push('appName');
-    if (!apiBase)  miss.push('apiBase');
+  if (envSecret && headerSecret !== envSecret) {
+    return send(res, 401, { ok: false, error: 'Unauthorized: secret mismatch' });
+  }
 
-    if (miss.length) {
-      return res.status(400).json({ ok: false, error: `Missing fields: ${miss.join(', ')}` });
-    }
+  // 解析并校验 body
+  const body = (req.body ?? {}) as BodyIn;
 
-    // 4) 读取 GitHub 凭据
-    const OWNER = process.env.GH_OWNER || '';
-    const REPO  = process.env.GH_REPO  || '';
-    const TOKEN = process.env.GH_TOKEN || '';
+  const template = (body.template ?? '').trim();
+  const appName = (body.appName ?? '').trim();
+  const apiBase = (body.apiBase ?? '').trim();
+  const apiSecret = (body.apiSecret ?? '').trim();
 
-    if (!OWNER || !REPO || !TOKEN) {
-      return res.status(500).json({
-        ok: false,
-        error: 'Server not configured (GH_OWNER / GH_REPO / GH_TOKEN)',
-      });
-    }
+  const miss: string[] = [];
+  if (!template) miss.push('template');
+  if (!appName) miss.push('appName');
+  if (!apiBase) miss.push('apiBase');
+  if (!apiSecret) miss.push('apiSecret');
 
-    // 5) 调 GitHub repository_dispatch
-    const url = `https://api.github.com/repos/${OWNER}/${REPO}/dispatches`;
-    const payload = {
-      event_type: EVENT_TYPE,
-      client_payload: {
-        template,
-        app_name: appName,
-        api_base: apiBase,
-        api_secret: apiSecret,
-      },
-    };
-
-    const gh = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `token ${TOKEN}`,
-        Accept: 'application/vnd.github+json',
-        'User-Agent': `${OWNER}-${REPO}-generate-apk`,
-        'Content-Type': 'application/json',
-      } as any,
-      body: JSON.stringify(payload),
+  if (miss.length) {
+    return send(res, 400, {
+      ok: false,
+      error: 'Missing required fields',
+      missing: miss,
     });
+  }
 
-    if (!gh.ok) {
-      const text = await gh.text();
-      return res.status(502).json({
+  // 读取 GitHub 配置（Vercel 环境变量）
+  const GH_OWNER = (process.env.GH_OWNER ?? '').trim();
+  const GH_REPO = (process.env.GH_REPO ?? '').trim();
+  const GH_TOKEN =
+    (process.env.GH_PAT ?? '').trim() || (process.env.GH_TOKEN ?? '').trim();
+
+  if (!GH_OWNER || !GH_REPO || !GH_TOKEN) {
+    return send(res, 500, {
+      ok: false,
+      error: 'GitHub env missing',
+      need: ['GH_OWNER', 'GH_REPO', 'GH_TOKEN (or GH_PAT)'],
+    });
+  }
+
+  // 触发 repository_dispatch
+  try {
+    const resp = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(
+        GH_REPO
+      )}/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${GH_TOKEN}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({
+          event_type: 'generate-apk',
+          client_payload: {
+            template,
+            app_name: appName,
+            api_base: apiBase,
+            api_secret: apiSecret,
+          },
+        }),
+      }
+    );
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      return send(res, resp.status, {
         ok: false,
-        error: 'github_dispatch_failed',
-        status: gh.status,
+        error: 'GitHub dispatch failed',
+        status: resp.status,
         body: text,
       });
     }
 
-    // 6) 成功
-    return res
-      .status(202)
-      .json({ ok: true, message: 'dispatched', payload: { template, appName } });
-  } catch (err: any) {
-    console.error('[generate-apk] error:', err);
-    return res
-      .status(500)
-      .json({ ok: false, error: err?.message || 'internal_error' });
+    // 一切正常
+    return send(res, 202, {
+      ok: true,
+      message: 'repository_dispatch sent',
+      event_type: 'generate-apk',
+      payload: { template, appName, apiBase },
+    });
+  } catch (e: any) {
+    return send(res, 500, { ok: false, error: e?.message || String(e) });
   }
 }
