@@ -1,120 +1,116 @@
 // pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-type Res = NextApiResponse<{
-  ok: boolean;
-  message?: string;
+type Ok = {
+  ok: true;
+  note: string;
+  githubStatus: number;
+  githubBody?: any;
   echo?: Record<string, unknown>;
-  error?: string;
-}>;
-
-// ====== 环境变量（都在 Vercel 上配置）======
-const GH_OWNER  = process.env.GH_OWNER  || '';
-const GH_REPO   = process.env.GH_REPO   || '';
-const GH_TOKEN  = process.env.GH_TOKEN  || process.env.GH_PAT || ''; // 任取一个可用 PAT
-const HEADER_SECRET_REQUIRED =
-  process.env.NEXT_PUBLIC_X_API_SECRET || process.env.X_API_SECRET || ''; // 可为空（不校验）
-
-// 允许 OPTIONS 预检
-export const config = {
-  api: { bodyParser: true },
 };
+type Fail = { ok: false; error: string; detail?: any; echo?: Record<string, unknown> };
 
-export default async function handler(req: NextApiRequest, res: Res) {
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', process.env.ALLOW_ORIGIN || '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,x-api-secret');
-    return res.status(204).end();
-  }
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || '*';
 
-  if (req.method !== 'POST') {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<Ok | Fail>
+) {
+  res.setHeader('Access-Control-Allow-Origin', ALLOW_ORIGIN);
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method !== 'POST')
     return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
-  }
 
   try {
-    // 1) 可选的 header 密钥校验
-    if (HEADER_SECRET_REQUIRED) {
-      const got = String(req.headers['x-api-secret'] || '');
-      if (got !== HEADER_SECRET_REQUIRED) {
-        console.warn('[generate-apk] secret mismatch');
-        return res.status(401).json({ ok: false, error: 'Unauthorized' });
-      }
-    }
+    const GH_OWNER  = (req.body?.owner  as string) || process.env.GH_OWNER;
+    const GH_REPO   = (req.body?.repo   as string) || process.env.GH_REPO;
+    const GH_BRANCH = (req.body?.branch as string) || process.env.GH_BRANCH || 'main';
+    const GH_PAT    = process.env.GH_PAT;
 
-    // 2) 解析 JSON Body，兼容驼峰/下划线两种写法
-    const body = (req.body ?? {}) as Record<string, any>;
+    if (!GH_OWNER || !GH_REPO)
+      return res.status(200).json({ ok: false, error: 'Missing GH_OWNER or GH_REPO' });
+    if (!GH_PAT)
+      return res.status(200).json({ ok: false, error: 'Missing GH_PAT (server env)' });
+
+    // ---- 兼容驼峰/下划线，补齐新字段 ----
+    const b = (req.body ?? {}) as Record<string, any>;
+
+    const template      = (b.template as string) ?? 'form-template';
+    const app_name      = (b.app_name ?? b.appName ?? 'MyApp') as string;
+
+    const api_base      = (b.api_base ?? b.apiBase ?? '') as string;
+    const api_secret    = (b.api_secret ?? b.apiSecret ?? '') as string;
+
+    const version_name  = (b.version_name ?? b.versionName ?? '1.0.0') as string;
+    const version_code  = (b.version_code ?? b.versionCode ?? '1') as string;
+    const reason        = (b.reason as string) ?? 'api';
+
+    // 回显（api_secret 脱敏），并打印日志方便排查“前端→接口”
+    const echo = {
+      template,
+      owner: GH_OWNER,
+      repo: GH_REPO,
+      branch: GH_BRANCH,
+      app_name,
+      api_base,
+      api_secret: api_secret ? '***masked***' : '',
+      version_name,
+      version_code,
+      reason,
+    };
+    console.log('[generate-apk] payload echo:', echo);
+
+    const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/dispatches`;
     const payload = {
-      template  : body.template ?? '',
-      app_name  : body.app_name ?? body.appName ?? '',
-      api_base  : body.api_base ?? body.apiBase ?? '',
-      api_secret: body.api_secret ?? body.apiSecret ?? '',
+      event_type: 'generate-apk',
+      client_payload: {
+        // 你已有的字段
+        template,
+        owner: GH_OWNER,
+        repo: GH_REPO,
+        branch: GH_BRANCH,
+        app_name,
+        version_name,
+        version_code,
+        reason,
+        // 新增：给 Action 用来写入 strings.xml
+        api_base,
+        api_secret,
+      },
     };
 
-    // 3) 打印到 Vercel 日志 + 回显给前端（密钥打星）
-    console.log('[generate-apk] outgoing payload:', {
-      ...payload,
-      api_secret: payload.api_secret ? '***masked***' : '',
-    });
-
-    // 4) 基本校验
-    const miss = Object.entries(payload)
-      .filter(([k, v]) => !v)
-      .map(([k]) => k);
-    if (miss.length) {
-      return res.status(400).json({
-        ok: false,
-        error: `missing fields: ${miss.join(', ')}`,
-        echo: { ...payload, api_secret: payload.api_secret ? '***masked***' : '' },
-      });
-    }
-
-    // 5) 发送 repository_dispatch
-    if (!GH_OWNER || !GH_REPO || !GH_TOKEN) {
-      console.error('[generate-apk] GH env missing', { GH_OWNER, GH_REPO, hasToken: !!GH_TOKEN });
-      return res.status(500).json({ ok: false, error: 'GitHub env not configured' });
-    }
-
-    const r = await fetch(`https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/dispatches`, {
+    const ghRes = await fetch(url, {
       method: 'POST',
       headers: {
-        'Accept': 'application/vnd.github+json',
-        'Authorization': `Bearer ${GH_TOKEN}`,
-        'X-GitHub-Api-Version': '2022-11-28',
+        // 你原来用的是 `token ${GH_PAT}`，GitHub 也支持；若想更标准可换成 Bearer
+        Authorization: `token ${GH_PAT}`,
+        Accept: 'application/vnd.github+json',
         'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
       },
-      body: JSON.stringify({
-        event_type: 'generate-apk',
-        client_payload: payload, // 关键：Action 里用 github.event.client_payload 拿
-      }),
+      body: JSON.stringify(payload),
     });
 
-    if (!r.ok) {
-      const txt = await r.text().catch(() => '');
-      console.error('[generate-apk] dispatch failed', r.status, txt);
-      return res.status(500).json({ ok: false, error: `dispatch failed: ${r.status}` });
+    const text = await ghRes.text();
+    let body: any = undefined;
+    try {
+      body = text ? JSON.parse(text) : undefined;
+    } catch {
+      body = text;
     }
 
-    return res.status(202).json({
-      ok: true,
-      message: 'repository_dispatch sent',
-      echo: { ...payload, api_secret: '***masked***' },
-    });
-  } catch (e: any) {
-    console.error('[generate-apk] error', e?.stack || e);
-    return res.status(500).json({ ok: false, error: 'internal error' });
+    if (!ghRes.ok) {
+      return res
+        .status(200)
+        .json({ ok: false, error: 'GitHub dispatch failed', detail: { status: ghRes.status, body }, echo });
+    }
+
+    return res
+      .status(200)
+      .json({ ok: true, note: 'repository_dispatch sent', githubStatus: ghRes.status, githubBody: body, echo });
+  } catch (err: any) {
+    return res.status(200).json({ ok: false, error: err?.message || 'Internal Error' });
   }
 }
-
-/* 
-// 如果你采用的是 app router，请把上面的默认导出换成如下版本：
-// 文件路径：app/api/generate-apk/route.ts
-
-import { NextResponse } from 'next/server';
-export const runtime = 'edge'; // 或 'nodejs'
-
-export async function POST(req: Request) {
-  // 读取 header / 解析 json / 组装 payload（与上面完全一致）
-  // 调用 GitHub dispatch，同样返回 JSON。
-}
-*/
