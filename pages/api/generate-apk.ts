@@ -1,148 +1,91 @@
 // pages/api/generate-apk.ts
-import type { NextApiRequest, NextApiResponse } from 'next'
-import { Octokit } from 'octokit'
+import type { NextApiRequest, NextApiResponse } from 'next';
 
-const {
-  GH_OWNER,
-  GH_REPO,
-  GH_BRANCH = 'main',
-  GH_PAT,
-  WORKFLOW_ID = 'android-build-matrix.yml',
-  API_SECRET,
-} = process.env
+type Ok = { ok: true; note: string; githubStatus: number; githubBody?: any };
+type Fail = { ok: false; error: string; detail?: any };
 
-function assertEnv() {
-  if (!GH_OWNER || !GH_REPO || !GH_BRANCH || !GH_PAT || !WORKFLOW_ID) {
-    throw new Error('Missing GH_* envs or WORKFLOW_ID')
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || '*'; // 你也可以填具体域名
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<Ok | Fail>) {
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', ALLOW_ORIGIN);
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
   }
-}
 
-type FileItem = { path: string; content: string } // utf-8 文本文件
-
-async function commitFiles(
-  octokit: Octokit,
-  files: FileItem[],
-  message: string,
-) {
-  // 1) 拿 branch 最新 commit
-  const { data: ref } = await octokit.rest.git.getRef({
-    owner: GH_OWNER!, repo: GH_REPO!, ref: `heads/${GH_BRANCH!}`
-  })
-  const headSha = ref.object.sha
-
-  const { data: headCommit } = await octokit.rest.git.getCommit({
-    owner: GH_OWNER!, repo: GH_REPO!, commit_sha: headSha
-  })
-
-  // 2) 创建 blobs
-  const blobs = await Promise.all(
-    files.map(async f => {
-      const { data } = await octokit.rest.git.createBlob({
-        owner: GH_OWNER!, repo: GH_REPO!,
-        content: Buffer.from(f.content, 'utf8').toString('base64'),
-        encoding: 'base64',
-      })
-      return { path: f.path, sha: data.sha }
-    })
-  )
-
-  // 3) 创建新 tree
-  const { data: tree } = await octokit.rest.git.createTree({
-    owner: GH_OWNER!, repo: GH_REPO!,
-    base_tree: headCommit.tree.sha,
-    tree: blobs.map(b => ({
-      path: b.path, mode: '100644', type: 'blob', sha: b.sha
-    }))
-  })
-
-  // 4) 创建 commit
-  const { data: commit } = await octokit.rest.git.createCommit({
-    owner: GH_OWNER!, repo: GH_REPO!,
-    message,
-    tree: tree.sha,
-    parents: [headSha],
-  })
-
-  // 5) 更新分支指针
-  await octokit.rest.git.updateRef({
-    owner: GH_OWNER!, repo: GH_REPO!, ref: `heads/${GH_BRANCH!}`,
-    sha: commit.sha, force: false
-  })
-
-  return commit.sha
-}
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    if (req.method !== 'POST') return res.status(405).json({ ok: false, message: 'Method Not Allowed' })
-    if (req.headers['x-api-secret'] !== API_SECRET) return res.status(401).json({ ok: false, message: 'unauthorized' })
+    // ---- 读取 env，允许 body 覆盖 ----
+    const GH_OWNER = (req.body?.owner as string) || process.env.GH_OWNER;
+    const GH_REPO  = (req.body?.repo as string)  || process.env.GH_REPO;
+    const GH_BRANCH = (req.body?.branch as string) || process.env.GH_BRANCH || 'main';
+    const GH_PAT   = process.env.GH_PAT; // 服务器上配置
 
-    assertEnv()
-    const octokit = new Octokit({ auth: GH_PAT })
+    if (!GH_OWNER || !GH_REPO) {
+      return res.status(400).json({ ok: false, error: 'Missing GH_OWNER or GH_REPO' });
+    }
+    if (!GH_PAT) {
+      return res.status(400).json({ ok: false, error: 'Missing GH_PAT (server env)' });
+    }
 
-    // ------- 1) 收集表单 / 生成文件 -------
-    const {
-      template = 'form-template',
-      prompt = '',
-      apk_name = 'MyApp',
-      version_name = '1.0.0',
-      version_code = '1',
-      reason = '',
-    } = (req.body || {}) as Record<string, string>
+    // ---- 读取业务参数（模板 & 版本信息）----
+    const template     = (req.body?.template as string) || 'form-template';
+    const app_name     = (req.body?.app_name as string) || 'MyApp';
+    const version_name = (req.body?.version_name as string) || '1.0.0';
+    const version_code = (req.body?.version_code as string) || '1';
+    const reason       = (req.body?.reason as string) || 'api';
 
-    // 这里替换成你真实生成的内容；先用最小示例保证流程跑通
-    const files: FileItem[] = [
-      {
-        path: 'app/src/main/AndroidManifest.xml',
-        content: `<?xml version="1.0" encoding="utf-8"?>
-<manifest package="com.app.generated" xmlns:android="http://schemas.android.com/apk/res/android">
-  <application android:label="${apk_name}">
-    <activity android:name=".MainActivity" android:exported="true">
-      <intent-filter>
-        <action android:name="android.intent.action.MAIN"/>
-        <category android:name="android.intent.category.LAUNCHER"/>
-      </intent-filter>
-    </activity>
-  </application>
-</manifest>`
-      },
-      {
-        path: 'app/src/main/res/values/strings.xml',
-        content: `<resources><string name="app_name">${apk_name}</string></resources>`
-      },
-      {
-        path: 'README.md',
-        content: `Generated by API
-template: ${template}
-prompt: ${prompt}
-reason: ${reason}
-`
-      },
-    ]
-
-    // ------- 2) 先写入安卓仓库 -------
-    const commitSha = await commitFiles(
-      octokit,
-      files,
-      `feat(api): generate ${apk_name} v${version_name} (${reason || 'no-reason'})`
-    )
-
-    // ------- 3) 再触发 CI（yml 里 inputs 必须完全一致，含 reason） -------
-    await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
-      owner: GH_OWNER!, repo: GH_REPO!,
-      workflow_id: WORKFLOW_ID!,
-      ref: GH_BRANCH!,
-      inputs: {
-        template, prompt,
-        owner: GH_OWNER!, repo: GH_REPO!,
-        branch: GH_BRANCH!,
-        apk_name, version_name, version_code,
+    // ---- 调 GitHub repository_dispatch ----
+    const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/dispatches`;
+    const payload = {
+      event_type: 'generate-apk',
+      client_payload: {
+        template,
+        owner: GH_OWNER,
+        repo: GH_REPO,
+        branch: GH_BRANCH,
+        app_name,
+        version_name,
+        version_code,
         reason,
-      }
-    })
+      },
+    };
 
-    return res.status(200).json({ ok: true, commit: commitSha })
-  } catch (e: any) {
-    return res.status(500).json({ ok: false, message: e?.message || 'internal error' })
+    const ghRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${GH_PAT}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await ghRes.text();
+    let body: any = undefined;
+    try { body = text ? JSON.parse(text) : undefined; } catch { body = text; }
+
+    if (!ghRes.ok) {
+      // 把 GitHub 的状态与信息直接返回给前端，避免只看到 500
+      return res.status(200).json({
+        ok: false,
+        error: 'GitHub dispatch failed',
+        detail: { status: ghRes.status, body },
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      note: 'repository_dispatch sent',
+      githubStatus: ghRes.status,
+      githubBody: body,
+    });
+  } catch (err: any) {
+    console.error('API /generate-apk error:', err);
+    return res.status(200).json({ ok: false, error: err?.message || 'Internal Error' });
   }
 }
