@@ -6,9 +6,10 @@ type BodyIn = {
   appName?: string;
   apiBase?: string;
   apiSecret?: string;
+  xApiSecret?: string;   // 兼容：把密钥放 body
+  x_api_secret?: string; // 兼容：把密钥放 body（下划线）
 };
 
-// CORS 头（便于你本地或跨域调试）
 function corsHeaders() {
   const origin = process.env.ALLOW_ORIGIN || '*';
   return {
@@ -18,67 +19,77 @@ function corsHeaders() {
   };
 }
 
-function send(
-  res: NextApiResponse,
-  status: number,
-  data: Record<string, any>
-) {
-  res.status(status).setHeader('Vary', 'Origin');
+function send(res: NextApiResponse, status: number, data: Record<string, any>) {
   Object.entries(corsHeaders()).forEach(([k, v]) => res.setHeader(k, v));
-  res.json(data);
+  return res.status(status).json(data);
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // 处理预检
   if (req.method === 'OPTIONS') {
-    res.status(204);
     Object.entries(corsHeaders()).forEach(([k, v]) => res.setHeader(k, v));
-    return res.end();
+    return res.status(204).end();
   }
-
   if (req.method !== 'POST') {
     return send(res, 405, { ok: false, error: 'Method Not Allowed' });
   }
 
-  // ——密钥校验（可选）——
-  // • 推荐只设置 X_API_SECRET（服务端可见）；兼容你之前的 NEXT_PUBLIC_X_API_SECRET；
-  // • 两者都没设置则不做校验（不会 401）。
+  // ---------- 密钥校验（更宽松 + 可关闭） ----------
+  const disableCheck = ['1', 'true', 'yes'].includes(
+    (process.env.DISABLE_SECRET_CHECK ?? '').toLowerCase()
+  );
+
+  // 环境侧密钥：优先 X_API_SECRET，其次兼容 NEXT_PUBLIC_X_API_SECRET
   const envSecret =
     (process.env.X_API_SECRET ?? '').trim() ||
     (process.env.NEXT_PUBLIC_X_API_SECRET ?? '').trim();
 
-  const headerSecret =
-    (req.headers['x-api-secret'] as string | undefined)?.trim() || '';
+  // 请求侧密钥：header / body / query 三路回退，谁有用谁
+  const headerSecretRaw = (req.headers['x-api-secret'] as string | string[] | undefined) ?? '';
+  const headerSecret = Array.isArray(headerSecretRaw) ? headerSecretRaw[0] : headerSecretRaw;
 
-  if (envSecret && headerSecret !== envSecret) {
-    return send(res, 401, { ok: false, error: 'Unauthorized: secret mismatch' });
+  const body = (req.body ?? {}) as BodyIn;
+  const bodySecret =
+    (body.xApiSecret ?? body.x_api_secret ?? body.apiSecret ?? '').toString();
+
+  const querySecret = (req.query?.x_api_secret ?? '').toString();
+
+  const incomingSecret = (headerSecret || bodySecret || querySecret).trim();
+
+  if (!disableCheck && envSecret && incomingSecret !== envSecret) {
+    // 401 调试信息（不暴露明文）
+    return send(res, 401, {
+      ok: false,
+      error: 'Unauthorized: secret mismatch',
+      debug: {
+        // 仅用于排查：是否带了 header / body / query；长度是否为 0
+        envSecretPresent: Boolean(envSecret),
+        envSecretLen: envSecret.length,
+        incomingFrom: headerSecret ? 'header' : bodySecret ? 'body' : querySecret ? 'query' : 'none',
+        incomingLen: incomingSecret.length,
+        // 若你想忽略校验测试，把 DISABLE_SECRET_CHECK 设为 1
+        howToBypass: 'set env DISABLE_SECRET_CHECK=1 to bypass temporarily',
+      },
+    });
   }
 
-  // 解析并校验 body
-  const body = (req.body ?? {}) as BodyIn;
-
+  // ---------- 参数校验 ----------
   const template = (body.template ?? '').trim();
-  const appName = (body.appName ?? '').trim();
-  const apiBase = (body.apiBase ?? '').trim();
+  const appName  = (body.appName  ?? '').trim();
+  const apiBase  = (body.apiBase  ?? '').trim();
   const apiSecret = (body.apiSecret ?? '').trim();
 
   const miss: string[] = [];
   if (!template) miss.push('template');
-  if (!appName) miss.push('appName');
-  if (!apiBase) miss.push('apiBase');
+  if (!appName)  miss.push('appName');
+  if (!apiBase)  miss.push('apiBase');
   if (!apiSecret) miss.push('apiSecret');
-
   if (miss.length) {
-    return send(res, 400, {
-      ok: false,
-      error: 'Missing required fields',
-      missing: miss,
-    });
+    return send(res, 400, { ok: false, error: 'Missing required fields', missing: miss });
   }
 
-  // 读取 GitHub 配置（Vercel 环境变量）
+  // ---------- GitHub 配置 ----------
   const GH_OWNER = (process.env.GH_OWNER ?? '').trim();
-  const GH_REPO = (process.env.GH_REPO ?? '').trim();
+  const GH_REPO  = (process.env.GH_REPO  ?? '').trim();
   const GH_TOKEN =
     (process.env.GH_PAT ?? '').trim() || (process.env.GH_TOKEN ?? '').trim();
 
@@ -90,12 +101,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 
-  // 触发 repository_dispatch
+  // ---------- 触发 repository_dispatch ----------
   try {
-    const resp = await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(
-        GH_REPO
-      )}/dispatches`,
+    const gh = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(GH_REPO)}/dispatches`,
       {
         method: 'POST',
         headers: {
@@ -116,17 +125,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     );
 
-    if (!resp.ok) {
-      const text = await resp.text();
-      return send(res, resp.status, {
+    if (!gh.ok) {
+      const text = await gh.text();
+      return send(res, gh.status, {
         ok: false,
         error: 'GitHub dispatch failed',
-        status: resp.status,
+        status: gh.status,
         body: text,
       });
     }
 
-    // 一切正常
     return send(res, 202, {
       ok: true,
       message: 'repository_dispatch sent',
