@@ -1,56 +1,94 @@
 // pages/api/generate-apk.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+type Body = {
+  template?: string;
+  appName?: string;
+  apiBase?: string;
+  apiSecret?: string;
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    if (req.method !== 'POST') {
-      return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
-    }
-    if (req.headers['content-type']?.includes('application/json') !== true) {
-      return res.status(415).json({ ok: false, error: 'Content-Type must be application/json' });
-    }
-    // 简单白名单校验（可按需关闭）
-    if (process.env.X_API_SECRET && req.headers['x-api-secret'] !== process.env.X_API_SECRET) {
-      return res.status(401).json({ ok: false, error: 'Unauthorized' });
-    }
-
-    const raw = req.body ?? {};
-    // 兼容驼峰/蛇形，统一成工作流要的蛇形
-    const payload = {
-      template:   raw.template   ?? '',
-      app_name:   raw.app_name   ?? raw.appName   ?? '',
-      api_base:   raw.api_base   ?? raw.apiBase   ?? '',
-      api_secret: raw.api_secret ?? raw.apiSecret ?? '',
-    };
-
-    const missing = Object.entries(payload).filter(([_, v]) => !v).map(([k]) => k);
-    if (missing.length) {
-      return res.status(400).json({ ok: false, error: 'Missing fields', missing, got: raw });
-    }
-
-    const owner = process.env.GH_OWNER!;
-    const repo  = process.env.GH_REPO!;
-    const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `token ${process.env.GH_PAT!}`,
-        'Accept': 'application/vnd.github+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        event_type: 'generate-apk',
-        client_payload: payload
-      })
-    });
-
-    const ghText = await ghRes.text(); // GitHub 多数返回 204(空)
-    return res.status(ghRes.ok ? 200 : 502).json({
-      ok: ghRes.ok,
-      ghStatus: ghRes.status,
-      sent: { ...payload, api_secret: '[hidden]' }, // 别回显明文
-      ghBody: ghText || null
-    });
-  } catch (e: any) {
-    return res.status(500).json({ ok: false, error: String(e) });
+  // 只允许 POST
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
   }
+
+  // 校验可选的 x-api-secret（在 Vercel 环境变量里设置 NEXT_PUBLIC_X_API_SECRET）
+  const headerSecret = (req.headers['x-api-secret'] as string) ?? '';
+  const must = process.env.NEXT_PUBLIC_X_API_SECRET ?? '';
+  if (must && headerSecret !== must) {
+    return res.status(401).json({ ok: false, error: 'secret mismatch' });
+  }
+
+  // 解析 JSON body（兼容前端没设置 headers 时可能是字符串）
+  let body: Body | undefined = req.body as Body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      return res.status(400).json({ ok: false, error: 'invalid JSON body' });
+    }
+  }
+  body ||= {};
+
+  const template = (body.template ?? '').trim();
+  const appName  = (body.appName  ?? '').trim();
+  const apiBase  = (body.apiBase  ?? '').trim();
+  const apiSecret= (body.apiSecret?? '').trim();
+
+  const miss: string[] = [];
+  if (!template) miss.push('template');
+  if (!appName)  miss.push('appName');
+  if (!apiBase)  miss.push('apiBase');
+  if (!apiSecret)miss.push('apiSecret');
+  if (miss.length) {
+    return res.status(400).json({ ok: false, error: `missing: ${miss.join(', ')}` });
+  }
+
+  // 触发 GitHub repository_dispatch
+  const owner = process.env.GH_OWNER ?? '';            // 例如：why459097630
+  const repo  = process.env.GH_REPO ?? '';             // 例如：Packaging-warehouse
+  const token = process.env.GH_TOKEN ?? '';            // GitHub PAT，需 repo + workflow 权限
+  if (!owner || !repo || !token) {
+    return res.status(500).json({ ok: false, error: 'server env missing: GH_OWNER/GH_REPO/GH_TOKEN' });
+  }
+
+  // 你的 android-build-matrix.yml 监听的 event_type（示例为 generate-apk）
+  const eventType = 'generate-apk';
+
+  // 注意：和 workflow 中取用的 client_payload 字段名保持一致
+  const payload = {
+    template,
+    app_name: appName,
+    api_base: apiBase,
+    api_secret: apiSecret,
+  };
+
+  const gh = await fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `token ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'User-Agent': 'ndjc-server',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      event_type: eventType,
+      client_payload: payload,
+    }),
+  });
+
+  if (!gh.ok) {
+    const txt = await gh.text().catch(() => '');
+    return res.status(502).json({
+      ok: false,
+      error: 'github_dispatch_failed',
+      status: gh.status,
+      detail: txt,
+    });
+  }
+
+  // 派发成功：一般返回 204；这里统一给 202
+  return res.status(202).json({ ok: true, message: 'dispatched', payload });
 }
