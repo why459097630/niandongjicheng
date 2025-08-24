@@ -2,9 +2,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Octokit } from "@octokit/rest";
 
-export const runtime = "nodejs"; // 不能是 edge，需 Node 能力
+export const runtime = "nodejs"; // 需要 Node 运行时（便于日志与 fetch）
 
-// —— 环境变量兼容：优先用你截图里的 GH_* —— //
+// —— 环境变量兼容：优先使用你 Vercel 截图里的 GH_* —— //
 const env = (...keys: string[]) => {
   for (const k of keys) {
     const v = process.env[k];
@@ -13,28 +13,32 @@ const env = (...keys: string[]) => {
   return "";
 };
 
-const owner    = env("GH_OWNER", "OWNER", "GITHUB_OWNER");
-const repo     = env("GH_REPO", "REPO");
-const token    = env("GH_TOKEN", "GITHUB_TOKEN", "GH_PAT");
-const workflow = env("WORKFLOW_ID", "WORKFLOW") || "android-build-matrix.yml";
+const owner    = env("GH_OWNER",  "OWNER", "GITHUB_OWNER");
+const repo     = env("GH_REPO",   "REPO");
+const token    = env("GH_TOKEN",  "GITHUB_TOKEN", "GH_PAT");
+const workflow = env("WORKFLOW_ID","WORKFLOW") || "android-build-matrix.yml";
 const ref      = env("GH_BRANCH", "REF") || "main";
 
 const GROQ_API_KEY = env("GROQ_API_KEY");
-const GROQ_MODEL   = env("GROQ_MODEL") || "llama-3.1-70b-versatile";
 const DEBUG_GROQ   = env("DEBUG_GROQ") === "1";
-const SKIP_GITHUB  = env("SKIP_GITHUB") === "1"; // 可选：仅看 Groq 时设为 1
+const SKIP_GITHUB  = env("SKIP_GITHUB") === "1";
 
-// 缺关键环境变量时，直接返回可读错误
+// 主备模型（自动降级，避免“model_decommissioned”）
+const MODEL_CANDIDATES = [
+  env("GROQ_MODEL"),                // 你自定义（可在 Vercel 设置）
+  "llama-3.3-70b-versatile",        // 新 70B（推荐）
+  "llama-3.1-8b-instant",           // 8B 备胎
+].filter(Boolean) as string[];
+
+// —— 缺关键变量时，直接报错（便于定位）—— //
 function assertEnv() {
   const miss: string[] = [];
   if (!owner)    miss.push("GH_OWNER/OWNER");
   if (!repo)     miss.push("GH_REPO/REPO");
-  if (!token && !SKIP_GITHUB) miss.push("GH_TOKEN/GITHUB_TOKEN/GH_PAT");
   if (!workflow) miss.push("WORKFLOW_ID/WORKFLOW");
   if (!ref)      miss.push("GH_BRANCH/REF");
-  if (miss.length) {
-    throw new Error(`Missing env: ${miss.join(", ")}`);
-  }
+  if (!token && !SKIP_GITHUB) miss.push("GH_TOKEN/GITHUB_TOKEN/GH_PAT");
+  if (miss.length) throw new Error(`Missing env: ${miss.join(", ")}`);
 }
 
 export async function POST(req: NextRequest) {
@@ -47,7 +51,7 @@ export async function POST(req: NextRequest) {
     // GitHub 客户端（可通过 SKIP_GITHUB 跳过）
     const octokit = !SKIP_GITHUB ? new Octokit({ auth: token }) : null;
 
-    // 工具：创建/更新仓库文件（自动带 base64/sha）
+    // 工具：创建/更新仓库文件
     const upsert = async (path: string, content: string) => {
       if (SKIP_GITHUB) return "skipped";
       const base64 = Buffer.from(content).toString("base64");
@@ -103,70 +107,87 @@ Prompt:
     const r2 = await upsert("app/src/main/res/raw/about_md.txt",
       `Lamborghini Encyclopedia (about)\nGenerated: ${new Date().toISOString()}`);
 
-    // —— 2) 如开启 smart & 配了 GROQ_API_KEY：请求 Groq 并打印原始返回 —— //
+    // —— 2) smart=true 时，请 Groq，且带自动降级 —— //
     let groqPreview = "";
     let groqRawLen = 0;
     let groqMode = "mock";
+    let usedModel = "";
 
     if (smart && GROQ_API_KEY) {
       groqMode = "groq";
 
-      const body = {
-        model: GROQ_MODEL,
-        messages: [
-          { role: "system",
-            content: "You return Android app source code or structured JSON for app generation." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.2,
-        stream: false,
-      };
+      const messages = [
+        { role: "system" as const,
+          content: "You return Android app source code or structured JSON for app generation." },
+        { role: "user" as const, content: prompt },
+      ];
 
-      const groqResp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify(body),
-      });
+      async function callGroq(model: string) {
+        const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${GROQ_API_KEY}`,
+          },
+          body: JSON.stringify({ model, messages, temperature: 0.2, stream: false }),
+        });
+        const j = await resp.json();
+        return { j, model };
+      }
 
-      const groqJson = await groqResp.json();
+      let groqJson: any = null;
+      for (const m of MODEL_CANDIDATES.length ? MODEL_CANDIDATES : ["llama-3.3-70b-versatile","llama-3.1-8b-instant"]) {
+        const { j, model } = await callGroq(m);
+        const msg: string = j?.error?.message || "";
+        const code: string = j?.error?.code || "";
+        const decommissioned =
+          code === "model_decommissioned" ||
+          /decommissioned/i.test(msg);
+        if (decommissioned) {
+          if (DEBUG_GROQ) console.log(`[GROQ] model ${m} decommissioned, fallback…`);
+          continue;
+        }
+        groqJson = j; usedModel = model; break;
+      }
+
+      // 打印/保存原始 JSON
       try {
-        const dump = JSON.stringify(groqJson, null, 2);
+        const dump = JSON.stringify(groqJson ?? {}, null, 2);
         groqRawLen = dump.length;
         if (DEBUG_GROQ) {
-          console.log("[GROQ RAW]", dump.length > 10000 ? dump.slice(0, 10000) + "…(truncated)" : dump);
+          console.log(
+            "[GROQ RAW]",
+            dump.length > 10000 ? dump.slice(0, 10000) + "…(truncated)" : dump
+          );
         }
         await upsert("app/src/main/assets/generated/groq_raw.json", dump);
       } catch (e) {
         if (DEBUG_GROQ) console.log("[GROQ RAW stringify error]", e);
       }
 
+      // 提取文本 & 保存
       const contentText = groqJson?.choices?.[0]?.message?.content?.toString() ?? "";
       groqPreview = contentText.slice(0, 200);
-
       await upsert("app/src/main/assets/generated/groq_content.txt", contentText || "[EMPTY]");
 
+      // 如是合法 JSON，再额外落一份
       try {
         const maybeJson = JSON.parse(contentText);
         await upsert("app/src/main/assets/generated/groq_content.json",
           JSON.stringify(maybeJson, null, 2));
-      } catch { /* 不是合法 JSON，忽略 */ }
+      } catch { /* 不是 JSON，忽略 */ }
     }
 
     // —— 3) 触发打包（可通过 SKIP_GITHUB 跳过）—— //
     if (!SKIP_GITHUB) {
-      await octokit!.actions.createWorkflowDispatch({
-        owner, repo, workflow_id: workflow, ref,
-      });
+      await octokit!.actions.createWorkflowDispatch({ owner, repo, workflow_id: workflow, ref });
     }
 
     return NextResponse.json({
       ok: true,
       message: `assets written; ${SKIP_GITHUB ? "skip dispatch" : "workflow dispatched"}`,
       commitSha: { a1, a2, r1, r2 },
-      groq: { mode: groqMode, preview: groqPreview, rawLength: groqRawLen, debug: DEBUG_GROQ },
+      groq: { mode: groqMode, preview: groqPreview, rawLength: groqRawLen, model: usedModel, debug: DEBUG_GROQ },
       envUsed: { owner, repo, ref, workflow, skipGithub: SKIP_GITHUB },
     });
   } catch (e: any) {
