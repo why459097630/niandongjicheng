@@ -1,4 +1,3 @@
-// lib/ndjc/github-writer.ts
 import { Octokit } from "octokit";
 
 export type Patch = { anchor: string; insert: string };
@@ -14,8 +13,6 @@ export type FileEdit =
 const OWNER  = process.env.GH_OWNER!;
 const REPO   = process.env.GH_REPO!;
 const BRANCH = process.env.GH_BRANCH || "main";
-
-// 方式B：兼容多种命名，三选一都可
 const TOKEN =
   process.env.GITHUB_TOKEN ||
   process.env.GH_TOKEN ||
@@ -43,7 +40,51 @@ async function getFile(refPath: string) {
   }
 }
 
-function applyPatches(text: string, patches: Patch[]): string {
+/** 针对 strings.xml：如果插入包含已存在的 <string name="...">，则覆盖其值而不是重复追加 */
+function upsertAndroidStringsXML(xml: string, insertBlock: string): string {
+  // 找出 insertBlock 里的多个 <string name="xxx">value</string>
+  const itemRe = /<string\s+name="([^"]+)">([\s\S]*?)<\/string>/g;
+  let out = xml;
+  let m: RegExpExecArray | null;
+
+  // 预处理：确保 xml 有 <resources> … </resources>
+  if (!/<resources[\s>]/.test(out)) {
+    out = `<resources>\n${out}\n</resources>\n`;
+  }
+
+  while ((m = itemRe.exec(insertBlock)) !== null) {
+    const name = m[1];
+    const value = m[2];
+    const existRe = new RegExp(
+      `<string\\s+name="${name}">[\\s\\S]*?<\\/string>`,
+      "g"
+    );
+    if (existRe.test(out)) {
+      // 覆盖
+      out = out.replace(existRe, `<string name="${name}">${value}</string>`);
+    } else {
+      // 追加到 </resources> 之前
+      out = out.replace(
+        /<\/resources>\s*$/i,
+        `  <string name="${name}">${value}</string>\n</resources>`
+      );
+    }
+  }
+  return out;
+}
+
+function applyPatches(filePath: string, text: string, patches: Patch[]): string {
+  // strings.xml 特判：先合并/去重要插入的 <string> 项
+  if (filePath.endsWith("/values/strings.xml") || filePath.endsWith("\\values\\strings.xml")) {
+    // 聚合所有要插入的 <string ...>…</string>，进行 upsert
+    let merged = text;
+    for (const p of patches) {
+      merged = upsertAndroidStringsXML(merged, p.insert);
+    }
+    return merged;
+  }
+
+  // 其他文件：按锚点插入
   let out = text;
   for (const p of patches) {
     const m = p.anchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -55,7 +96,6 @@ function applyPatches(text: string, patches: Patch[]): string {
 }
 
 export async function commitEdits(edits: FileEdit[], commitMsg: string) {
-  // 获取基准 tree
   const head = await octo.request("GET /repos/{owner}/{repo}/git/refs/heads/{branch}", {
     owner: OWNER, repo: REPO, branch: BRANCH
   });
@@ -73,7 +113,7 @@ export async function commitEdits(edits: FileEdit[], commitMsg: string) {
     if (e.mode === "patch") {
       const prev = await getFile(e.path);
       if (!prev) throw new Error(`Target file not found for patch: ${e.path}`);
-      const next = applyPatches(prev.content, e.patches);
+      const next = applyPatches(e.path, prev.content, e.patches);
       const blob = await octo.request("POST /repos/{owner}/{repo}/git/blobs", {
         owner: OWNER, repo: REPO, content: next, encoding: "utf-8"
       });
