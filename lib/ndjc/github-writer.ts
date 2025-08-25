@@ -11,10 +11,19 @@ export type FileEdit =
     }
   | { path: string; mode: "patch"; patches: Patch[] };
 
-const OWNER = process.env.GH_OWNER!;
-const REPO = process.env.GH_REPO!;
+const OWNER  = process.env.GH_OWNER!;
+const REPO   = process.env.GH_REPO!;
 const BRANCH = process.env.GH_BRANCH || "main";
-const TOKEN = process.env.GITHUB_TOKEN!;
+
+// 方式B：兼容多种命名，三选一都可
+const TOKEN =
+  process.env.GITHUB_TOKEN ||
+  process.env.GH_TOKEN ||
+  process.env.GH_PAT;
+
+if (!TOKEN) {
+  throw new Error("Missing GitHub token (GITHUB_TOKEN/GH_TOKEN/GH_PAT).");
+}
 
 const octo = new Octokit({ auth: TOKEN });
 
@@ -46,12 +55,12 @@ function applyPatches(text: string, patches: Patch[]): string {
 }
 
 export async function commitEdits(edits: FileEdit[], commitMsg: string) {
+  // 获取基准 tree
   const head = await octo.request("GET /repos/{owner}/{repo}/git/refs/heads/{branch}", {
-    owner: OWNER,
-    repo: REPO,
-    branch: BRANCH,
+    owner: OWNER, repo: REPO, branch: BRANCH
   });
   const latestCommitSha = (head.data as any).object.sha;
+
   const latestCommit = await octo.request(
     "GET /repos/{owner}/{repo}/git/commits/{commit_sha}",
     { owner: OWNER, repo: REPO, commit_sha: latestCommitSha }
@@ -66,49 +75,33 @@ export async function commitEdits(edits: FileEdit[], commitMsg: string) {
       if (!prev) throw new Error(`Target file not found for patch: ${e.path}`);
       const next = applyPatches(prev.content, e.patches);
       const blob = await octo.request("POST /repos/{owner}/{repo}/git/blobs", {
-        owner: OWNER,
-        repo: REPO,
-        content: next,
-        encoding: "utf-8",
+        owner: OWNER, repo: REPO, content: next, encoding: "utf-8"
       });
       blobs.push({ path: e.path, mode: "100644", type: "blob", sha: (blob.data as any).sha });
     } else {
       const content =
         e.content ??
-        (e.contentBase64
-          ? Buffer.from(e.contentBase64, "base64").toString("utf8")
-          : "");
+        (e.contentBase64 ? Buffer.from(e.contentBase64, "base64").toString("utf8") : "");
       const blob = await octo.request("POST /repos/{owner}/{repo}/git/blobs", {
-        owner: OWNER,
-        repo: REPO,
-        content,
-        encoding: "utf-8",
+        owner: OWNER, repo: REPO, content, encoding: "utf-8"
       });
       blobs.push({ path: e.path, mode: "100644", type: "blob", sha: (blob.data as any).sha });
     }
   }
 
   const tree = await octo.request("POST /repos/{owner}/{repo}/git/trees", {
-    owner: OWNER,
-    repo: REPO,
-    base_tree: baseTreeSha,
-    tree: blobs,
+    owner: OWNER, repo: REPO, base_tree: baseTreeSha, tree: blobs
   });
 
   const commit = await octo.request("POST /repos/{owner}/{repo}/git/commits", {
-    owner: OWNER,
-    repo: REPO,
+    owner: OWNER, repo: REPO,
     message: commitMsg,
     tree: (tree.data as any).sha,
-    parents: [latestCommitSha],
+    parents: [latestCommitSha]
   });
 
   await octo.request("PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}", {
-    owner: OWNER,
-    repo: REPO,
-    branch: BRANCH,
-    sha: (commit.data as any).sha,
-    force: true,
+    owner: OWNER, repo: REPO, branch: BRANCH, sha: (commit.data as any).sha, force: true
   });
 }
 
