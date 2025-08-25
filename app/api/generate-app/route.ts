@@ -15,16 +15,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing prompt" }, { status: 400 });
     }
 
-    // 1) 生成锚点补丁 JSON
+    // 1) 生成锚点补丁 JSON（可先用内置规则，后续换 LLM）
     const plan = await generatePlan({ prompt, appName, packageName });
 
-    // 2) 直接透传文件列表
+    // 2) 直接把文件列表透传给提交器（github-writer 内部处理 content/contentBase64/patch）
     const edits = plan.files as any[];
 
-    // 3) 提交改动
+    // 3) 提交改动到 Packaging-warehouse
     await commitEdits(edits, `NDJC: apply plan for "${plan.appName}"`);
 
-    // 4) 写入 requestId 文件触发构建
+    // 4) 写入 requestId 触发构建
     const requestId = newId();
     await touchRequestFile(requestId, {
       appName: plan.appName,
@@ -33,6 +33,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, requestId });
   } catch (e: any) {
+    // 打印到 Vercel Function Logs，方便定位
+    console.error("NDJC generate-app error:", e);
     return NextResponse.json(
       { ok: false, error: e?.message || "unknown" },
       { status: 500 }
