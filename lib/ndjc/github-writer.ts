@@ -1,3 +1,4 @@
+// lib/ndjc/github-writer.ts
 import { Octokit } from "octokit";
 
 export type Patch = { anchor: string; insert: string };
@@ -13,6 +14,8 @@ export type FileEdit =
 const OWNER  = process.env.GH_OWNER!;
 const REPO   = process.env.GH_REPO!;
 const BRANCH = process.env.GH_BRANCH || "main";
+
+// 方式B：多命名兜底，三选一都可
 const TOKEN =
   process.env.GITHUB_TOKEN ||
   process.env.GH_TOKEN ||
@@ -40,48 +43,49 @@ async function getFile(refPath: string) {
   }
 }
 
-/** 针对 strings.xml：如果插入包含已存在的 <string name="...">，则覆盖其值而不是重复追加 */
-function upsertAndroidStringsXML(xml: string, insertBlock: string): string {
-  // 找出 insertBlock 里的多个 <string name="xxx">value</string>
-  const itemRe = /<string\s+name="([^"]+)">([\s\S]*?)<\/string>/g;
-  let out = xml;
+/* -------------------- strings.xml 智能“去重 + 覆盖” -------------------- */
+
+/** 解析插入块里的 <string name="...">value</string> 列表（后出现的覆盖先前的） */
+function parseStrings(insertBlock: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  const re = /<string\s+name="([^"]+)">([\s\S]*?)<\/string>/g;
   let m: RegExpExecArray | null;
-
-  // 预处理：确保 xml 有 <resources> … </resources>
-  if (!/<resources[\s>]/.test(out)) {
-    out = `<resources>\n${out}\n</resources>\n`;
+  while ((m = re.exec(insertBlock)) !== null) {
+    map[m[1]] = m[2];
   }
+  return map;
+}
 
-  while ((m = itemRe.exec(insertBlock)) !== null) {
-    const name = m[1];
-    const value = m[2];
-    const existRe = new RegExp(
-      `<string\\s+name="${name}">[\\s\\S]*?<\\/string>`,
-      "g"
+/** 在 strings.xml 文本中为若干 key 做“去重并只保留一条（覆盖值）” */
+function upsertStringsXml(xml: string, kv: Record<string, string>): string {
+  let out = xml;
+  // 确保有 <resources> 容器
+  if (!/<resources[\s>]/.test(out)) out = `<resources>\n${out}\n</resources>\n`;
+
+  for (const [name, value] of Object.entries(kv)) {
+    // 1) 删除所有同名项（去重）
+    const existAll = new RegExp(`<string\\s+name="${name}">[\\s\\S]*?<\\/string>`, "g");
+    out = out.replace(existAll, "");
+    // 2) 追加一条到 </resources> 前
+    out = out.replace(
+      /<\/resources>\s*$/i,
+      `  <string name="${name}">${value}</string>\n</resources>`
     );
-    if (existRe.test(out)) {
-      // 覆盖
-      out = out.replace(existRe, `<string name="${name}">${value}</string>`);
-    } else {
-      // 追加到 </resources> 之前
-      out = out.replace(
-        /<\/resources>\s*$/i,
-        `  <string name="${name}">${value}</string>\n</resources>`
-      );
-    }
   }
+
+  // 3) 清理多余空行
+  out = out.replace(/\n{3,}/g, "\n\n");
   return out;
 }
 
+/** 对单个文件应用补丁：strings.xml 走智能 upsert；其他文件按锚点插入 */
 function applyPatches(filePath: string, text: string, patches: Patch[]): string {
-  // strings.xml 特判：先合并/去重要插入的 <string> 项
-  if (filePath.endsWith("/values/strings.xml") || filePath.endsWith("\\values\\strings.xml")) {
-    // 聚合所有要插入的 <string ...>…</string>，进行 upsert
+  // strings.xml：聚合所有 <string> 项后统一 upsert
+  if (/[/\\]values[/\\]strings\.xml$/.test(filePath)) {
     let merged = text;
-    for (const p of patches) {
-      merged = upsertAndroidStringsXML(merged, p.insert);
-    }
-    return merged;
+    const kv: Record<string, string> = {};
+    for (const p of patches) Object.assign(kv, parseStrings(p.insert));
+    return upsertStringsXml(merged, kv);
   }
 
   // 其他文件：按锚点插入
@@ -95,7 +99,10 @@ function applyPatches(filePath: string, text: string, patches: Patch[]): string 
   return out;
 }
 
+/* -------------------- 提交改动 -------------------- */
+
 export async function commitEdits(edits: FileEdit[], commitMsg: string) {
+  // 获取基准 tree
   const head = await octo.request("GET /repos/{owner}/{repo}/git/refs/heads/{branch}", {
     owner: OWNER, repo: REPO, branch: BRANCH
   });
