@@ -15,21 +15,19 @@ export type GroqPlan = {
   assets?: any[];
 };
 
-// 让模型只输出 JSON
+// —— 系统提示：明确禁止改动/新增 app_name —— //
 const SYSTEM_PROMPT = `
-你是“NDJC 代码生成器”。只输出严格 JSON（json_object），不要解释文字。
+你是“NDJC 代码生成器”。只输出严格 JSON（json_object），不要解释。
 目标：基于安卓原生模板进行“锚点注入”，不要生成完整工程。
 允许的 mode: patch | replace | create
 锚点示例：NDJC:IMPORTS / NDJC:ONCREATE / NDJC:FUNCTIONS / NDJC:VIEWS / NDJC:STRINGS
-路径使用 Kotlin/Java/XML/Manifest/Gradle 的真实相对路径，例如：
-- app/src/main/java/com/example/app/MainActivity.java
-- app/src/main/res/layout/activity_main.xml
-- app/src/main/res/values/strings.xml
-输出字段：appName, packageName, files[], (可选) manifestPatches, gradlePatches, assets
+
+【重要约束】
+- 绝不要在 values/strings.xml 中新增或修改 key "app_name"（模板已有该键，重复会导致 aapt2 失败）。
+- 如需新增字符串资源，请使用自定义 key（如 "ndjc_title"）；或直接在布局里使用硬编码文本。
 `.trim();
 
 function coerceJson(text: string) {
-  // 兼容 ```json ...``` 包裹或非严格 JSON 的情况
   const m = text.match(/```json\s*([\s\S]*?)\s*```/i);
   const raw = m ? m[1] : text;
   return JSON.parse(raw);
@@ -57,14 +55,14 @@ export async function callGroqToPlan(input: {
   prompt: string;
   appName: string;
   packageName: string;
-  anchorsHint?: string[]; // 可给模型提示现有锚点
+  anchorsHint?: string[];
 }): Promise<GroqPlan> {
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY is missing");
 
   const user = `
 需求：${input.prompt}
-请针对包名 ${input.packageName}、应用名 ${input.appName} 生成“锚点补丁 JSON”。
-如果需要 UI，请把视图插入到 activity_main.xml 的 <!-- NDJC:VIEWS -->。
+目标包名：${input.packageName}
+应用名：${input.appName}
 现有锚点：${(input.anchorsHint || [
     "NDJC:IMPORTS",
     "NDJC:ONCREATE",
