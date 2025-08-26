@@ -1,7 +1,7 @@
 // app/api/generate-app/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { generatePlan } from "@/lib/ndjc/generator";
-import { commitEdits, touchRequestFile } from "@/lib/ndjc/github-writer";
+import { commitEdits, type FileEdit, touchRequestFile } from "@/lib/ndjc/github-writer";
 
 function newId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -15,25 +15,58 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing prompt" }, { status: 400 });
     }
 
-    // 1) 调用 Groq 生成锚点 JSON（若 Groq 出错会 throw，不会继续）
+    // —— 1) 先生成 requestId，用于后续所有留痕
+    const requestId = newId();
+
+    // —— 2) 调用 Groq（或你在 generator.ts 里实现的逻辑）生成“锚点补丁 JSON”
     const plan = await generatePlan({ prompt, appName, packageName });
 
-    // 2) 文件差量改动（只要 Groq 成功，才会到这一步）
-    const edits = plan.files as any[];
+    // —— 3) 组合一次提交：先写入 plan.json（留痕），再应用真实代码改动
+    const edits: FileEdit[] = [
+      {
+        path: `requests/${requestId}.plan.json`,
+        mode: "create",
+        content: JSON.stringify(
+          { requestId, ...plan, ts: Date.now() },
+          null,
+          2
+        ),
+      },
+      ...(plan.files as any[]),
+    ];
 
-    // 3) 提交改动到 Packaging-warehouse
-    await commitEdits(edits, `NDJC: apply plan for "${plan.appName}"`);
+    // —— 4) 提交改动（返回 anchors 命中审计信息）
+    const commitMsg = `NDJC:${requestId} apply plan for "${plan.appName}"`;
+    const { audit } = await commitEdits(edits, commitMsg);
 
-    // 4) 写 requestId 文件触发构建
-    const requestId = newId();
+    // —— 5) 写入 apply 日志（每个文件的锚点是否命中）
+    const applyLog = {
+      requestId,
+      commitMsg,
+      ts: Date.now(),
+      edits: audit,
+    };
+    await commitEdits(
+      [
+        {
+          path: `requests/${requestId}.apply.log.json`,
+          mode: "create",
+          content: JSON.stringify(applyLog, null, 2),
+        },
+      ],
+      `NDJC:${requestId} write apply log`
+    );
+
+    // —— 6) 触发构建（最简 keep；你的工作流需监听 requests/**）
     await touchRequestFile(requestId, {
       appName: plan.appName,
       packageName: plan.packageName,
+      filesChanged: plan.files.map((f) => f.path),
     });
 
     return NextResponse.json({ ok: true, requestId });
   } catch (e: any) {
-    // 打印错误到 Vercel Function Logs
+    // 打印到 Vercel Function Logs，便于排查
     console.error("NDJC generate-app error:", e);
     return NextResponse.json(
       { ok: false, error: e?.message || "Groq or commit failed" },
