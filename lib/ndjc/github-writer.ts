@@ -14,14 +14,23 @@ export type FileEdit =
 
 type GitBlob = { path: string; mode: "100644"; type: "blob"; sha: string };
 
-// —— 环境
+// —— 环境变量（兼容多种命名）
 const OWNER = process.env.GH_OWNER!;
 const REPO = process.env.GH_REPO!;
 const BRANCH = process.env.GH_BRANCH || "main";
-const TOKEN = process.env.GITHUB_TOKEN!;
+const TOKEN =
+  process.env.GITHUB_TOKEN ||
+  process.env.GH_TOKEN ||
+  process.env.GH_PAT ||
+  "";
 
-if (!OWNER || !REPO || !TOKEN) {
-  console.warn("[github-writer] Missing GH_OWNER/GH_REPO/GITHUB_TOKEN");
+if (!OWNER || !REPO) {
+  throw new Error("[github-writer] Missing GH_OWNER or GH_REPO");
+}
+if (!TOKEN) {
+  throw new Error(
+    "[github-writer] Missing token: set GITHUB_TOKEN (or GH_TOKEN / GH_PAT)"
+  );
 }
 
 const octo = new Octokit({ auth: TOKEN });
