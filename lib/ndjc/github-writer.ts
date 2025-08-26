@@ -1,6 +1,7 @@
 // lib/ndjc/github-writer.ts
 import { Octokit } from "octokit";
 
+// —— 类型
 export type Patch = { anchor: string; insert: string };
 export type FileEdit =
   | {
@@ -11,22 +12,19 @@ export type FileEdit =
     }
   | { path: string; mode: "patch"; patches: Patch[] };
 
-const OWNER  = process.env.GH_OWNER!;
-const REPO   = process.env.GH_REPO!;
+type GitBlob = { path: string; mode: "100644"; type: "blob"; sha: string };
+
+// —— 环境
+const OWNER = process.env.GH_OWNER!;
+const REPO = process.env.GH_REPO!;
 const BRANCH = process.env.GH_BRANCH || "main";
-
-// 方式B：多命名兜底，三选一都可
-const TOKEN =
-  process.env.GITHUB_TOKEN ||
-  process.env.GH_TOKEN ||
-  process.env.GH_PAT;
-
-if (!TOKEN) {
-  throw new Error("Missing GitHub token (GITHUB_TOKEN/GH_TOKEN/GH_PAT).");
+const TOKEN = process.env.GITHUB_TOKEN!;
+if (!OWNER || !REPO || !TOKEN) {
+  console.warn("[github-writer] Missing GH_OWNER/GH_REPO/GITHUB_TOKEN");
 }
-
 const octo = new Octokit({ auth: TOKEN });
 
+// —— 读文件
 async function getFile(refPath: string) {
   try {
     const res = await octo.request(
@@ -43,118 +41,120 @@ async function getFile(refPath: string) {
   }
 }
 
-/* -------------------- strings.xml 智能“去重 + 覆盖” -------------------- */
-
-/** 解析插入块里的 <string name="...">value</string> 列表（后出现的覆盖先前的） */
-function parseStrings(insertBlock: string): Record<string, string> {
-  const map: Record<string, string> = {};
-  const re = /<string\s+name="([^"]+)">([\s\S]*?)<\/string>/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(insertBlock)) !== null) {
-    map[m[1]] = m[2];
-  }
-  return map;
-}
-
-/** 在 strings.xml 文本中为若干 key 做“去重并只保留一条（覆盖值）” */
-function upsertStringsXml(xml: string, kv: Record<string, string>): string {
-  let out = xml;
-  // 确保有 <resources> 容器
-  if (!/<resources[\s>]/.test(out)) out = `<resources>\n${out}\n</resources>\n`;
-
-  for (const [name, value] of Object.entries(kv)) {
-    // 1) 删除所有同名项（去重）
-    const existAll = new RegExp(`<string\\s+name="${name}">[\\s\\S]*?<\\/string>`, "g");
-    out = out.replace(existAll, "");
-    // 2) 追加一条到 </resources> 前
-    out = out.replace(
-      /<\/resources>\s*$/i,
-      `  <string name="${name}">${value}</string>\n</resources>`
-    );
-  }
-
-  // 3) 清理多余空行
-  out = out.replace(/\n{3,}/g, "\n\n");
-  return out;
-}
-
-/** 对单个文件应用补丁：strings.xml 走智能 upsert；其他文件按锚点插入 */
-function applyPatches(filePath: string, text: string, patches: Patch[]): string {
-  // strings.xml：聚合所有 <string> 项后统一 upsert
-  if (/[/\\]values[/\\]strings\.xml$/.test(filePath)) {
-    let merged = text;
-    const kv: Record<string, string> = {};
-    for (const p of patches) Object.assign(kv, parseStrings(p.insert));
-    return upsertStringsXml(merged, kv);
-  }
-
-  // 其他文件：按锚点插入
+// —— 对文件应用补丁，并统计每个锚点是否命中
+function applyPatchesWithHits(text: string, patches: Patch[]) {
   let out = text;
+  const hits: { anchor: string; found: boolean }[] = [];
   for (const p of patches) {
     const m = p.anchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`(//\\s*${m}|/\\*\\s*${m}\\s*\\*/|<!--\\s*${m}\\s*-->)`);
-    if (!re.test(out)) throw new Error(`Anchor not found: ${p.anchor}`);
+    const re = new RegExp(
+      `(//\\s*${m}|/\\*\\s*${m}\\s*\\*/|<!--\\s*${m}\\s*-->)`
+    );
+    const found = re.test(out);
+    hits.push({ anchor: p.anchor, found });
+    if (!found) throw new Error(`Anchor not found: ${p.anchor}`);
     out = out.replace(re, (hit) => `${hit}\n${p.insert}`);
   }
-  return out;
+  return { text: out, hits };
 }
 
-/* -------------------- 提交改动 -------------------- */
-
-export async function commitEdits(edits: FileEdit[], commitMsg: string) {
-  // 获取基准 tree
-  const head = await octo.request("GET /repos/{owner}/{repo}/git/refs/heads/{branch}", {
-    owner: OWNER, repo: REPO, branch: BRANCH
-  });
+// —— 提交改动（支持 patch/create/replace），返回 anchors 命中审计
+export async function commitEdits(
+  edits: FileEdit[],
+  commitMsg: string
+): Promise<{ audit: any[]; commitSha: string }> {
+  // 1) 获取当前 HEAD 与 base tree
+  const head = await octo.request(
+    "GET /repos/{owner}/{repo}/git/refs/heads/{branch}",
+    { owner: OWNER, repo: REPO, branch: BRANCH }
+  );
   const latestCommitSha = (head.data as any).object.sha;
-
   const latestCommit = await octo.request(
     "GET /repos/{owner}/{repo}/git/commits/{commit_sha}",
     { owner: OWNER, repo: REPO, commit_sha: latestCommitSha }
   );
   const baseTreeSha = (latestCommit.data as any).tree.sha;
 
-  const blobs: { path: string; mode: "100644"; type: "blob"; sha: string }[] = [];
+  // 2) 逐个生成 blob，并记录审计信息
+  const blobs: GitBlob[] = [];
+  const audit: any[] = [];
 
   for (const e of edits) {
     if (e.mode === "patch") {
       const prev = await getFile(e.path);
       if (!prev) throw new Error(`Target file not found for patch: ${e.path}`);
-      const next = applyPatches(e.path, prev.content, e.patches);
+
+      const { text: next, hits } = applyPatchesWithHits(prev.content, e.patches);
+      audit.push({ path: e.path, mode: "patch", anchors: hits });
+
       const blob = await octo.request("POST /repos/{owner}/{repo}/git/blobs", {
-        owner: OWNER, repo: REPO, content: next, encoding: "utf-8"
+        owner: OWNER,
+        repo: REPO,
+        content: next,
+        encoding: "utf-8",
       });
-      blobs.push({ path: e.path, mode: "100644", type: "blob", sha: (blob.data as any).sha });
+      blobs.push({
+        path: e.path,
+        mode: "100644",
+        type: "blob",
+        sha: (blob.data as any).sha,
+      });
     } else {
+      // create/replace 文本内容
       const content =
         e.content ??
-        (e.contentBase64 ? Buffer.from(e.contentBase64, "base64").toString("utf8") : "");
+        (e.contentBase64
+          ? Buffer.from(e.contentBase64, "base64").toString("utf8")
+          : "");
+      audit.push({ path: e.path, mode: e.mode });
+
       const blob = await octo.request("POST /repos/{owner}/{repo}/git/blobs", {
-        owner: OWNER, repo: REPO, content, encoding: "utf-8"
+        owner: OWNER,
+        repo: REPO,
+        content,
+        encoding: "utf-8",
       });
-      blobs.push({ path: e.path, mode: "100644", type: "blob", sha: (blob.data as any).sha });
+      blobs.push({
+        path: e.path,
+        mode: "100644",
+        type: "blob",
+        sha: (blob.data as any).sha,
+      });
     }
   }
 
+  // 3) 创建树、提交、移动引用
   const tree = await octo.request("POST /repos/{owner}/{repo}/git/trees", {
-    owner: OWNER, repo: REPO, base_tree: baseTreeSha, tree: blobs
+    owner: OWNER,
+    repo: REPO,
+    base_tree: baseTreeSha,
+    tree: blobs,
   });
 
   const commit = await octo.request("POST /repos/{owner}/{repo}/git/commits", {
-    owner: OWNER, repo: REPO,
+    owner: OWNER,
+    repo: REPO,
     message: commitMsg,
     tree: (tree.data as any).sha,
-    parents: [latestCommitSha]
+    parents: [latestCommitSha],
   });
 
   await octo.request("PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}", {
-    owner: OWNER, repo: REPO, branch: BRANCH, sha: (commit.data as any).sha, force: true
+    owner: OWNER,
+    repo: REPO,
+    branch: BRANCH,
+    sha: (commit.data as any).sha,
+    force: true,
   });
+
+  return { audit, commitSha: (commit.data as any).sha };
 }
 
+// —— 触发构建：创建一个最简单的请求文件
 export async function touchRequestFile(requestId: string, payload: any = {}) {
-  const p = `requests/${requestId}.json`;
   const content = JSON.stringify({ requestId, ...payload, ts: Date.now() }, null, 2);
-  const edit: FileEdit = { path: p, mode: "create", content };
-  await commitEdits([edit], `NDJC: request ${requestId}`);
+  await commitEdits(
+    [{ path: `requests/${requestId}.json`, mode: "create", content }],
+    `NDJC:${requestId} trigger build`
+  );
 }
