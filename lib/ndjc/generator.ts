@@ -1,4 +1,5 @@
 // lib/ndjc/generator.ts
+import type { NdjcSpec } from "./groq-client";
 
 export type NdjcPatch = {
   path: string;
@@ -14,125 +15,165 @@ export type NdjcPlan = {
   files: NdjcPatch[];
 };
 
-// 清理文本用于 Java 字符串
 function escJava(s: string) {
   return (s || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
-
 function toPkgPath(pkg: string) {
-  return (pkg || "com.example.app").replace(/\s+/g, "").replace(/\.+$/, "").replace(/^\.+/, "").replace(/\.\.+/g, ".").replace(/\./g, "/");
+  return (pkg || "com.example.app")
+    .replace(/\s+/g, "")
+    .replace(/^\.+|\.+$/g, "")
+    .replace(/\.\.+/g, ".")
+    .replace(/\./g, "/");
 }
 
-/**
- * 最小代码生成器：把 prompt 映射成“锚点补丁 JSON”
- * 约定可用锚点：
- *   - NDJC:IMPORTS     （本版不再注入 imports，避免重复）
- *   - NDJC:ONCREATE    （注入 onCreate 里的事件绑定逻辑）
- *   - NDJC:FUNCTIONS   （需要时可在此处追加方法）
- *   - NDJC:VIEWS       （向 activity_main.xml 注入控件）
- */
+/** —— 把 GROQ 的 Spec 映射成锚点差量补丁 —— */
+export function planFromSpec(spec: NdjcSpec): NdjcPlan {
+  const pkgPath = toPkgPath(spec.packageName);
+  const mainActivity = `app/src/main/java/${pkgPath}/MainActivity.java`;
+  const activityXml = "app/src/main/res/layout/activity_main.xml";
+  const stringsXml  = "app/src/main/res/values/strings.xml";
+  const manifestXml = "app/src/main/AndroidManifest.xml";
+  const gradleFile  = "app/build.gradle";
+
+  const files: NdjcPatch[] = [];
+
+  // 1) UI → NDJC:VIEWS
+  if (spec.ui?.viewsXml?.trim()) {
+    files.push({
+      path: activityXml,
+      mode: "patch",
+      patches: [{ anchor: "NDJC:VIEWS", insert: spec.ui.viewsXml.trim() + "\n" }],
+    });
+  }
+
+  // 2) 逻辑 → NDJC:ONCREATE / NDJC:FUNCTIONS / NDJC:IMPORTS
+  const onCreate = (spec.logic?.onCreate || []).map((s) => s.trim()).filter(Boolean);
+  if (onCreate.length) {
+    files.push({
+      path: mainActivity,
+      mode: "patch",
+      patches: [{ anchor: "NDJC:ONCREATE", insert: onCreate.join("\n") + "\n" }],
+    });
+  }
+
+  const functions = (spec.logic?.functions || []).map((s) => s.trim()).filter(Boolean);
+  if (functions.length) {
+    files.push({
+      path: mainActivity,
+      mode: "patch",
+      patches: [{ anchor: "NDJC:FUNCTIONS", insert: functions.join("\n\n") + "\n" }],
+    });
+  }
+
+  const imports = (spec.logic?.imports || []).map((s) => s.trim()).filter(Boolean);
+  if (imports.length) {
+    files.push({
+      path: mainActivity,
+      mode: "patch",
+      patches: [{ anchor: "NDJC:IMPORTS", insert: imports.join("\n") + "\n" }],
+    });
+  }
+
+  // 3) strings → NDJC:STRINGS（过滤 app_name）
+  const strings = (spec.strings || []).filter((x) => x?.name && x?.value && x.name !== "app_name");
+  if (strings.length) {
+    const xml = strings
+      .map((s) => `<string name="${s.name}">${escJava(s.value)}</string>`)
+      .join("\n") + "\n";
+    files.push({
+      path: stringsXml,
+      mode: "patch",
+      patches: [{ anchor: "NDJC:STRINGS", insert: xml }],
+    });
+  }
+
+  // 4) Manifest → NDJC:MANIFEST
+  if (spec.manifest?.applicationAdditions?.trim()) {
+    files.push({
+      path: manifestXml,
+      mode: "patch",
+      patches: [{ anchor: "NDJC:MANIFEST", insert: spec.manifest.applicationAdditions.trim() + "\n" }],
+    });
+  }
+
+  // 5) Gradle 依赖 → NDJC:DEPS
+  const deps = (spec.gradle?.dependencies || []).map((s) => s.trim()).filter(Boolean);
+  if (deps.length) {
+    files.push({
+      path: gradleFile,
+      mode: "patch",
+      patches: [{ anchor: "NDJC:DEPS", insert: deps.join("\n") + "\n" }],
+    });
+  }
+
+  // 6) 静态资源
+  for (const a of spec.assets || []) {
+    files.push({
+      path: a.path,
+      mode: "create",
+      content: a.contentBase64 ? undefined : (a.content || ""),
+      contentBase64: a.contentBase64,
+    });
+  }
+
+  return { appName: spec.appName, packageName: spec.packageName, files };
+}
+
+/** —— 兼容旧用法：若暂时没接 GROQ，可本地拼个最小 Spec —— */
 export async function generatePlan(params: {
   prompt: string;
   appName?: string;
   packageName?: string;
 }): Promise<NdjcPlan> {
   const appName = (params.appName || "NDJC App").trim();
-  const pkg = (params.packageName || "com.example.app").trim();
-  const mainActivity = `app/src/main/java/${toPkgPath(pkg)}/MainActivity.java`;
+  const packageName = (params.packageName || "com.example.app").trim();
 
   const p = (params.prompt || "").toLowerCase();
+  const isDice = /(dice|骰子)/.test(p);
 
-  // —— 分支 1：骰子
-  if (/(dice|骰子)/.test(p)) {
-    return {
-      appName,
-      packageName: pkg,
-      files: [
-        {
-          path: mainActivity,
-          mode: "patch",
-          patches: [
-            // 注意：不再注入 NDJC:IMPORTS，避免重复 import
-            {
-              anchor: "NDJC:ONCREATE",
-              // 采用“内联强转 + 全限定类名 + 仅绑定监听”的写法，避免重复定义本地变量
-              insert:
-                `((android.widget.Button) findViewById(R.id.btnRoll))` +
-                `.setOnClickListener(v -> ` +
-                `((android.widget.TextView) findViewById(R.id.tvResult))` +
-                `.setText(String.valueOf(1 + new java.util.Random().nextInt(6))));\n`,
-            },
-            { anchor: "NDJC:FUNCTIONS", insert: "// dice functions\n" },
+  const spec: NdjcSpec = isDice
+    ? {
+        appName, packageName,
+        ui: { viewsXml:
+`<TextView
+  android:id="@+id/tvResult"
+  android:text="-"
+  android:textSize="32sp"
+  android:layout_width="wrap_content"
+  android:layout_height="wrap_content" />
+<Button
+  android:id="@+id/btnRoll"
+  android:text="Roll"
+  android:layout_width="wrap_content"
+  android:layout_height="wrap_content" />`
+        },
+        logic: {
+          onCreate: [
+            `((android.widget.Button) findViewById(R.id.btnRoll)).setOnClickListener(v -> ((android.widget.TextView) findViewById(R.id.tvResult)).setText(String.valueOf(1 + new java.util.Random().nextInt(6)))) ;`,
           ],
         },
-        {
-          path: "app/src/main/res/layout/activity_main.xml",
-          mode: "patch",
-          patches: [
-            {
-              anchor: "NDJC:VIEWS",
-              insert:
-                `<TextView\n` +
-                `    android:id="@+id/tvResult"\n` +
-                `    android:text="-"\n` +
-                `    android:textSize="32sp"\n` +
-                `    android:layout_width="wrap_content"\n` +
-                `    android:layout_height="wrap_content" />\n` +
-                `<Button\n` +
-                `    android:id="@+id/btnRoll"\n` +
-                `    android:text="Roll"\n` +
-                `    android:layout_width="wrap_content"\n` +
-                `    android:layout_height="wrap_content" />\n`,
-            },
+      }
+    : {
+        appName, packageName,
+        ui: { viewsXml:
+`<TextView
+  android:id="@+id/tvTitle"
+  android:text="${escJava(appName)}"
+  android:textSize="22sp"
+  android:layout_width="wrap_content"
+  android:layout_height="wrap_content" />
+<Button
+  android:id="@+id/btnAction"
+  android:text="Action"
+  android:layout_width="wrap_content"
+  android:layout_height="wrap_content" />`
+        },
+        logic: {
+          onCreate: [
+            `((android.widget.Button) findViewById(R.id.btnAction)).setOnClickListener(v -> ((android.widget.TextView) findViewById(R.id.tvTitle)).setText("${escJava(appName)} clicked"));`,
           ],
         },
-        // 不修改 strings.xml，避免与模板 app_name 冲突
-      ],
-    };
-  }
+      };
 
-  // —— 默认分支：一个标题 + 一个按钮
-  return {
-    appName,
-    packageName: pkg,
-    files: [
-      {
-        path: mainActivity,
-        mode: "patch",
-        patches: [
-          {
-            anchor: "NDJC:ONCREATE",
-            insert:
-              `((android.widget.Button) findViewById(R.id.btnAction))` +
-              `.setOnClickListener(v -> ` +
-              `((android.widget.TextView) findViewById(R.id.tvTitle))` +
-              `.setText("${escJava(appName)} clicked"));\n`,
-          },
-          { anchor: "NDJC:FUNCTIONS", insert: "// default functions\n" },
-        ],
-      },
-      {
-        path: "app/src/main/res/layout/activity_main.xml",
-        mode: "patch",
-        patches: [
-          {
-            anchor: "NDJC:VIEWS",
-            insert:
-              `<TextView\n` +
-              `  android:id="@+id/tvTitle"\n` +
-              `  android:text="${escJava(appName)}"\n` +
-              `  android:textSize="22sp"\n` +
-              `  android:layout_width="wrap_content"\n` +
-              `  android:layout_height="wrap_content" />\n` +
-              `<Button\n` +
-              `  android:id="@+id/btnAction"\n` +
-              `  android:text="Action"\n` +
-              `  android:layout_width="wrap_content"\n` +
-              `  android:layout_height="wrap_content" />\n`,
-          },
-        ],
-      },
-      // 同样不修改 strings.xml
-    ],
-  };
+  return planFromSpec(spec);
 }
