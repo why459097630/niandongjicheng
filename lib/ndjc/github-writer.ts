@@ -19,12 +19,14 @@ const OWNER = process.env.GH_OWNER!;
 const REPO = process.env.GH_REPO!;
 const BRANCH = process.env.GH_BRANCH || "main";
 const TOKEN = process.env.GITHUB_TOKEN!;
+
 if (!OWNER || !REPO || !TOKEN) {
   console.warn("[github-writer] Missing GH_OWNER/GH_REPO/GITHUB_TOKEN");
 }
+
 const octo = new Octokit({ auth: TOKEN });
 
-// —— 读文件
+// —— 读取文件（不存在返回 null）
 async function getFile(refPath: string) {
   try {
     const res = await octo.request(
@@ -41,7 +43,7 @@ async function getFile(refPath: string) {
   }
 }
 
-// —— 对文件应用补丁，并统计每个锚点是否命中
+// —— 应用补丁并统计锚点命中
 function applyPatchesWithHits(text: string, patches: Patch[]) {
   let out = text;
   const hits: { anchor: string; found: boolean }[] = [];
@@ -58,17 +60,18 @@ function applyPatchesWithHits(text: string, patches: Patch[]) {
   return { text: out, hits };
 }
 
-// —— 提交改动（支持 patch/create/replace），返回 anchors 命中审计
+// —— 提交改动：支持 patch/create/replace；返回 anchors 审计与 commitSha
 export async function commitEdits(
   edits: FileEdit[],
   commitMsg: string
 ): Promise<{ audit: any[]; commitSha: string }> {
-  // 1) 获取当前 HEAD 与 base tree
+  // 1) 获取 HEAD 与 base tree
   const head = await octo.request(
     "GET /repos/{owner}/{repo}/git/refs/heads/{branch}",
     { owner: OWNER, repo: REPO, branch: BRANCH }
   );
   const latestCommitSha = (head.data as any).object.sha;
+
   const latestCommit = await octo.request(
     "GET /repos/{owner}/{repo}/git/commits/{commit_sha}",
     { owner: OWNER, repo: REPO, commit_sha: latestCommitSha }
@@ -100,7 +103,7 @@ export async function commitEdits(
         sha: (blob.data as any).sha,
       });
     } else {
-      // create/replace 文本内容
+      // create/replace：落文本或 base64
       const content =
         e.content ??
         (e.contentBase64
@@ -150,11 +153,24 @@ export async function commitEdits(
   return { audit, commitSha: (commit.data as any).sha };
 }
 
-// —— 触发构建：创建一个最简单的请求文件
+// —— 写触发文件：push 触发工作流
 export async function touchRequestFile(requestId: string, payload: any = {}) {
   const content = JSON.stringify({ requestId, ...payload, ts: Date.now() }, null, 2);
   await commitEdits(
     [{ path: `requests/${requestId}.json`, mode: "create", content }],
     `NDJC:${requestId} trigger build`
   );
+}
+
+// —— 兜底触发：repository_dispatch（需要 token 具备 actions:write）
+export async function dispatchBuild(
+  eventType = "generate-apk",
+  payload: any = {}
+) {
+  await octo.request("POST /repos/{owner}/{repo}/dispatches", {
+    owner: OWNER,
+    repo: REPO,
+    event_type: eventType,
+    client_payload: payload,
+  });
 }
