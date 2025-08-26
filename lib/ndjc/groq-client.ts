@@ -3,73 +3,88 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY!;
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-70b-versatile";
 const URL = "https://api.groq.com/openai/v1/chat/completions";
 
-export type GroqPlan = {
-  appName: string;
-  packageName: string;
-  files: Array<
-    | { path: string; mode: "patch"; patches: { anchor: string; insert: string }[] }
-    | { path: string; mode: "replace" | "create"; content?: string; contentBase64?: string }
-  >;
-  manifestPatches?: any[];
-  gradlePatches?: any[];
-  assets?: any[];
+/** —— JSON 中间表示（Spec）Schema —— */
+export type NdjcSpec = {
+  appName: string;           // 展示名（不改 strings.xml 的 app_name）
+  packageName: string;       // 包名（当前版本不自动迁移包路径）
+  ui?: {
+    /** 直接插到 NDJC:VIEWS（必须是合法的子节点集合，不要额外包一层根） */
+    viewsXml?: string;
+  };
+  logic?: {
+    /** 逐行插到 NDJC:ONCREATE */
+    onCreate?: string[];
+    /** 追加到 NDJC:FUNCTIONS（每个元素是一个完整 Java 方法） */
+    functions?: string[];
+    /** 追加到 NDJC:IMPORTS（可选，谨慎使用以避免重复） */
+    imports?: string[];
+  };
+  /** 插到 NDJC:STRINGS；禁止 name=app_name */
+  strings?: { name: string; value: string }[];
+  gradle?: {
+    /** 插到 NDJC:DEPS（形如 implementation 'xxx:yyy:1.0.0'） */
+    dependencies?: string[];
+  };
+  manifest?: {
+    /** 插到 NDJC:MANIFEST（<application> 内部片段） */
+    applicationAdditions?: string;
+  };
+  /** 生成静态资源（如 assets/json） */
+  assets?: {
+    path: string;            // 相对仓库根路径
+    content?: string;        // 文本
+    contentBase64?: string;  // 或 base64（二者择一）
+  }[];
 };
 
-// —— 系统提示：明确禁止改动/新增 app_name —— //
 const SYSTEM_PROMPT = `
-你是“NDJC 代码生成器”。只输出严格 JSON（json_object），不要解释。
-目标：基于安卓原生模板进行“锚点注入”，不要生成完整工程。
-允许的 mode: patch | replace | create
-锚点示例：NDJC:IMPORTS / NDJC:ONCREATE / NDJC:FUNCTIONS / NDJC:VIEWS / NDJC:STRINGS
+你是“NDJC 代码规划器”。只输出**严格 JSON**（不要 Markdown 代码块），遵循下列 Schema：
 
-【重要约束】
-- 绝不要在 values/strings.xml 中新增或修改 key "app_name"（模板已有该键，重复会导致 aapt2 失败）。
-- 如需新增字符串资源，请使用自定义 key（如 "ndjc_title"）；或直接在布局里使用硬编码文本。
+{
+  "appName": "string",
+  "packageName": "string",
+  "ui": { "viewsXml": "Android XML 片段，必须是当前布局容器的若干子节点，不要再包外层布局" },
+  "logic": {
+    "onCreate": ["Java 单行语句（结尾可分号）"],
+    "functions": ["完整 Java 方法（含签名与花括号）"],
+    "imports": ["import android.widget.Button;"]
+  },
+  "strings": [{"name":"ndjc_title","value":"xxx"}],  // 禁止 app_name
+  "gradle": { "dependencies": ["implementation 'com.squareup.okhttp3:okhttp:4.12.0'"] },
+  "manifest": { "applicationAdditions": "<provider .../> 或 <meta-data .../>" },
+  "assets": [{"path":"app/src/main/assets/generated/spec.json","content":"{...}"}]
+}
+
+硬性约束：
+- 绝不要在 values/strings.xml 里新增或修改 "app_name"。
+- Java 片段优先使用内联强转：((android.widget.Button) findViewById(R.id.btn...))
+- XML 片段必须是**有效子节点集合**，不能带多余 <LinearLayout> 包裹。
+- 输出必须是纯 JSON（不能有注释、不能被 \`\`\` 包裹）。
 `.trim();
 
-function coerceJson(text: string) {
-  const m = text.match(/```json\s*([\s\S]*?)\s*```/i);
+function parseJson(text: string) {
+  // 某些模型会外包 ```json ... ```；剥离
+  const m = text.match(/```json\s*([\s\S]*?)```/i);
   const raw = m ? m[1] : text;
   return JSON.parse(raw);
 }
 
-function validatePlan(x: any): x is GroqPlan {
-  if (!x || typeof x !== "object") return false;
-  if (typeof x.appName !== "string") return false;
-  if (typeof x.packageName !== "string") return false;
-  if (!Array.isArray(x.files)) return false;
-  for (const f of x.files) {
-    if (typeof f?.path !== "string") return false;
-    if (!["patch", "replace", "create"].includes(f.mode)) return false;
-    if (f.mode === "patch") {
-      if (!Array.isArray((f as any).patches)) return false;
-      for (const p of (f as any).patches) {
-        if (typeof p?.anchor !== "string" || typeof p?.insert !== "string") return false;
-      }
-    }
-  }
-  return true;
+function validate(spec: any): spec is NdjcSpec {
+  return !!(spec && typeof spec === "object" && typeof spec.appName === "string" && typeof spec.packageName === "string");
 }
 
-export async function callGroqToPlan(input: {
+export async function callGroqToSpec(params: {
   prompt: string;
   appName: string;
   packageName: string;
-  anchorsHint?: string[];
-}): Promise<GroqPlan> {
+}): Promise<NdjcSpec> {
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY is missing");
 
   const user = `
-需求：${input.prompt}
-目标包名：${input.packageName}
-应用名：${input.appName}
-现有锚点：${(input.anchorsHint || [
-    "NDJC:IMPORTS",
-    "NDJC:ONCREATE",
-    "NDJC:FUNCTIONS",
-    "NDJC:VIEWS",
-    "NDJC:STRINGS",
-  ]).join(", ")}。
+需求：${params.prompt}
+应用名：${params.appName}
+包名：${params.packageName}
+请严格按系统提示的 Schema 输出纯 JSON。
 `.trim();
 
   const res = await fetch(URL, {
@@ -97,8 +112,7 @@ export async function callGroqToPlan(input: {
 
   const data = await res.json();
   const text: string = data?.choices?.[0]?.message?.content || "";
-  const json = coerceJson(text);
-
-  if (!validatePlan(json)) throw new Error("Groq returned invalid plan JSON");
+  const json = parseJson(text);
+  if (!validate(json)) throw new Error("Groq returned invalid spec JSON");
   return json;
 }
