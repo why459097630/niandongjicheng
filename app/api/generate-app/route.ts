@@ -1,76 +1,55 @@
-// app/api/generate-app/route.ts
+// /app/api/generate-app/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { generatePlan } from "@/lib/ndjc/generator";
-import { commitEdits, touchRequestFile, dispatchBuild } from "@/lib/ndjc/github-writer";
+import { commitAndBuild } from "@/lib/ndjc/generator";
 
-function newId() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+// 与 generator.ts 对齐的类型
+type ApplyFile = { path: string; content: string; base64?: boolean };
+
+/**
+ * 临时占位的“差量注入器”——为了先验证闭环：
+ * 1) 一定会在 app/src/main/assets/ 下写入一个 ndjc_<ts>.txt
+ * 2) requests/*.json 与 apply.log 会同步生成
+ * 之后可用你自己的 GROQ→模板差量逻辑替换这里的实现
+ */
+async function buildDiffFilesFromGroq(input: {
+  prompt: string;
+  template?: string;
+  appName?: string;
+}): Promise<ApplyFile[]> {
+  const ts = Date.now();
+  const lines = [
+    `NDJC APPLY`,
+    `time=${new Date(ts).toISOString()}`,
+    `appName=${input.appName || ""}`,
+    `template=${input.template || ""}`,
+    `prompt=${(input.prompt || "").replace(/\r?\n/g, " ")}`,
+  ];
+  return [
+    {
+      path: "app/src/main/assets/ndjc_" + ts + ".txt",
+      content: lines.join("\n"),
+    },
+  ];
 }
 
 export async function POST(req: NextRequest) {
-  const t0 = Date.now();
-  try {
-    const body = await req.json();
-    const { prompt, appName, packageName, template = "form-template" } = body || {};
-    if (!prompt) {
-      return NextResponse.json({ ok: false, error: "Missing prompt" }, { status: 400 });
-    }
+  const body = await req.json();
+  const prompt = body.prompt || "";
+  const template = body.template || "core-template";
+  const appName = body.appName || "NDJCApp";
 
-    console.log("[NDJC] /generate-app input", { prompt, appName, packageName, template });
+  // 1) 这里构建差量文件清单（可替换为你的 GROQ → 差量注入结果）
+  const files = await buildDiffFilesFromGroq({ prompt, template, appName });
 
-    // (1) 生成计划（差量补丁）
-    const plan = await generatePlan({ prompt, appName, packageName, template });
-    const edits = (plan.files ?? []) as any[];
-    console.log("[NDJC] plan generated", { fileCount: edits.length });
+  // 2) 先落盘并写入 requests/*，随后触发构建
+  const { requestId } = await commitAndBuild({
+    owner: process.env.GH_OWNER!,               // e.g. "why459097630"
+    repo: process.env.PACKAGING_REPO!,          // e.g. "Packaging-warehouse"
+    branch: process.env.PACKAGING_BRANCH || "main",
+    files,
+    meta: { prompt, template, appName },
+    githubToken: process.env.GH_TOKEN!,         // 细粒度 token / PAT
+  });
 
-    // (2) 提交差量补丁（如有）
-    if (edits.length > 0) {
-      const ok = await commitEdits(edits, `NDJC: apply plan for "${plan.appName}"`);
-      console.log("[NDJC] commitEdits result", ok);
-      if (!ok) throw new Error("commitEdits failed");
-    } else {
-      console.log("[NDJC] commitEdits skipped (no edits)");
-    }
-
-    // (3) 记录 requests/<id>*.json 三件套
-    const requestId = newId();
-    await touchRequestFile(requestId, { kind: "plan", ...plan });
-    await touchRequestFile(requestId, {
-      kind: "apply",
-      appName: plan.appName,
-      packageName: plan.packageName,
-      template,
-      files: edits.map(e => e.path),
-    });
-    await touchRequestFile(requestId, {
-      kind: "request",
-      prompt,
-      appName,
-      packageName,
-      template,
-      reason: "api",
-    });
-    console.log("[NDJC] touchRequestFile all done", { requestId });
-
-    // (4) 触发构建（repository_dispatch）
-    const payload = {
-      template,
-      app_name: plan.appName || appName || "MyApp",
-      api_base: process.env.SITE_URL || process.env.NEXT_PUBLIC_API_BASE || "",
-      api_secret: process.env.API_SECRET || "",
-      owner: process.env.GH_OWNER!,
-      repo: process.env.GH_REPO!,
-      branch: "main",
-      version_name: "1.0.0",
-      version_code: "1",
-      reason: "api",
-    };
-    const d = await dispatchBuild(payload);
-    console.log("[NDJC] dispatchBuild done", { status: d?.status });
-
-    return NextResponse.json({ ok: true, requestId, costMs: Date.now() - t0 });
-  } catch (e: any) {
-    console.error("[NDJC] generate-app error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "unknown" }, { status: 500 });
-  }
+  return NextResponse.json({ ok: true, requestId });
 }
