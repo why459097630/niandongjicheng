@@ -1,27 +1,64 @@
-// /lib/ndjc/diff.ts
-import type { ApplyFile } from "@/lib/ndjc/generator";
+// lib/ndjc/diff.ts
+// 让“差异构建器”真正产出会被打包的资源文件
 
-/** 在带 NDJC 标记的文本中替换指定 key 的内容（支持 // 与 <!-- --> 两种注释） */
-export function injectBetweenMarkers(
-  original: string,
-  key: string,
-  replacement: string
-): string {
-  const beginRe = new RegExp(`((?:\\/\\/)|(?:<!--))\\s*NDJC:BEGIN\\(${key}\\)\\s*(?:-->)?`);
-  const endRe   = new RegExp(`((?:\\/\\/)|(?:<!--))\\s*NDJC:END\\(${key}\\)\\s*(?:-->)?`);
-  const beginMatch = original.match(beginRe);
-  const endMatch   = original.match(endRe);
-  if (!beginMatch || !endMatch) throw new Error(`Marker not found: ${key}`);
+export type NdjcFile = { path: string; content: string };
+export type NdjcFiles = NdjcFile[];
 
-  const beginIdx = original.indexOf(beginMatch[0]) + beginMatch[0].length;
-  const endIdx   = original.indexOf(endMatch[0]);
-  if (endIdx <= beginIdx) throw new Error(`Marker order error: ${key}`);
+// 你自己的 GROQ 返回结构可能不同；做了容错抽取
+function normalizeGroq(groq: any): { title: string; body: string; cta: string } {
+  const textFromChoices =
+    groq?.choices?.[0]?.message?.content ??
+    groq?.choices?.[0]?.text ??
+    groq?.message?.content ??
+    groq?.text ??
+    "";
 
-  return original.slice(0, beginIdx) + `\n${replacement}\n` + original.slice(endIdx);
+  const raw = typeof groq === "string" ? groq : (groq?.title || groq?.body ? "" : textFromChoices);
+
+  // 尝试从半结构化文本里抓标题/正文/按钮
+  const title =
+    groq?.title ||
+    matchOne(raw, /(标题|title)\s*[:：]\s*(.+)/i) ||
+    "NDJC App";
+  const body =
+    groq?.body ||
+    matchOne(raw, /(正文|内容|description|body)\s*[:：]\s*([\s\S]+)/i) ||
+    raw ||
+    "这是由 NDJC/GROQ 注入的正文。";
+  const cta =
+    groq?.cta ||
+    matchOne(raw, /(按钮|cta|button)\s*[:：]\s*(.+)/i) ||
+    "Get started";
+
+  return { title: title.trim(), body: body.trim(), cta: cta.trim() };
 }
 
-/** 基线布局（三处可写区），不依赖外部资源 */
-export function baseActivityMainXML(): string {
+function matchOne(text: string, re: RegExp): string | undefined {
+  const m = text?.match?.(re);
+  return m?.[2] || m?.[1];
+}
+
+function xe(s: string): string {
+  return (s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function idsXml(): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- 兜底 id，保证 Java/Kotlin 编译期可引用 -->
+  <item name="ndjcTitle" type="id"/>
+  <item name="ndjcBody" type="id"/>
+  <item name="ndjcPrimary" type="id"/>
+</resources>
+`;
+}
+
+function layoutXml(p: { title: string; body: string; cta: string }): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -29,89 +66,54 @@ export function baseActivityMainXML(): string {
     android:orientation="vertical"
     android:padding="16dp">
 
-    <!-- NDJC:BEGIN(header) -->
-    <!-- NDJC:END(header) -->
+    <TextView
+        android:id="@+id/ndjcTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="${xe(p.title)}"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:paddingBottom="12dp"/>
 
-    <!-- NDJC:BEGIN(body) -->
-    <!-- NDJC:END(body) -->
+    <TextView
+        android:id="@+id/ndjcBody"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="${xe(p.body)}" />
 
-    <!-- NDJC:BEGIN(actions) -->
-    <!-- NDJC:END(actions) -->
-
+    <Button
+        android:id="@+id/ndjcPrimary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="${xe(p.cta)}"
+        android:layout_marginTop="16dp"/>
 </LinearLayout>
 `;
 }
 
-/** 在布局末尾附加“兼容占位 ID”，防止 Java 里引用的旧 id 编译报错 */
-function appendCompatPlaceholders(layout: string, ids: string[]): string {
-  if (!ids.length) return layout;
-  const placeholders = ids.map(id => (
-    `<View android:id="@+id/${id}" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>`
-  )).join("\n");
+export async function buildDiffFilesFromGroq(groqResult: any): Promise<NdjcFiles> {
+  const p = normalizeGroq(groqResult);
+  const files: NdjcFiles = [];
 
-  // 统一插到 actions 可写区后面，仍在根 LinearLayout 内
-  let withCompat = layout;
-  const insertKey = "actions";
-  try {
-    withCompat = injectBetweenMarkers(withCompat, insertKey, `<!-- NDJC generated actions -->`);
-  } catch { /* 如果没找到也忽略，兼容老模板 */ }
+  // 1) 兜底 id
+  files.push({
+    path: "app/src/main/res/values/ids.xml",
+    content: idsXml(),
+  });
 
-  // 在根结尾 </LinearLayout> 之前插入（双保险）
-  return withCompat.replace(/<\/LinearLayout>\s*$/m, `${placeholders}\n\n</LinearLayout>`);
-}
+  // 2) 真实布局，把 GROQ 内容写进去
+  files.push({
+    path: "app/src/main/res/layout/activity_main.xml",
+    content: layoutXml(p),
+  });
 
-/** 由输入构造 UI 片段并注入；自动附加兼容 ID */
-export async function buildDiffFilesFromGroq(input: {
-  prompt: string;
-  template?: string;
-  appName?: string;
-}): Promise<ApplyFile[]> {
-  const title = (input.appName || "NDJCApp").slice(0, 40);
-  const bodyText = (input.prompt || "Hello from NDJC").slice(0, 140);
-  const buttonText = "Get started";
+  // 3) 记录请求结果（方便排障/追溯）
+  files.push({
+    path: `app/src/main/assets/ndjc_${Date.now()}.txt`,
+    content:
+      `NDJC PLAN\n` +
+      `title: ${p.title}\ncta: ${p.cta}\n\n--- body ---\n${p.body}\n`,
+  });
 
-  const header = `<TextView
-        android:id="@+id/ndjcTitle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="${escapeXml(title)}"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:paddingBottom="12dp"/>`;
-
-  const body = `<TextView
-        android:id="@+id/ndjcBody"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="${escapeXml(bodyText)}"
-        android:textSize="16sp"
-        android:paddingBottom="16dp"/>`;
-
-  const actions = `<Button
-        android:id="@+id/ndjcPrimary"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="${escapeXml(buttonText)}"/>`;
-
-  // 注入三处可写区
-  let layout = baseActivityMainXML();
-  layout = injectBetweenMarkers(layout, "header", header);
-  layout = injectBetweenMarkers(layout, "body", body);
-  layout = injectBetweenMarkers(layout, "actions", actions);
-
-  // 兼容：自动补上常见旧 ID（可按需拓展）
-  const compatIds = ["textView", "button"]; // 如果后续日志提示更多，就加到这个列表
-  layout = appendCompatPlaceholders(layout, compatIds);
-
-  return [
-    { path: "app/src/main/res/layout/activity_main.xml", content: layout },
-  ];
-}
-
-function escapeXml(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return files;
 }
