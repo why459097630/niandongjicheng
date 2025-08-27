@@ -1,5 +1,4 @@
-// lib/ndjc/generator.ts
-
+// /lib/ndjc/generator.ts
 import { Octokit } from "@octokit/rest";
 import { randomUUID } from "crypto";
 
@@ -25,40 +24,21 @@ export async function commitAndBuild({
   // 生成 requestId（20位）
   const requestId = randomUUID().replace(/-/g, "").slice(0, 20);
 
-  // 工具函数：更新或创建文件
-  const upsertFile = async (
-    path: string,
-    contentB64: string,
-    message: string
-  ) => {
+  // 工具：创建/更新文件
+  const upsertFile = async (path: string, contentB64: string, message: string) => {
     let sha: string | undefined;
     try {
-      const { data } = await octo.repos.getContent({
-        owner,
-        repo,
-        path,
-        ref: branch,
-      });
+      const { data } = await octo.repos.getContent({ owner, repo, path, ref: branch });
       // @ts-ignore
       sha = data.sha;
     } catch {}
     await octo.repos.createOrUpdateFileContents({
-      owner,
-      repo,
-      path,
-      branch,
-      content: contentB64,
-      message,
-      sha,
+      owner, repo, path, branch, content: contentB64, message, sha,
     });
   };
 
   const writeJson = (p: string, obj: any, msg: string) =>
-    upsertFile(
-      p,
-      Buffer.from(JSON.stringify(obj, null, 2)).toString("base64"),
-      msg
-    );
+    upsertFile(p, Buffer.from(JSON.stringify(obj, null, 2)).toString("base64"), msg);
 
   // 1) 写 requests/* 记录
   await writeJson(
@@ -79,14 +59,8 @@ export async function commitAndBuild({
   const applyLogs: any[] = [];
   for (const f of files) {
     const path = f.path.replace(/^\/+/, "");
-    const contentB64 = f.base64
-      ? f.content
-      : Buffer.from(f.content).toString("base64");
-    await upsertFile(
-      path,
-      contentB64,
-      `NDJC:${requestId} apply ${path}`
-    );
+    const contentB64 = f.base64 ? f.content : Buffer.from(f.content).toString("base64");
+    await upsertFile(path, contentB64, `NDJC:${requestId} apply ${path}`);
     applyLogs.push({ path, mode: "upsert" });
   }
 
