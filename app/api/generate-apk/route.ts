@@ -163,4 +163,41 @@ async function commitFiles(
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json
+    const body = await req.json().catch(() => ({}))
+
+    // 统一解析 body
+    const prompt: string = body?.prompt ?? ''
+    const template: string | undefined = body?.template
+    const inputFiles: TreeItem[] | undefined = body?.files
+
+    // 若前端没传 files，使用兜底文件（注意此处允许 2 个参数）
+    const files: TreeItem[] =
+      Array.isArray(inputFiles) && inputFiles.length > 0
+        ? inputFiles
+        : makeDefaultFiles(prompt, template)
+
+    const { token, owner, repo, branch } = getEnvOrThrow()
+    const octokit = new Octokit({ auth: token })
+
+    const commitSha = await commitFiles(
+      octokit,
+      { owner, repo, branch },
+      files,
+      `NDJC: apply ${files.length} files`
+    )
+
+    return NextResponse.json({
+      ok: true,
+      commit: commitSha,
+      files: files.map((f) => f.path),
+    })
+  } catch (err: any) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err?.message || String(err),
+      },
+      { status: 500 }
+    )
+  }
+}
