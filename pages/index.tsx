@@ -1,170 +1,199 @@
-import { useState, FormEvent } from 'react';
-import type { NextPage } from 'next';
+import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { motion } from "framer-motion";
+import { Smartphone, Download, Code, User, Database, ClipboardList, Bell, Palette, Languages, Camera, MapPin, Share2, BarChart2 } from "lucide-react";
 
-type ApiOk = { ok: true; commitUrl: string; runTriggered: boolean };
-type ApiFail = { ok: false; message: string; detail?: any };
-type ApiResp = ApiOk | ApiFail;
+export default function HomePage() {
+  const [loading, setLoading] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [features, setFeatures] = useState<string[]>([]);
+  const [template, setTemplate] = useState<"simple" | "core" | "form">("core");
+  const [result, setResult] = useState<{ previewUrl?: string; apkUrl?: string; zipUrl?: string; message?: string } | null>(null);
 
-const IndexPage: NextPage = () => {
-  const [prompt, setPrompt] = useState<string>('');
-  const [template, setTemplate] = useState<string>('form-template');
-  const [loading, setLoading] = useState<boolean>(false);
-  const [msg, setMsg] = useState<string>('');
-  const [okUrl, setOkUrl] = useState<string>('');
+  const featureOptions = [
+    { key: "auth", label: "登录 / 注册" },
+    { key: "storage", label: "数据存储（本地/云端）" },
+    { key: "form", label: "表单提交" },
+    { key: "push", label: "推送通知" },
+    { key: "theme", label: "主题切换（深色/浅色）" },
+    { key: "i18n", label: "多语言支持" },
+    { key: "camera", label: "相机权限" },
+    { key: "location", label: "定位权限" },
+    { key: "share", label: "分享功能" },
+    { key: "analytics", label: "基础统计分析" },
+  ];
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setMsg('');
-    setOkUrl('');
-    if (!prompt.trim()) {
-      setMsg('请先填写需求描述（prompt）');
+  const handleToggle = (key: string) => {
+    setFeatures((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  const handleGenerate = async () => {
+    if (!prompt.trim() && features.length === 0) {
+      alert("请至少填写一句需求或勾选一个功能");
       return;
     }
-
     setLoading(true);
+    setResult(null);
+
+    // 组装契约 JSON（与后端约定）
+    const payload = {
+      prompt,
+      template, // "simple" | "core" | "form"
+      features, // ["auth","storage",...]
+      meta: {
+        // 后端可根据 prompt 生成 appName & packageName，或给默认值
+        appName: "My App",
+      },
+    };
+
     try {
-      // ✅ 同源调用：不再写完整域名，也不再使用 NEXT_PUBLIC_API_BASE
-      const resp = await fetch('/api/generate-apk', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // 可选：若服务器配置了 API_SECRET/X_API_SECRET，就在前端通过公开环境变量传过去
-          'x-api-secret': process.env.NEXT_PUBLIC_API_SECRET ?? '',
-        },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          template,
-        }),
+      const res = await fetch("/api/generate-apk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
-      const data: ApiResp = await resp.json();
-
-      if (!resp.ok || !data.ok) {
-        const reason = !resp.ok ? `${resp.status} ${resp.statusText}` : (data as ApiFail).message;
-        setMsg(`生成失败：${reason}`);
-        return;
-      }
-
-      setOkUrl((data as ApiOk).commitUrl);
-      setMsg('已写入仓库并触发构建（如配置），请到 GitHub Actions 查看进度。');
-    } catch (err: any) {
-      setMsg(`网络错误：${err?.message || err}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // 期望 data: { ok: true, previewUrl?, apkUrl?, zipUrl?, message? }
+      setResult(data);
+    } catch (e: any) {
+      setResult({ message: e?.message || "生成失败，请稍后再试" });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #121826, #1f2937)',
-      color: '#fff',
-      padding: '40px 20px',
-      boxSizing: 'border-box'
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: 840,
-        background: 'rgba(255,255,255,0.04)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 16,
-        padding: 24
-      }}>
-        <h1 style={{ fontSize: 28, margin: 0, marginBottom: 12 }}>一键生成 APK</h1>
-        <p style={{ opacity: 0.85, marginTop: 0 }}>
-          输入需求，并从下拉框选择模板（core-template / form-template / simple-template），会把内容写入仓库并触发 CI。
-        </p>
+    <div className="min-h-screen bg-gradient-to-b from-indigo-900 via-purple-900 to-black text-white font-inter flex flex-col items-center p-6">
+      {/* 标题区 */}
+      <motion.h1
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+        className="text-4xl md:text-6xl font-bold text-center mt-12"
+      >
+        一句话生成你的专属 App
+      </motion.h1>
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.3 }}
+        className="text-lg text-gray-300 text-center mt-4 max-w-xl"
+      >
+        输入需求，选择功能，即刻下载原生 APK
+      </motion.p>
 
-        <form onSubmit={onSubmit}>
-          <label style={{ display: 'block', marginBottom: 8 }}>需求描述（prompt）</label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="例如：生成一个介绍茶品的安卓 app，要可以上传照片和文字介绍，可以标价，要有登录系统"
-            rows={6}
-            style={{
-              width: '100%',
-              resize: 'vertical',
-              borderRadius: 8,
-              padding: 12,
-              border: '1px solid rgba(255,255,255,0.14)',
-              background: 'rgba(0,0,0,0.25)',
-              color: '#fff',
-              outline: 'none'
-            }}
-          />
+      {/* 输入区 */}
+      <div className="mt-10 w-full max-w-2xl space-y-6">
+        <Input
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="例如：记账本 / 健身打卡 / 咖啡店预约"
+          className="w-full p-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-gray-400"
+        />
 
-          <div style={{ height: 16 }} />
+        {/* 功能勾选 */}
+        <Card className="bg-white/5 border-white/20 text-white rounded-2xl">
+          <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4 p-6">
+            {featureOptions.map(({ key, label }) => (
+              <label key={key} className="flex items-center space-x-2 cursor-pointer">
+                <Checkbox checked={features.includes(key)} onCheckedChange={() => handleToggle(key)} />
+                <span>{label}</span>
+              </label>
+            ))}
+          </CardContent>
+        </Card>
 
-          <label style={{ display: 'block', marginBottom: 8 }}>模板</label>
-          <select
-            value={template}
-            onChange={(e) => setTemplate(e.target.value)}
-            style={{
-              width: '100%',
-              borderRadius: 8,
-              padding: '10px 12px',
-              border: '1px solid rgba(255,255,255,0.14)',
-              background: 'rgba(0,0,0,0.25)',
-              color: '#fff',
-              outline: 'none'
-            }}
-          >
-            <option value="form-template">Form 模板（form-template）</option>
-            <option value="core-template">Core 模板（core-template）</option>
-            <option value="simple-template">Simple 模板（simple-template）</option>
-          </select>
+        {/* 模板选择 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {[
+            { key: "simple", title: "Simple 模板", desc: "单页展示类应用" },
+            { key: "core", title: "Core 模板", desc: "多页面+导航" },
+            { key: "form", title: "Form 模板", desc: "含表单/登录/数据交互" },
+          ].map((tpl) => (
+            <Card
+              key={tpl.key}
+              onClick={() => setTemplate(tpl.key as any)}
+              className={`bg-white/5 border-white/20 rounded-2xl hover:bg-white/10 cursor-pointer ${
+                template === tpl.key ? "ring-2 ring-pink-400" : ""
+              }`}
+            >
+              <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-2">{tpl.title}</h3>
+                <p className="text-gray-300 text-sm">{tpl.desc}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
-          <div style={{ height: 16 }} />
-
-          <button
-            type="submit"
+        {/* 生成按钮 */}
+        <div className="flex justify-center mt-6">
+          <Button
+            onClick={handleGenerate}
             disabled={loading}
-            style={{
-              width: '100%',
-              height: 44,
-              borderRadius: 8,
-              background: loading ? 'rgba(59,130,246,0.6)' : '#3b82f6',
-              border: 'none',
-              color: '#fff',
-              fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer'
-            }}
+            className="px-10 py-4 rounded-2xl text-lg font-semibold bg-gradient-to-r from-pink-500 to-indigo-500 shadow-lg hover:scale-105 transition disabled:opacity-60"
           >
-            {loading ? '生成中…' : 'Generate APK'}
-          </button>
-        </form>
+            {loading ? "生成中..." : "立即生成 App"}
+          </Button>
+        </div>
+      </div>
 
-        <div style={{ height: 16 }} />
-
-        {msg && (
-          <div
-            style={{
-              padding: '12px 14px',
-              borderRadius: 8,
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              lineHeight: 1.5
-            }}
-          >
-            {msg}
-            {okUrl && (
-              <>
-                <br/>
-                提交链接：&nbsp;
-                <a href={okUrl} target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>
-                  {okUrl}
-                </a>
-              </>
-            )}
+      {/* 结果展示区 */}
+      <div className="mt-16 w-full max-w-3xl text-center">
+        <h2 className="text-2xl font-bold mb-6">生成结果</h2>
+        {!result && (
+          <p className="text-gray-400">点击“立即生成 App”后将在此显示预览和下载链接</p>
+        )}
+        {result && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="bg-white/5 border-white/20 rounded-2xl">
+              <CardContent className="flex flex-col items-center p-6">
+                <Smartphone className="w-10 h-10 mb-3" />
+                {result?.previewUrl ? (
+                  <a href={result.previewUrl} target="_blank" rel="noreferrer" className="underline">
+                    在线预览
+                  </a>
+                ) : (
+                  <p>在线预览</p>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="bg-white/5 border-white/20 rounded-2xl">
+              <CardContent className="flex flex-col items-center p-6">
+                <Download className="w-10 h-10 mb-3" />
+                {result?.apkUrl ? (
+                  <a href={result.apkUrl} className="underline" target="_blank" rel="noreferrer">
+                    APK 下载
+                  </a>
+                ) : (
+                  <p>APK 下载</p>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="bg-white/5 border-white/20 rounded-2xl">
+              <CardContent className="flex flex-col items-center p-6">
+                <Code className="w-10 h-10 mb-3" />
+                {result?.zipUrl ? (
+                  <a href={result.zipUrl} className="underline" target="_blank" rel="noreferrer">
+                    源码 ZIP
+                  </a>
+                ) : (
+                  <p>源码 ZIP</p>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
+        {result?.message && (
+          <p className="mt-4 text-red-300">{result.message}</p>
+        )}
       </div>
-    </main>
+    </div>
   );
-};
-
-export default IndexPage;
+}
