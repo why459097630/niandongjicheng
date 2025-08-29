@@ -1,10 +1,59 @@
 import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { motion } from "framer-motion";
-import { Smartphone, Download, Code, User, Database, ClipboardList, Bell, Palette, Languages, Camera, MapPin, Share2, BarChart2 } from "lucide-react";
+
+/**
+ * 轻量内置 UI 组件，避免依赖 shadcn/ui 与外部路径导致 Vercel 构建失败。
+ * 如果后续需要换回 shadcn/ui，再把这些组件替换为真实依赖即可。
+ */
+function cn(...cls: (string | false | null | undefined)[]) {
+  return cls.filter(Boolean).join(" ");
+}
+
+function Card({ className = "", children }: any) {
+  return (
+    <div className={cn("rounded-2xl border border-white/20 bg-white/5", className)}>
+      {children}
+    </div>
+  );
+}
+function CardContent({ className = "", children }: any) {
+  return <div className={cn("p-6", className)}>{children}</div>;
+}
+function Button({ className = "", children, disabled, onClick }: any) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "px-10 py-4 rounded-2xl text-lg font-semibold bg-gradient-to-r from-pink-500 to-indigo-500 shadow-lg transition disabled:opacity-60",
+        !disabled && "hover:scale-105",
+        className
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+function Input({ className = "", ...props }: any) {
+  return (
+    <input
+      {...props}
+      className={cn(
+        "w-full p-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-gray-400 outline-none",
+        className
+      )}
+    />
+  );
+}
+function Checkbox({ checked, onCheckedChange }: { checked: boolean; onCheckedChange: () => void }) {
+  return (
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={onCheckedChange}
+      className="h-5 w-5 rounded-md border-white/30 bg-white/10"
+    />
+  );
+}
 
 export default function HomePage() {
   const [loading, setLoading] = useState(false);
@@ -72,22 +121,12 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-900 via-purple-900 to-black text-white font-inter flex flex-col items-center p-6">
       {/* 标题区 */}
-      <motion.h1
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8 }}
-        className="text-4xl md:text-6xl font-bold text-center mt-12"
-      >
-        一句话生成你的专属 App
-      </motion.h1>
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.3 }}
-        className="text-lg text-gray-300 text-center mt-4 max-w-xl"
-      >
-        输入需求，选择功能，即刻下载原生 APK
-      </motion.p>
+      <div className="text-center mt-12">
+        <h1 className="text-4xl md:text-6xl font-bold">一句话生成你的专属 App</h1>
+        <p className="text-lg text-gray-300 mt-4 max-w-xl mx-auto">
+          输入需求，选择功能，即刻下载原生 APK
+        </p>
+      </div>
 
       {/* 输入区 */}
       <div className="mt-10 w-full max-w-2xl space-y-6">
@@ -154,7 +193,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="bg-white/5 border-white/20 rounded-2xl">
               <CardContent className="flex flex-col items-center p-6">
-                <Smartphone className="w-10 h-10 mb-3" />
+                <div className="w-10 h-10 mb-3 rounded-full border border-white/30 flex items-center justify-center">🖥️</div>
                 {result?.previewUrl ? (
                   <a href={result.previewUrl} target="_blank" rel="noreferrer" className="underline">
                     在线预览
@@ -166,7 +205,7 @@ export default function HomePage() {
             </Card>
             <Card className="bg-white/5 border-white/20 rounded-2xl">
               <CardContent className="flex flex-col items-center p-6">
-                <Download className="w-10 h-10 mb-3" />
+                <div className="w-10 h-10 mb-3 rounded-full border border-white/30 flex items-center justify-center">⬇️</div>
                 {result?.apkUrl ? (
                   <a href={result.apkUrl} className="underline" target="_blank" rel="noreferrer">
                     APK 下载
@@ -178,7 +217,7 @@ export default function HomePage() {
             </Card>
             <Card className="bg-white/5 border-white/20 rounded-2xl">
               <CardContent className="flex flex-col items-center p-6">
-                <Code className="w-10 h-10 mb-3" />
+                <div className="w-10 h-10 mb-3 rounded-full border border-white/30 flex items-center justify-center">💾</div>
                 {result?.zipUrl ? (
                   <a href={result.zipUrl} className="underline" target="_blank" rel="noreferrer">
                     源码 ZIP
