@@ -1,7 +1,7 @@
 // lib/ndjc/generator.ts
 // =======================================================
 // 0) 说明
-// - 保留你的“默认锚点 -> 模板生成 -> push & dispatch”链路
+// - 保留“默认锚点 -> 模板生成 -> push & dispatch”链路
 // - 新增：requests/<buildId>/prompt.txt、raw.json、normalized.json、report.json
 // - 新增：根据 features 注入最小可见锚点；写入 app/src/main/assets/ndjc_meta.json
 // - 导出 generateWithAudit(...) 供 /app/api/generate-apk 调用
@@ -144,7 +144,7 @@ dependencies {
 }
 `.trim();
 
-// AndroidManifest.xml（改成直接插入权限行）
+// AndroidManifest.xml（直接插入权限行）
 const TPL_manifest = `
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{{NDJC_PACKAGE_ID}}">
   {{NDJC_PERMISSIONS}}
@@ -352,13 +352,23 @@ export function makeLetterIconSVG(text: string, bg: string, fg: string) {
 </svg>`.trim();
 }
 
-// ================ 5) 真推送 + 触发打包（沿用你的实现） ================
-const GH_TOKEN  = process.env.GITHUB_TOKEN!;
-const GH_OWNER  = process.env.GITHUB_OWNER!;
-const GH_REPO   = process.env.GITHUB_REPO!;
-const GH_BRANCH = process.env.GITHUB_BRANCH || "main";
+// ================ 5) 真推送 + 触发打包（兼容 GH_* / GITHUB_*） ================
+const GH_TOKEN  = process.env.GITHUB_TOKEN  || process.env.GH_TOKEN  || "";
+const GH_OWNER  = process.env.GITHUB_OWNER  || process.env.GH_OWNER  || "";
+const GH_REPO   = process.env.GITHUB_REPO   || process.env.GH_REPO   || "";
+const GH_BRANCH = process.env.GITHUB_BRANCH || process.env.GH_BRANCH || "main";
+
+function assertEnv() {
+  if (!GH_TOKEN || !GH_OWNER || !GH_REPO) {
+    throw new Error(
+      `Missing GitHub envs: ` +
+      `TOKEN=${!!GH_TOKEN}, OWNER=${GH_OWNER || "<empty>"}, REPO=${GH_REPO || "<empty>"}, BRANCH=${GH_BRANCH}`
+    );
+  }
+}
 
 async function githubGetFileSha(path: string) {
+  assertEnv();
   const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(path)}?ref=${GH_BRANCH}`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${GH_TOKEN}`, "User-Agent": "ndjc" } });
   if (r.status === 200) { const j: any = await r.json(); return j.sha as string; }
@@ -366,6 +376,7 @@ async function githubGetFileSha(path: string) {
 }
 
 async function githubPutFile(path: string, content: string, message: string, base64?: boolean) {
+  assertEnv();
   const sha = await githubGetFileSha(path);
   const body: any = {
     message,
@@ -384,7 +395,13 @@ async function githubPutFile(path: string, content: string, message: string, bas
     },
     body: JSON.stringify(body)
   });
-  if (!r.ok) { throw new Error(`GitHub PUT ${path} failed: ${r.status} ${await r.text()}`); }
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(
+      `GitHub PUT failed ${r.status}. owner=${GH_OWNER} repo=${GH_REPO} ` +
+      `path=${path} branch=${GH_BRANCH}. Resp=${text.slice(0, 200)}`
+    );
+  }
 }
 
 /** 推文件 + 触发 workflow_dispatch（android-build-matrix.yml） */
@@ -403,13 +420,20 @@ export async function commitAndBuild(input: {
   for (const f of files) { await githubPutFile(f.filePath, f.content, msg, f.base64); written++; }
 
   // 触发打包
+  assertEnv();
   const triggerUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/actions/workflows/${workflowFile}/dispatches`;
   const r = await fetch(triggerUrl, {
     method: "POST",
     headers: { Authorization: `Bearer ${GH_TOKEN}`, "User-Agent": "ndjc", "Content-Type": "application/json" },
     body: JSON.stringify({ ref })
   });
-  if (!r.ok) { throw new Error(`Workflow dispatch failed: ${r.status} ${await r.text()}`); }
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(
+      `Workflow dispatch failed ${r.status}. owner=${GH_OWNER} repo=${GH_REPO} ` +
+      `workflow=${workflowFile} ref=${ref}. Resp=${text.slice(0, 200)}`
+    );
+  }
 
   return { ok: true, writtenCount: written, note: "pushed to GitHub & workflow dispatched" };
 }
@@ -424,7 +448,6 @@ function applyAnchorsToParamsAndFiles(features: string[], baseParams: Record<str
 
   const perms: string[] = [];
   const deps: string[] = [];
-
   const extraFiles: CommitFile[] = [];
 
   for (const f of features) {
