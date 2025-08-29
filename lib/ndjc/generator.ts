@@ -1,5 +1,13 @@
 // lib/ndjc/generator.ts
-// ================ 1) 锚点默认值（可直接用你之前那份大表） ================
+// =======================================================
+// 0) 说明
+// - 保留你的“默认锚点 -> 模板生成 -> push & dispatch”链路
+// - 新增：requests/<buildId>/prompt.txt、raw.json、normalized.json、report.json
+// - 新增：根据 features 注入最小可见锚点；写入 app/src/main/assets/ndjc_meta.json
+// - 导出 generateWithAudit(...) 供 /app/api/generate-apk 调用
+// =======================================================
+
+// ================ 1) 锚点默认值（沿用并补齐少量字段） ================
 export const defaults: Record<string, any> = {
   // —— 基础 —— //
   NDJC_APP_NAME: "MyApp",
@@ -23,7 +31,7 @@ export const defaults: Record<string, any> = {
   NDJC_ENABLE_MATERIAL3: true,
 
   // —— 权限 / 网络 —— //
-  NDJC_PERMISSIONS: [],
+  NDJC_PERMISSIONS: [],           // ← 由 features 转成 <uses-permission> 行
   NDJC_FEATURES: [],
   NDJC_ALLOW_CLEAR_TEXT: false,
   NDJC_BASE_URL: "",
@@ -63,10 +71,13 @@ export const defaults: Record<string, any> = {
   NDJC_RELEASE_NAME: "Release v1.0.0",
   NDJC_RELEASE_BODY: "",
   NDJC_CHANGELOG: "",
-  NDJC_ANCHOR_SET_VERSION: "1.0"
+  NDJC_ANCHOR_SET_VERSION: "1.0",
+
+  // —— 依赖注入占位 —— //
+  NDJC_LIB_DEPENDENCIES: ""       // ← 供 features 拼接第三方依赖
 };
 
-// ================ 2) 锚点合并 & 条件注入 ================
+// ================ 2) 锚点合并 & 条件注入工具 ================
 export function resolveWithDefaults(input: Record<string, any>) {
   const merged: Record<string, any> = {};
   for (const k of Object.keys(defaults)) merged[k] = input[k] ?? defaults[k];
@@ -80,12 +91,14 @@ export function injectConditionalBlocks(content: string, params: Record<string, 
     truthy(params[key]) ? block : ""
   );
   // 单值：{{NDJC_XXX}}
-  content = content.replace(/{{(NDJC_[A-Z0-9_]+)}}/g, (_, key) => String(params[key] ?? ""));
+  content = content.replace(/{{(NDJC_[A-Z0-9_]+)}}/g, (_, key) => {
+    const v = params[key];
+    return v == null ? "" : String(v);
+  });
   return content;
 }
 
 // ================ 3) 简易字符串模板（simple-template 关键文件） ================
-// 你可以把这些内容拆到单独模板文件；这里内联方便你一次落地。
 // build.gradle
 const TPL_buildGradle = `
 plugins {
@@ -131,12 +144,10 @@ dependencies {
 }
 `.trim();
 
-// AndroidManifest.xml
+// AndroidManifest.xml（改成直接插入权限行）
 const TPL_manifest = `
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{{NDJC_PACKAGE_ID}}">
-  {{#NDJC_PERMISSIONS}}
-  <!-- 示例：<uses-permission android:name="android.permission.INTERNET"/> -->
-  {{/NDJC_PERMISSIONS}}
+  {{NDJC_PERMISSIONS}}
   <application
       android:label="@string/app_name"
       android:icon="@mipmap/ic_launcher"
@@ -175,7 +186,6 @@ const TPL_icLauncher = `
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
   <background android:drawable="@color/ic_launcher_background"/>
   <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-  <!-- 可选 <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/> -->
 </adaptive-icon>
 `.trim();
 
@@ -301,7 +311,7 @@ export type CommitFile = { filePath: string; content: string; base64?: boolean; 
 
 export function makeSimpleTemplateFiles(params: Record<string, any>): CommitFile[] {
   const p = resolveWithDefaults(params);
-  // 注入锚点
+
   const files: CommitFile[] = [
     { filePath: "app/build.gradle", content: injectConditionalBlocks(TPL_buildGradle, p) },
     { filePath: "app/src/main/AndroidManifest.xml", content: injectConditionalBlocks(TPL_manifest, p) },
@@ -314,7 +324,8 @@ export function makeSimpleTemplateFiles(params: Record<string, any>): CommitFile
     { filePath: "app/src/main/java/com/ndjc/app/ui/theme/Shape.kt",  content: injectConditionalBlocks(TPL_shapeKt, p) },
     { filePath: "app/src/main/java/com/ndjc/app/data/ThemePrefs.kt", content: injectConditionalBlocks(TPL_themePrefs, p) }
   ];
-  // 你也可以在这里把 app/icon.svg 兜底写进去（如用字母图标）
+
+  // 兜底图标（字母）
   files.push({
     filePath: "app/icon.svg",
     content: makeLetterIconSVG(
@@ -323,6 +334,7 @@ export function makeSimpleTemplateFiles(params: Record<string, any>): CommitFile
       "#FFFFFF"
     )
   });
+
   return files;
 }
 
@@ -340,7 +352,7 @@ export function makeLetterIconSVG(text: string, bg: string, fg: string) {
 </svg>`.trim();
 }
 
-// ================ 5) 真推送 + 触发打包 ================
+// ================ 5) 真推送 + 触发打包（沿用你的实现） ================
 const GH_TOKEN  = process.env.GITHUB_TOKEN!;
 const GH_OWNER  = process.env.GITHUB_OWNER!;
 const GH_REPO   = process.env.GITHUB_REPO!;
@@ -400,4 +412,199 @@ export async function commitAndBuild(input: {
   if (!r.ok) { throw new Error(`Workflow dispatch failed: ${r.status} ${await r.text()}`); }
 
   return { ok: true, writtenCount: written, note: "pushed to GitHub & workflow dispatched" };
+}
+
+// =======================================================
+// 6) 新增：features → 参数/文件 注入映射 & 审计/报告
+// =======================================================
+
+/** 把 features 转成权限、依赖以及附加文件（最小可见增量） */
+function applyAnchorsToParamsAndFiles(features: string[], baseParams: Record<string, any>) {
+  const p = { ...baseParams };
+
+  const perms: string[] = [];
+  const deps: string[] = [];
+
+  const extraFiles: CommitFile[] = [];
+
+  for (const f of features) {
+    switch (f) {
+      case "push":
+        perms.push('<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>');
+        break;
+      case "camera":
+        perms.push('<uses-permission android:name="android.permission.CAMERA"/>');
+        break;
+      case "location":
+        perms.push('<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>');
+        break;
+      case "i18n":
+        extraFiles.push({
+          filePath: "app/src/main/res/values-zh/strings.xml",
+          content: `<resources>\n  <string name="app_name">${p.NDJC_APP_NAME}</string>\n  <string name="title_home">首页</string>\n</resources>\n`
+        });
+        break;
+      case "analytics":
+        extraFiles.push({
+          filePath: "app/src/main/java/com/ndjc/AnalyticsPlaceholder.java",
+          content: [
+            "package com.ndjc;",
+            "public class AnalyticsPlaceholder {",
+            "  // NDJC-BEGIN[analytics]",
+            "  // 这里接入你的统计 SDK",
+            "  // NDJC-END[analytics]",
+            "}",
+            ""
+          ].join("\n")
+        });
+        break;
+      case "share":
+        extraFiles.push({
+          filePath: "app/src/main/java/com/ndjc/SharePlaceholder.java",
+          content: [
+            "package com.ndjc;",
+            "public class SharePlaceholder {",
+            "  // NDJC-BEGIN[share]",
+            "  // 示例：在 Activity 中触发分享 Intent",
+            "  // NDJC-END[share]",
+            "}",
+            ""
+          ].join("\n")
+        });
+        break;
+      case "form":
+        extraFiles.push({
+          filePath: "app/src/main/res/layout/ndjc_form.xml",
+          content: [
+            '<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"',
+            '  android:layout_width="match_parent"',
+            '  android:layout_height="wrap_content"',
+            '  android:orientation="vertical" android:padding="16dp">',
+            '  <!-- NDJC-BEGIN[form] -->',
+            '  <EditText android:id="@+id/ndjc_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="请输入..."/>',
+            '  <Button android:id="@+id/ndjc_submit" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="提交"/>',
+            '  <!-- NDJC-END[form] -->',
+            '</LinearLayout>',
+            ''
+          ].join("\n")
+        });
+        break;
+      case "auth":
+        extraFiles.push({
+          filePath: "app/src/main/java/com/ndjc/AuthPlaceholder.java",
+          content: [
+            "package com.ndjc;",
+            "public class AuthPlaceholder {",
+            "  // NDJC-BEGIN[auth]",
+            "  // 登录占位",
+            "  // NDJC-END[auth]",
+            "}",
+            ""
+          ].join("\n")
+        });
+        break;
+      case "storage":
+        extraFiles.push({
+          filePath: "app/src/main/java/com/ndjc/StoragePlaceholder.java",
+          content: [
+            "package com.ndjc;",
+            "public class StoragePlaceholder {",
+            "  // NDJC-BEGIN[storage]",
+            "  // 本地存储占位",
+            "  // NDJC-END[storage]",
+            "}",
+            ""
+          ].join("\n")
+        });
+        break;
+      case "theme":
+        // 已内置 M3；这里不额外处理
+        break;
+    }
+  }
+
+  p.NDJC_PERMISSIONS = perms.join("\n  "); // Manifest 里直接插入多行
+  p.NDJC_LIB_DEPENDENCIES = (deps.length ? deps.join("\n  ") : "");
+
+  return { params: p, extraFiles };
+}
+
+// 写入审计文件
+async function writeAuditFiles(buildId: string, data: {
+  prompt: string;
+  raw: any;
+  normalized: any;
+  report: any;
+}) {
+  const base = `requests/${buildId}`;
+  const msg = `NDJC: save audit (${buildId})`;
+  await githubPutFile(`${base}/prompt.txt`, `${data.prompt}\n`, msg);
+  await githubPutFile(`${base}/raw.json`, JSON.stringify(data.raw, null, 2), msg);
+  await githubPutFile(`${base}/normalized.json`, JSON.stringify(data.normalized, null, 2), msg);
+  await githubPutFile(`${base}/report.json`, JSON.stringify(data.report, null, 2), msg);
+}
+
+// =======================================================
+// 7) 对外入口：一键生成（含审计与触发）
+// =======================================================
+export async function generateWithAudit(input: {
+  buildId?: string;
+  prompt: string;
+  raw: any;                 // LLM 原始返回
+  normalized: {
+    template: "simple" | "core" | "form";
+    features: string[];
+    params?: Record<string, any>;  // 可覆盖 defaults
+  };
+}): Promise<{ ok: boolean; buildId: string; injectedAnchors: string[] }> {
+  const buildId = input.buildId || `${Date.now()}`;
+
+  // 1) 特征映射到参数 & 附件文件
+  const baseParams = { ...(input.normalized.params || {}), NDJC_FEATURES: input.normalized.features };
+  const { params, extraFiles } = applyAnchorsToParamsAndFiles(input.normalized.features, baseParams);
+
+  // 2) 生成模板文件
+  const templateFiles = makeSimpleTemplateFiles(params);
+
+  // 3) 生成 ndjc_meta.json（打进 APK，用于安装后验证）
+  const injectedAnchors = Array.from(new Set(input.normalized.features)).sort();
+  const metaFile: CommitFile = {
+    filePath: "app/src/main/assets/ndjc_meta.json",
+    content: JSON.stringify({
+      buildId,
+      template: input.normalized.template,
+      injectedAnchors,
+      createdAt: new Date().toISOString(),
+      prompt: input.prompt
+    }, null, 2)
+  };
+
+  // 4) 汇总需要提交的文件
+  const filesToCommit = [...templateFiles, ...extraFiles, metaFile];
+
+  // 5) 先推送审计文件，再推代码并触发构建
+  const report = {
+    ok: true,
+    buildId,
+    prompt: input.prompt,
+    template: input.normalized.template,
+    requestedAnchors: input.normalized.features,
+    injectedAnchors,                 // 最小版：与 requested 等同（若后续有条件失败，可在此调整）
+    skippedAnchors: [] as string[],
+    filesTouched: filesToCommit.map(f => f.filePath),
+    createdAt: new Date().toISOString()
+  };
+  await writeAuditFiles(buildId, {
+    prompt: input.prompt,
+    raw: input.raw,
+    normalized: { ...input.normalized, params },
+    report
+  });
+
+  await commitAndBuild({
+    files: filesToCommit,
+    message: `NDJC: apply ${filesToCommit.length} files (#${buildId})`
+  });
+
+  return { ok: true, buildId, injectedAnchors };
 }
