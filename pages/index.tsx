@@ -1,8 +1,7 @@
 import { useState } from "react";
 
 /**
- * 轻量内置 UI 组件，避免依赖 shadcn/ui 与外部路径导致 Vercel 构建失败。
- * 如果后续需要换回 shadcn/ui，再把这些组件替换为真实依赖即可。
+ * 内置轻量 UI 组件，避免外部依赖导致 Vercel 构建失败。
  */
 function cn(...cls: (string | false | null | undefined)[]) {
   return cls.filter(Boolean).join(" ");
@@ -33,7 +32,10 @@ function Button({ className = "", children, disabled, onClick }: any) {
     </button>
   );
 }
-function Input({ className = "", ...props }: any) {
+function Input({
+  className = "",
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
@@ -44,7 +46,13 @@ function Input({ className = "", ...props }: any) {
     />
   );
 }
-function Checkbox({ checked, onCheckedChange }: { checked: boolean; onCheckedChange: () => void }) {
+function Checkbox({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: () => void;
+}) {
   return (
     <input
       type="checkbox"
@@ -60,7 +68,12 @@ export default function HomePage() {
   const [prompt, setPrompt] = useState("");
   const [features, setFeatures] = useState<string[]>([]);
   const [template, setTemplate] = useState<"simple" | "core" | "form">("core");
-  const [result, setResult] = useState<{ previewUrl?: string; apkUrl?: string; zipUrl?: string; message?: string } | null>(null);
+  const [result, setResult] = useState<{
+    previewUrl?: string;
+    apkUrl?: string;
+    zipUrl?: string;
+    message?: string;
+  } | null>(null);
 
   const featureOptions = [
     { key: "auth", label: "登录 / 注册" },
@@ -89,13 +102,11 @@ export default function HomePage() {
     setLoading(true);
     setResult(null);
 
-    // 组装契约 JSON（与后端约定）
     const payload = {
       prompt,
-      template, // "simple" | "core" | "form"
-      features, // ["auth","storage",...]
+      template,
+      features,
       meta: {
-        // 后端可根据 prompt 生成 appName & packageName，或给默认值
         appName: "My App",
       },
     };
@@ -109,7 +120,6 @@ export default function HomePage() {
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      // 期望 data: { ok: true, previewUrl?, apkUrl?, zipUrl?, message? }
       setResult(data);
     } catch (e: any) {
       setResult({ message: e?.message || "生成失败，请稍后再试" });
@@ -132,17 +142,24 @@ export default function HomePage() {
       <div className="mt-10 w-full max-w-2xl space-y-6">
         <Input
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            setPrompt(e.target.value)
+          }
           placeholder="例如：记账本 / 健身打卡 / 咖啡店预约"
-          className="w-full p-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-gray-400"
         />
 
         {/* 功能勾选 */}
         <Card className="bg-white/5 border-white/20 text-white rounded-2xl">
           <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4 p-6">
             {featureOptions.map(({ key, label }) => (
-              <label key={key} className="flex items-center space-x-2 cursor-pointer">
-                <Checkbox checked={features.includes(key)} onCheckedChange={() => handleToggle(key)} />
+              <label
+                key={key}
+                className="flex items-center space-x-2 cursor-pointer"
+              >
+                <Checkbox
+                  checked={features.includes(key)}
+                  onCheckedChange={() => handleToggle(key)}
+                />
                 <span>{label}</span>
               </label>
             ))}
@@ -173,11 +190,7 @@ export default function HomePage() {
 
         {/* 生成按钮 */}
         <div className="flex justify-center mt-6">
-          <Button
-            onClick={handleGenerate}
-            disabled={loading}
-            className="px-10 py-4 rounded-2xl text-lg font-semibold bg-gradient-to-r from-pink-500 to-indigo-500 shadow-lg hover:scale-105 transition disabled:opacity-60"
-          >
+          <Button onClick={handleGenerate} disabled={loading}>
             {loading ? "生成中..." : "立即生成 App"}
           </Button>
         </div>
@@ -187,15 +200,24 @@ export default function HomePage() {
       <div className="mt-16 w-full max-w-3xl text-center">
         <h2 className="text-2xl font-bold mb-6">生成结果</h2>
         {!result && (
-          <p className="text-gray-400">点击“立即生成 App”后将在此显示预览和下载链接</p>
+          <p className="text-gray-400">
+            点击“立即生成 App”后将在此显示预览和下载链接
+          </p>
         )}
         {result && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="bg-white/5 border-white/20 rounded-2xl">
               <CardContent className="flex flex-col items-center p-6">
-                <div className="w-10 h-10 mb-3 rounded-full border border-white/30 flex items-center justify-center">🖥️</div>
+                <div className="w-10 h-10 mb-3 rounded-full border border-white/30 flex items-center justify-center">
+                  🖥️
+                </div>
                 {result?.previewUrl ? (
-                  <a href={result.previewUrl} target="_blank" rel="noreferrer" className="underline">
+                  <a
+                    href={result.previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
                     在线预览
                   </a>
                 ) : (
@@ -205,9 +227,16 @@ export default function HomePage() {
             </Card>
             <Card className="bg-white/5 border-white/20 rounded-2xl">
               <CardContent className="flex flex-col items-center p-6">
-                <div className="w-10 h-10 mb-3 rounded-full border border-white/30 flex items-center justify-center">⬇️</div>
+                <div className="w-10 h-10 mb-3 rounded-full border border-white/30 flex items-center justify-center">
+                  ⬇️
+                </div>
                 {result?.apkUrl ? (
-                  <a href={result.apkUrl} className="underline" target="_blank" rel="noreferrer">
+                  <a
+                    href={result.apkUrl}
+                    className="underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     APK 下载
                   </a>
                 ) : (
@@ -217,9 +246,16 @@ export default function HomePage() {
             </Card>
             <Card className="bg-white/5 border-white/20 rounded-2xl">
               <CardContent className="flex flex-col items-center p-6">
-                <div className="w-10 h-10 mb-3 rounded-full border border-white/30 flex items-center justify-center">💾</div>
+                <div className="w-10 h-10 mb-3 rounded-full border border-white/30 flex items-center justify-center">
+                  💾
+                </div>
                 {result?.zipUrl ? (
-                  <a href={result.zipUrl} className="underline" target="_blank" rel="noreferrer">
+                  <a
+                    href={result.zipUrl}
+                    className="underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     源码 ZIP
                   </a>
                 ) : (
