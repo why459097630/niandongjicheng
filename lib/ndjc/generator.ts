@@ -43,6 +43,9 @@ export type GenerateArgs = {
   extra?: Record<string, any>;
   maxApiPreviewBytes?: number;        // APK 摘要最多保留多少字节（默认 8KB）
   withGitDiff?: boolean;              // 若环境有 git，则尝试产出 diff
+
+  // ⬇️ 兼容旧路由使用到的应用名（仅用于提交信息等）
+  NDJC_APP_NAME?: string;
 };
 
 export type GenerateResult = {
@@ -258,9 +261,11 @@ export function resolveWithDefaults(p: GenerateInput): GenerateArgs {
       ...(p.extra ?? {}),
       ...(p.raw !== undefined ? { raw: p.raw } : {}),
       ...(p.normalized !== undefined ? { normalized: p.normalized } : {}),
+      ...((p as any).NDJC_APP_NAME !== undefined ? { NDJC_APP_NAME: (p as any).NDJC_APP_NAME } : {}),
     },
     maxApiPreviewBytes: p.maxApiPreviewBytes ?? 8 * 1024,
     withGitDiff: p.withGitDiff ?? true,
+    NDJC_APP_NAME: (p as any).NDJC_APP_NAME,
   };
 }
 
@@ -298,7 +303,7 @@ export function makeSimpleTemplateFiles(opts: any = {}): FileSpec[] {
   ];
 }
 
-// ✅ 这里改为“常量导出”，并显式导出结果类型，避免被旧声明覆盖
+// ✅ 常量导出并显式结果类型，避免被旧声明覆盖
 export type CommitAndBuildResult = { ok: boolean; writtenCount: number; note: string };
 
 export const commitAndBuild = async (input: {
