@@ -3,7 +3,7 @@
 // - 落盘 orchestrator.json / generator.json / api_response.json
 // - 输出 index.md 汇总
 // - APK 内写入 ndjc_info.json 摘要
-// - 仍然只用 Node 标准库；不破坏现有链路
+// - 向后兼容旧路由的字段/返回结构
 
 import { mkdir, writeFile, readFile, stat } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -20,20 +20,12 @@ export type OrchestratorSummary = {
   anchorsSelected: string[];
   anchorsCandidates?: string[];
   variables?: Record<string, any>;
-  llmCalls?: Array<{
-    name: string;
-    promptPreview: string;
-    responsePreview: string;
-  }>;
+  llmCalls?: Array<{ name: string; promptPreview: string; responsePreview: string }>;
   notes?: string;
 };
 
 export type GeneratorOutcome = {
-  changedFiles: Array<{
-    path: string;
-    bytes: number;
-    sha1: string;
-  }>;
+  changedFiles: Array<{ path: string; bytes: number; sha1: string }>;
   fileCount: number;
   totalBytes: number;
   gitDiff?: string;
@@ -59,14 +51,13 @@ export type GenerateResult = {
   requestDir: string;                 // requests/YYYY-MM-DD/<buildId>
 };
 
-// 兼容老路由额外入参（会被写进 extra）
+// 兼容老路由额外入参（写进 extra）
 export type LegacyCompatInput = {
   raw?: any;
   normalized?: any;
-  // 如后续还有老字段，可继续加：templateVars?: any; features?: any; 等
 };
 
-// 对外入参：允许老字段（TS 不再报错）
+// 对外入参：允许老字段
 export type GenerateInput = Partial<GenerateArgs> & LegacyCompatInput;
 
 // ── 小工具 ──────────────────────────────────────────────────────────
@@ -95,8 +86,7 @@ async function writeRequestIndexMD(
   repoRoot: string, dir: string,
   meta: { template: string; prompt: string; buildId: string; buildTime: string; anchors: string[]; fileCount: number }
 ) {
-  // 用 \x60（反引号）避免模板字符串里的转义陷阱
-  const bt = "\x60";
+  const bt = "\x60"; // 反引号
   const anchorsLine =
     meta.anchors.length === 0 ? "(none)" : meta.anchors.map(a => `${bt}${a}${bt}`).join(", ");
 
@@ -157,11 +147,7 @@ async function writeMeta(repoRoot: string, dir: string, meta: any) {
 }
 
 async function writeApiResponse(repoRoot: string, dir: string, apiResponse: any) {
-  await writeTextFileUtf8(
-    repoRoot,
-    path.join(dir, "api_response.json"),
-    jsonStringify(apiResponse)
-  );
+  await writeTextFileUtf8(repoRoot, path.join(dir, "api_response.json"), jsonStringify(apiResponse));
 }
 
 async function writeNdjcInfoAssets(repoRoot: string, info: {
@@ -203,24 +189,16 @@ export async function generateAndroidProject(args: GenerateArgs): Promise<Genera
     withGitDiff = true,
   } = args;
 
-  const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const day = new Date().toISOString().slice(0, 10);
   const dir = path.join("requests", day, buildId);
   const abs = path.join(repoRoot, dir);
   await mkdir(abs, { recursive: true });
 
-  // 1) 差量写入
   const changed = files.length ? await writeFiles(repoRoot, files) : [];
-
-  // 2) 记录生成器成果（文件清单/哈希/可选 diff）
   const outcome = await writeGeneratorLog(repoRoot, dir, files, withGitDiff);
-
-  // 3) 记录编排器成果（结构化）
   if (orchestrator) await writeOrchestratorLog(repoRoot, dir, orchestrator);
-
-  // 4) 记录 API 原始返回
   await writeApiResponse(repoRoot, dir, apiResponse);
 
-  // 5) 写 meta 与索引页
   const meta = {
     template, prompt, buildId,
     anchors,
@@ -236,13 +214,12 @@ export async function generateAndroidProject(args: GenerateArgs): Promise<Genera
     anchors, fileCount: outcome.fileCount,
   });
 
-  // 6) APK 内写摘要（限制大小）
   const apiPreview = truncateUtf8(jsonStringify(apiResponse), maxApiPreviewBytes);
   const assetsJsonPath = await writeNdjcInfoAssets(repoRoot, {
     template, prompt, buildId, anchors, fileCount: outcome.fileCount, apiPreview, extra
   });
 
-  // 7) 兜底：若布局缺失，补一个（防崩）
+  // 兜底：缺布局就补一个（防崩）
   const layoutRel = path.join("app", "src", "main", "res", "layout", "activity_main.xml");
   if (!(await exists(path.join(repoRoot, layoutRel)))) {
     await writeTextFileUtf8(repoRoot, layoutRel,
@@ -264,7 +241,7 @@ export async function readText(repoRoot: string, relPath: string) {
 }
 
 // ───────────────────────────────────────────────────────────────────
-// 兼容层：导出旧名字/旧返回结构，避免现有前端改动
+// 兼容层：旧名字/旧返回结构
 // ───────────────────────────────────────────────────────────────────
 
 export function resolveWithDefaults(p: GenerateInput): GenerateArgs {
@@ -287,7 +264,6 @@ export function resolveWithDefaults(p: GenerateInput): GenerateArgs {
   };
 }
 
-// 向后兼容：返回 { ok, buildId, injectedAnchors, ...GenerateResult }
 export type GenerateResultCompat = GenerateResult & {
   ok: boolean;
   buildId: string;
@@ -299,13 +275,13 @@ export async function generateWithAudit(p: GenerateInput): Promise<GenerateResul
   const res = await generateAndroidProject(full);
   return {
     ok: true,
-    buildId: full.buildId!,                 // 旧路由会用到
-    injectedAnchors: full.anchors ?? [],    // 旧路由会用到
+    buildId: full.buildId!,
+    injectedAnchors: full.anchors ?? [],
     ...res,
   };
 }
 
-// 兼容：参数放宽为 any，避免 route 里直接传 GenerateArgs 时 TS 报错
+// 参数放宽为 any，避免路由直接传 GenerateArgs 时 TS 报错
 export function makeSimpleTemplateFiles(opts: any = {}): FileSpec[] {
   const title =
     typeof opts?.appTitle === "string" && opts.appTitle.trim()
@@ -322,7 +298,19 @@ export function makeSimpleTemplateFiles(opts: any = {}): FileSpec[] {
   ];
 }
 
-export async function commitAndBuild(_: any) {
-  // 旧接口占位实现：真正的构建交由 CI 完成（repository_dispatch）
-  return { ok: true, note: "Build is handled by CI via repository_dispatch." };
-}
+// ✅ 这里改为“常量导出”，并显式导出结果类型，避免被旧声明覆盖
+export type CommitAndBuildResult = { ok: boolean; writtenCount: number; note: string };
+
+export const commitAndBuild = async (input: {
+  files?: FileSpec[];
+  message?: string;
+  workflowFile?: string;
+  repoRoot?: string;
+}): Promise<CommitAndBuildResult> => {
+  const writtenCount = Array.isArray(input?.files) ? input.files!.length : 0;
+  return {
+    ok: true,
+    writtenCount,
+    note: "Build is handled by CI via repository_dispatch.",
+  };
+};
