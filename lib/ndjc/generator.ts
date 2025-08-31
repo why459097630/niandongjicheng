@@ -13,19 +13,19 @@ import crypto from "crypto";
 export type FileSpec = { filePath: string; content: string };
 
 export type OrchestratorSummary = {
-  promptOriginal: string;             // 原始输入
-  promptCleaned?: string;             // 清洗后
-  selectedTemplate: string;           // 选中的模板
-  templateCandidates?: Array<{name: string; score?: number}>;
-  anchorsSelected: string[];          // 本次注入锚点
-  anchorsCandidates?: string[];       // 候选锚点
-  variables?: Record<string, any>;    // 解析出的变量（如包名/标题等）
-  llmCalls?: Array<{                 // 关键 LLM 调用摘要（可选）
+  promptOriginal: string;
+  promptCleaned?: string;
+  selectedTemplate: string;
+  templateCandidates?: Array<{ name: string; score?: number }>;
+  anchorsSelected: string[];
+  anchorsCandidates?: string[];
+  variables?: Record<string, any>;
+  llmCalls?: Array<{
     name: string;
-    promptPreview: string;            // 只存前几百字
-    responsePreview: string;          // 只存前几 KB
+    promptPreview: string;
+    responsePreview: string;
   }>;
-  notes?: string;                     // 备注
+  notes?: string;
 };
 
 export type GeneratorOutcome = {
@@ -36,27 +36,27 @@ export type GeneratorOutcome = {
   }>;
   fileCount: number;
   totalBytes: number;
-  gitDiff?: string;                   // 可选：git diff 文本
+  gitDiff?: string;
 };
 
 export type GenerateArgs = {
-  repoRoot: string;                   // Packaging-warehouse 路径
+  repoRoot: string;
   template: string;
   prompt: string;
   buildId?: string;
   anchors?: string[];
-  apiResponse?: any;                  // API 原始返回（对象/字符串）
-  files?: FileSpec[];                 // 差量写入
-  orchestrator?: OrchestratorSummary; // 编排器的结构化成果
+  apiResponse?: any;
+  files?: FileSpec[];
+  orchestrator?: OrchestratorSummary;
   extra?: Record<string, any>;
-  maxApiPreviewBytes?: number;        // APK 摘要最多保留多少字节（默认 8KB）
-  withGitDiff?: boolean;              // 若环境有 git，则尝试产出 diff
+  maxApiPreviewBytes?: number;
+  withGitDiff?: boolean;
 };
 
 export type GenerateResult = {
   changed: string[];
-  assetsJsonPath: string;             // app/src/main/assets/ndjc_info.json
-  requestDir: string;                 // requests/YYYY-MM-DD/<buildId>
+  assetsJsonPath: string;
+  requestDir: string;
 };
 
 // ── 小工具 ──────────────────────────────────────────────────────────
@@ -88,9 +88,7 @@ async function writeRequestIndexMD(
   // 用 \x60（反引号）避免模板字符串里的转义陷阱
   const bt = "\x60";
   const anchorsLine =
-    meta.anchors.length === 0
-      ? "(none)"
-      : meta.anchors.map(a => `${bt}${a}${bt}`).join(", ");
+    meta.anchors.length === 0 ? "(none)" : meta.anchors.map(a => `${bt}${a}${bt}`).join(", ");
 
   const md = `# NDJC Build Report
 
@@ -275,9 +273,22 @@ export function resolveWithDefaults(p: Partial<GenerateArgs>): GenerateArgs {
   };
 }
 
-export async function generateWithAudit(p: Partial<GenerateArgs>) {
+// 向后兼容：返回 { ok, buildId, injectedAnchors, ...GenerateResult }
+export type GenerateResultCompat = GenerateResult & {
+  ok: boolean;
+  buildId: string;
+  injectedAnchors: string[];
+};
+
+export async function generateWithAudit(p: Partial<GenerateArgs>): Promise<GenerateResultCompat> {
   const full = resolveWithDefaults(p);
-  return generateAndroidProject(full);
+  const res = await generateAndroidProject(full);
+  return {
+    ok: true,
+    buildId: full.buildId!,                 // 旧路由会用到
+    injectedAnchors: full.anchors ?? [],    // 旧路由会用到
+    ...res,
+  };
 }
 
 export function makeSimpleTemplateFiles(opts: { appTitle?: string } = {}): FileSpec[] {
