@@ -305,8 +305,12 @@ export async function generateWithAudit(p: GenerateInput): Promise<GenerateResul
   };
 }
 
-export function makeSimpleTemplateFiles(opts: { appTitle?: string } = {}): FileSpec[] {
-  const title = opts.appTitle ?? "NDJCApp";
+// 兼容：参数放宽为 any，避免 route 里直接传 GenerateArgs 时 TS 报错
+export function makeSimpleTemplateFiles(opts: any = {}): FileSpec[] {
+  const title =
+    typeof opts?.appTitle === "string" && opts.appTitle.trim()
+      ? opts.appTitle
+      : "NDJCApp";
   return [
     {
       filePath: "app/src/main/res/values/strings.xml",
