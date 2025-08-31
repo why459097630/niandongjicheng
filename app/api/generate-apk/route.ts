@@ -1,58 +1,37 @@
-// /app/api/generate-apk/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { generateWithAudit } from "@/lib/ndjc/generator";
+import { NextResponse } from "next/server";
+import { generateWithAudit, commitAndBuild } from "@/lib/ndjc/generator";
 
-/**
- * 接收前端的 prompt/template/features，
- * 1) 调用你的 LLM（此处先用占位 raw）
- * 2) 生成 normalized 契约
- * 3) 调用 generateWithAudit：
- *    - 写入 Packaging-warehouse/requests/<buildId> 下的审计文件
- *    - 生成模板文件/锚点占位并推送
- *    - 触发 GitHub Actions 打包
- * 4) 返回 buildId / injectedAnchors
- */
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const {
-    prompt = "",
-    template = "core",
-    features = [],
-    params = {}, // 可选：允许前端覆盖部分 NDJC_* 锚点参数
-  } = body as {
-    prompt: string;
-    template: "simple" | "core" | "form";
-    features: string[];
-    params?: Record<string, any>;
-  };
 
-  // TODO：接入你真实的 LLM，这里先放占位 raw，确保链路能跑通
-  const raw = {
-    spec: {
-      pages: [{ id: "home", components: [{ type: "text", text: prompt || "示例" }] }],
-    },
-  };
-
-  const normalized = {
-    template,
-    features: Array.isArray(features) ? features : [],
-    params: {
-      NDJC_APP_NAME: "My App",
-      // 允许从 body.params 覆盖默认锚点（如 NDJC_PACKAGE_ID / NDJC_PRIMARY_COLOR 等）
-      ...(params || {}),
-    },
-  } as const;
-
-  const { ok, buildId, injectedAnchors } = await generateWithAudit({
-    prompt,
-    raw,
-    normalized,
+  const gen = await generateWithAudit({
+    prompt: body.prompt ?? "",
+    template: body.template ?? "core-template",
+    anchors: body.anchors ?? [],
+    raw: body,
   });
 
+  const dispatchInput = {
+    files: body.files ?? [],
+    message: `NDJC: ${process.env.NDJC_APP_NAME ?? "generated"} commit`,
+    ref: process.env.GH_BRANCH ?? "main",
+    workflowFile: process.env.WORKFLOW_ID, // 关键
+  };
+
+  let dispatch: any; let error: any = null;
+  try { dispatch = await commitAndBuild(dispatchInput); }
+  catch (e: any) { error = { message: e?.message ?? String(e) }; }
+
   return NextResponse.json({
-    ok,
-    buildId,
-    injectedAnchors,
-    message: "已保存请求并触发构建",
+    ok: !error && !!dispatch?.ok,
+    env: {
+      hasOwner: !!process.env.GH_OWNER,
+      hasRepo: !!process.env.GH_REPO,
+      hasToken: !!process.env.GH_TOKEN,      // 若这里是 false → 没拿到 PAT
+      hasWorkflow: !!process.env.WORKFLOW_ID // 若这里是 false → 没配置工作流标识
+    },
+    dispatch,   // { ok, writtenCount, note }
+    error,      // { message: "...404/403..." }
+    generated: { buildId: gen.buildId, requestDir: gen.requestDir }
   });
 }
