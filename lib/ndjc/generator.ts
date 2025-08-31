@@ -85,12 +85,19 @@ async function writeRequestIndexMD(
   repoRoot: string, dir: string,
   meta: { template: string; prompt: string; buildId: string; buildTime: string; anchors: string[]; fileCount: number }
 ) {
+  // 用 \x60（反引号）避免模板字符串里的转义陷阱
+  const bt = "\x60";
+  const anchorsLine =
+    meta.anchors.length === 0
+      ? "(none)"
+      : meta.anchors.map(a => `${bt}${a}${bt}`).join(", ");
+
   const md = `# NDJC Build Report
 
 - **Build ID**: \`${meta.buildId}\`
 - **Time**: ${meta.buildTime}
 - **Template**: \`${meta.template}\`
-- **Anchors** (${meta.anchors.length}): ${meta.anchors.map(a => \`\\\`${a}\\\`\`).join(", ")}
+- **Anchors** (${meta.anchors.length}): ${anchorsLine}
 - **Files Changed**: ${meta.fileCount}
 
 ## Files
