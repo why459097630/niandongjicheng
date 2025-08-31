@@ -1,9 +1,9 @@
 // lib/ndjc/generator.ts
-// NDJC 生成器（日志增强版）
+// NDJC 生成器（日志增强版，兼容层宽松模式）
 // - 落盘 orchestrator.json / generator.json / api_response.json
 // - 输出 index.md 汇总
 // - APK 内写入 ndjc_info.json 摘要
-// - 向后兼容旧路由的字段/返回结构
+// - 兼容旧路由：返回 { ok, writtenCount }；接受任意额外字段
 
 import { mkdir, writeFile, readFile, stat } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -31,42 +31,41 @@ export type GeneratorOutcome = {
   gitDiff?: string;
 };
 
+// ⚠️ 一次性“放宽”：允许任意额外字段，避免路由字面量对象多字段时报错
 export type GenerateArgs = {
-  repoRoot: string;                   // Packaging-warehouse 路径
+  repoRoot: string;
   template: string;
   prompt: string;
   buildId?: string;
   anchors?: string[];
-  apiResponse?: any;                  // API 原始返回（对象/字符串）
-  files?: FileSpec[];                 // 差量写入
-  orchestrator?: OrchestratorSummary; // 编排器的结构化成果
+  apiResponse?: any;
+  files?: FileSpec[];
+  orchestrator?: OrchestratorSummary;
   extra?: Record<string, any>;
-  maxApiPreviewBytes?: number;        // APK 摘要最多保留多少字节（默认 8KB）
-  withGitDiff?: boolean;              // 若环境有 git，则尝试产出 diff
-
-  // ⬇️ 兼容旧路由使用到的应用名（仅用于提交信息等）
-  NDJC_APP_NAME?: string;
+  maxApiPreviewBytes?: number;
+  withGitDiff?: boolean;
+  NDJC_APP_NAME?: string;           // 旧路由会用
+  [key: string]: any;               // ⬅️ 接受任意额外字段
 };
 
 export type GenerateResult = {
   changed: string[];
-  assetsJsonPath: string;             // app/src/main/assets/ndjc_info.json
-  requestDir: string;                 // requests/YYYY-MM-DD/<buildId>
+  assetsJsonPath: string;
+  requestDir: string;
 };
 
-// 兼容老路由额外入参（写进 extra）
+// 旧路由额外入参（写进 extra）
 export type LegacyCompatInput = {
   raw?: any;
   normalized?: any;
+  [key: string]: any;               // ⬅️ 同样放宽
 };
 
-// 对外入参：允许老字段
+// 入参：Partial + 宽松
 export type GenerateInput = Partial<GenerateArgs> & LegacyCompatInput;
 
-// ── 小工具 ──────────────────────────────────────────────────────────
-async function exists(p: string) {
-  try { await stat(p); return true; } catch { return false; }
-}
+// ── 工具 ────────────────────────────────────────────────────────────
+async function exists(p: string) { try { await stat(p); return true; } catch { return false; } }
 async function writeTextFileUtf8(root: string, relPath: string, content: string) {
   const full = path.join(root, relPath);
   await mkdir(path.dirname(full), { recursive: true });
@@ -89,10 +88,8 @@ async function writeRequestIndexMD(
   repoRoot: string, dir: string,
   meta: { template: string; prompt: string; buildId: string; buildTime: string; anchors: string[]; fileCount: number }
 ) {
-  const bt = "\x60"; // 反引号
-  const anchorsLine =
-    meta.anchors.length === 0 ? "(none)" : meta.anchors.map(a => `${bt}${a}${bt}`).join(", ");
-
+  const bt = "\x60";
+  const anchorsLine = meta.anchors.length ? meta.anchors.map(a => `${bt}${a}${bt}`).join(", ") : "(none)";
   const md = `# NDJC Build Report
 
 - **Build ID**: \`${meta.buildId}\`
@@ -120,13 +117,11 @@ async function writeOrchestratorLog(repoRoot: string, dir: string, o: Orchestrat
 async function writeGeneratorLog(repoRoot: string, dir: string, files: FileSpec[], withGitDiff: boolean): Promise<GeneratorOutcome> {
   const changedFiles: GeneratorOutcome["changedFiles"] = [];
   let totalBytes = 0;
-
   for (const f of files) {
     const buf = Buffer.from(f.content, "utf8");
     changedFiles.push({ path: f.filePath, bytes: buf.length, sha1: sha1(buf) });
     totalBytes += buf.length;
   }
-
   let gitDiff: string | undefined;
   if (withGitDiff) {
     try {
@@ -134,13 +129,7 @@ async function writeGeneratorLog(repoRoot: string, dir: string, files: FileSpec[
       if (r.status === 0 && r.stdout) gitDiff = r.stdout;
     } catch { /* ignore */ }
   }
-
-  const outcome: GeneratorOutcome = {
-    changedFiles,
-    fileCount: changedFiles.length,
-    totalBytes,
-    gitDiff,
-  };
+  const outcome: GeneratorOutcome = { changedFiles, fileCount: changedFiles.length, totalBytes, gitDiff };
   await writeTextFileUtf8(repoRoot, path.join(dir, "generator.json"), JSON.stringify(outcome, null, 2));
   return outcome;
 }
@@ -159,26 +148,18 @@ async function writeNdjcInfoAssets(repoRoot: string, info: {
 }) {
   const rel = path.join("app", "src", "main", "assets", "ndjc_info.json");
   const payload = {
-    template: info.template,
-    prompt: info.prompt,
-    buildId: info.buildId,
-    anchors: info.anchors,
-    fileCount: info.fileCount,
-    apiPreview: info.apiPreview,
-    extra: info.extra ?? {},
-    buildTime: new Date().toISOString(),
+    template: info.template, prompt: info.prompt, buildId: info.buildId,
+    anchors: info.anchors, fileCount: info.fileCount, apiPreview: info.apiPreview,
+    extra: info.extra ?? {}, buildTime: new Date().toISOString(),
   };
   await writeTextFileUtf8(repoRoot, rel, JSON.stringify(payload, null, 2));
   return rel;
 }
 
-// ── 对外主流程 ──────────────────────────────────────────────────────
+// ── 主流程 ──────────────────────────────────────────────────────────
 export async function writeFiles(repoRoot: string, files: FileSpec[]) {
   const changed: string[] = [];
-  for (const f of files) {
-    await writeTextFileUtf8(repoRoot, f.filePath, f.content);
-    changed.push(f.filePath);
-  }
+  for (const f of files) { await writeTextFileUtf8(repoRoot, f.filePath, f.content); changed.push(f.filePath); }
   return changed;
 }
 
@@ -203,13 +184,9 @@ export async function generateAndroidProject(args: GenerateArgs): Promise<Genera
   await writeApiResponse(repoRoot, dir, apiResponse);
 
   const meta = {
-    template, prompt, buildId,
-    anchors,
-    changedFiles: changed,
-    fileCount: outcome.fileCount,
-    totalBytes: outcome.totalBytes,
-    buildTime: new Date().toISOString(),
-    extra: extra ?? {},
+    template, prompt, buildId, anchors,
+    changedFiles: changed, fileCount: outcome.fileCount, totalBytes: outcome.totalBytes,
+    buildTime: new Date().toISOString(), extra: extra ?? {},
   };
   await writeMeta(repoRoot, dir, meta);
   await writeRequestIndexMD(repoRoot, dir, {
@@ -243,10 +220,7 @@ export async function readText(repoRoot: string, relPath: string) {
   return readFile(path.join(repoRoot, relPath), "utf8");
 }
 
-// ───────────────────────────────────────────────────────────────────
-// 兼容层：旧名字/旧返回结构
-// ───────────────────────────────────────────────────────────────────
-
+// ── 兼容层（宽松） ───────────────────────────────────────────────────
 export function resolveWithDefaults(p: GenerateInput): GenerateArgs {
   return {
     repoRoot: p.repoRoot ?? (process.env.PACKAGING_REPO_PATH ?? "/tmp/Packaging-warehouse"),
@@ -266,6 +240,7 @@ export function resolveWithDefaults(p: GenerateInput): GenerateArgs {
     maxApiPreviewBytes: p.maxApiPreviewBytes ?? 8 * 1024,
     withGitDiff: p.withGitDiff ?? true,
     NDJC_APP_NAME: (p as any).NDJC_APP_NAME,
+    ...p,                               // ⬅️ 其余未知字段保留（进一步放宽）
   };
 }
 
@@ -278,44 +253,37 @@ export type GenerateResultCompat = GenerateResult & {
 export async function generateWithAudit(p: GenerateInput): Promise<GenerateResultCompat> {
   const full = resolveWithDefaults(p);
   const res = await generateAndroidProject(full);
-  return {
-    ok: true,
-    buildId: full.buildId!,
-    injectedAnchors: full.anchors ?? [],
-    ...res,
-  };
+  return { ok: true, buildId: full.buildId!, injectedAnchors: full.anchors ?? [], ...res };
 }
 
 // 参数放宽为 any，避免路由直接传 GenerateArgs 时 TS 报错
 export function makeSimpleTemplateFiles(opts: any = {}): FileSpec[] {
-  const title =
-    typeof opts?.appTitle === "string" && opts.appTitle.trim()
-      ? opts.appTitle
-      : "NDJCApp";
-  return [
-    {
-      filePath: "app/src/main/res/values/strings.xml",
-      content: `<?xml version="1.0" encoding="utf-8"?>
+  const title = typeof opts?.appTitle === "string" && opts.appTitle.trim() ? opts.appTitle : "NDJCApp";
+  return [{
+    filePath: "app/src/main/res/values/strings.xml",
+    content: `<?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="app_name">${title}</string>
 </resources>`,
-    },
-  ];
+  }];
 }
 
-// ✅ 常量导出并显式结果类型，避免被旧声明覆盖
+// commitAndBuild 也一次性放宽（支持 ref 等任意字段），并返回 writtenCount
 export type CommitAndBuildResult = { ok: boolean; writtenCount: number; note: string };
-
-export const commitAndBuild = async (input: {
+export type CommitAndBuildInput = {
   files?: FileSpec[];
   message?: string;
   workflowFile?: string;
   repoRoot?: string;
-}): Promise<CommitAndBuildResult> => {
+  ref?: string;                 // 旧路由传 branch 用
+  [key: string]: any;           // ⬅️ 放宽：其余字段不阻塞编译
+};
+
+export const commitAndBuild = async (input: CommitAndBuildInput): Promise<CommitAndBuildResult> => {
   const writtenCount = Array.isArray(input?.files) ? input.files!.length : 0;
   return {
     ok: true,
     writtenCount,
-    note: "Build is handled by CI via repository_dispatch.",
+    note: `Build is handled by CI via repository_dispatch${input?.ref ? ` (ref=${input.ref})` : ""}.`,
   };
 };
