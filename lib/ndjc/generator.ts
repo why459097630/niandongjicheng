@@ -90,7 +90,7 @@ async function writeRequestIndexMD(
 - **Build ID**: \`${meta.buildId}\`
 - **Time**: ${meta.buildTime}
 - **Template**: \`${meta.template}\`
-- **Anchors** (${meta.anchors.length}): ${meta.anchors.map(a => `\`${a}\``).join(", ")}
+- **Anchors** (${meta.anchors.length}): ${meta.anchors.map(a => \`\\\`${a}\\\`\`).join(", ")}
 - **Files Changed**: ${meta.fileCount}
 
 ## Files
@@ -246,4 +246,47 @@ export async function generateAndroidProject(args: GenerateArgs): Promise<Genera
 /** 便捷读取 */
 export async function readText(repoRoot: string, relPath: string) {
   return readFile(path.join(repoRoot, relPath), "utf8");
+}
+
+// ───────────────────────────────────────────────────────────────────
+// 兼容层：导出旧名字，避免现有前端/路由改动即可编过
+// ───────────────────────────────────────────────────────────────────
+
+export function resolveWithDefaults(p: Partial<GenerateArgs>): GenerateArgs {
+  return {
+    repoRoot: p.repoRoot ?? (process.env.PACKAGING_REPO_PATH ?? "/tmp/Packaging-warehouse"),
+    template: p.template ?? "core-template",
+    prompt: p.prompt ?? "",
+    buildId: p.buildId ?? `req_${Date.now()}`,
+    anchors: p.anchors ?? [],
+    apiResponse: p.apiResponse,
+    files: p.files ?? [],
+    orchestrator: p.orchestrator,
+    extra: p.extra ?? {},
+    maxApiPreviewBytes: p.maxApiPreviewBytes ?? 8 * 1024,
+    withGitDiff: p.withGitDiff ?? true,
+  };
+}
+
+export async function generateWithAudit(p: Partial<GenerateArgs>) {
+  const full = resolveWithDefaults(p);
+  return generateAndroidProject(full);
+}
+
+export function makeSimpleTemplateFiles(opts: { appTitle?: string } = {}): FileSpec[] {
+  const title = opts.appTitle ?? "NDJCApp";
+  return [
+    {
+      filePath: "app/src/main/res/values/strings.xml",
+      content: `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">${title}</string>
+</resources>`,
+    },
+  ];
+}
+
+export async function commitAndBuild(_: any) {
+  // 旧接口占位实现：真正的构建交由 CI 完成（repository_dispatch）
+  return { ok: true, note: "Build is handled by CI via repository_dispatch." };
 }
