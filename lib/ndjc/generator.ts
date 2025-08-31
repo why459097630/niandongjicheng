@@ -268,22 +268,107 @@ export function makeSimpleTemplateFiles(opts: any = {}): FileSpec[] {
   }];
 }
 
-// commitAndBuild 也一次性放宽（支持 ref 等任意字段），并返回 writtenCount
+// ── GitHub 集成：提交改动 + 触发工作流 ──────────────────────────────
 export type CommitAndBuildResult = { ok: boolean; writtenCount: number; note: string };
 export type CommitAndBuildInput = {
   files?: FileSpec[];
-  message?: string;
-  workflowFile?: string;
+  message?: string;          // commit message
+  workflowFile?: string;     // 覆盖 WORKFLOW_ID
   repoRoot?: string;
-  ref?: string;                 // 旧路由传 branch 用
-  [key: string]: any;           // ⬅️ 放宽：其余字段不阻塞编译
+  ref?: string;              // 分支名，默认 GH_BRANCH 或 main
+  [key: string]: any;        // 其余字段不阻塞编译
 };
 
+// 获取文件 sha（PUT contents API 更新时需要带上）
+async function ghGetSha(owner: string, repo: string, token: string, pathRel: string, branch: string) {
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(pathRel)}?ref=${encodeURIComponent(branch)}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `token ${token}`, Accept: "application/vnd.github+json" },
+  });
+  if (res.ok) {
+    const j: any = await res.json();
+    return j?.sha as string | undefined;
+  }
+  return undefined; // 不存在时返回 undefined
+}
+
+// 写/更新单个文件
+async function ghPutContent(
+  owner: string, repo: string, token: string,
+  pathRel: string, content: string, message: string, branch: string
+) {
+  const api = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(pathRel)}`;
+  const sha = await ghGetSha(owner, repo, token, pathRel, branch);
+  const body = {
+    message,
+    branch,
+    content: Buffer.from(content, "utf8").toString("base64"),
+    ...(sha ? { sha } : {}),
+  };
+  const res = await fetch(api, {
+    method: "PUT",
+    headers: {
+      Authorization: `token ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`GitHub PUT ${pathRel} failed: ${res.status} ${t}`);
+  }
+}
+
+// 触发工作流（支持文件名或数字 ID）
+async function ghDispatchWorkflow(
+  owner: string, repo: string, token: string,
+  workflowIdOrFile: string, branch: string
+) {
+  const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowIdOrFile}/dispatches`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `token ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ref: branch }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`dispatch failed: ${res.status} ${t}`);
+  }
+}
+
+// commitAndBuild：先将 files 推到 GitHub，再触发工作流
 export const commitAndBuild = async (input: CommitAndBuildInput): Promise<CommitAndBuildResult> => {
-  const writtenCount = Array.isArray(input?.files) ? input.files!.length : 0;
+  const owner = process.env.GH_OWNER!;
+  const repo  = process.env.GH_REPO!;
+  const token = process.env.GH_TOKEN!;
+  const wf    = input.workflowFile ?? process.env.WORKFLOW_ID!;
+  const branch = input.ref ?? process.env.GH_BRANCH ?? "main";
+
+  const files = Array.isArray(input.files) ? input.files : [];
+  const writtenCount = files.length;
+  const message = input.message ?? `NDJC: ${process.env.NDJC_APP_NAME ?? "automated"} commit`;
+
+  if (!owner || !repo || !token || !wf) {
+    return { ok: false, writtenCount, note: "Missing GH_OWNER/GH_REPO/GH_TOKEN or WORKFLOW_ID" };
+  }
+
+  // 1) 把生成文件推到仓库（顺序执行，避免并发冲突）
+  for (const f of files) {
+    const rel = f.filePath.replace(/\\/g, "/").replace(/^\.\//, "");
+    await ghPutContent(owner, repo, token, rel, f.content, message, branch);
+  }
+
+  // 2) 触发工作流（让 CI 构建 APK）
+  await ghDispatchWorkflow(owner, repo, token, wf, branch);
+
   return {
     ok: true,
     writtenCount,
-    note: `Build is handled by CI via repository_dispatch${input?.ref ? ` (ref=${input.ref})` : ""}.`,
+    note: `pushed ${writtenCount} file(s) to ${branch} & dispatched workflow ${wf}`,
   };
 };
