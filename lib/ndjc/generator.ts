@@ -40,24 +40,34 @@ export type GeneratorOutcome = {
 };
 
 export type GenerateArgs = {
-  repoRoot: string;
+  repoRoot: string;                   // Packaging-warehouse 路径
   template: string;
   prompt: string;
   buildId?: string;
   anchors?: string[];
-  apiResponse?: any;
-  files?: FileSpec[];
-  orchestrator?: OrchestratorSummary;
+  apiResponse?: any;                  // API 原始返回（对象/字符串）
+  files?: FileSpec[];                 // 差量写入
+  orchestrator?: OrchestratorSummary; // 编排器的结构化成果
   extra?: Record<string, any>;
-  maxApiPreviewBytes?: number;
-  withGitDiff?: boolean;
+  maxApiPreviewBytes?: number;        // APK 摘要最多保留多少字节（默认 8KB）
+  withGitDiff?: boolean;              // 若环境有 git，则尝试产出 diff
 };
 
 export type GenerateResult = {
   changed: string[];
-  assetsJsonPath: string;
-  requestDir: string;
+  assetsJsonPath: string;             // app/src/main/assets/ndjc_info.json
+  requestDir: string;                 // requests/YYYY-MM-DD/<buildId>
 };
+
+// 兼容老路由额外入参（会被写进 extra）
+export type LegacyCompatInput = {
+  raw?: any;
+  normalized?: any;
+  // 如后续还有老字段，可继续加：templateVars?: any; features?: any; 等
+};
+
+// 对外入参：允许老字段（TS 不再报错）
+export type GenerateInput = Partial<GenerateArgs> & LegacyCompatInput;
 
 // ── 小工具 ──────────────────────────────────────────────────────────
 async function exists(p: string) {
@@ -254,10 +264,10 @@ export async function readText(repoRoot: string, relPath: string) {
 }
 
 // ───────────────────────────────────────────────────────────────────
-// 兼容层：导出旧名字，避免现有前端/路由改动即可编过
+// 兼容层：导出旧名字/旧返回结构，避免现有前端改动
 // ───────────────────────────────────────────────────────────────────
 
-export function resolveWithDefaults(p: Partial<GenerateArgs>): GenerateArgs {
+export function resolveWithDefaults(p: GenerateInput): GenerateArgs {
   return {
     repoRoot: p.repoRoot ?? (process.env.PACKAGING_REPO_PATH ?? "/tmp/Packaging-warehouse"),
     template: p.template ?? "core-template",
@@ -267,7 +277,11 @@ export function resolveWithDefaults(p: Partial<GenerateArgs>): GenerateArgs {
     apiResponse: p.apiResponse,
     files: p.files ?? [],
     orchestrator: p.orchestrator,
-    extra: p.extra ?? {},
+    extra: {
+      ...(p.extra ?? {}),
+      ...(p.raw !== undefined ? { raw: p.raw } : {}),
+      ...(p.normalized !== undefined ? { normalized: p.normalized } : {}),
+    },
     maxApiPreviewBytes: p.maxApiPreviewBytes ?? 8 * 1024,
     withGitDiff: p.withGitDiff ?? true,
   };
@@ -280,7 +294,7 @@ export type GenerateResultCompat = GenerateResult & {
   injectedAnchors: string[];
 };
 
-export async function generateWithAudit(p: Partial<GenerateArgs>): Promise<GenerateResultCompat> {
+export async function generateWithAudit(p: GenerateInput): Promise<GenerateResultCompat> {
   const full = resolveWithDefaults(p);
   const res = await generateAndroidProject(full);
   return {
