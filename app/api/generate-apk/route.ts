@@ -1,139 +1,133 @@
 // app/api/generate-apk/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import { readdir, stat as fsStat, readFile } from "node:fs/promises";
+// Next.js Route Handler（Node.js runtime）
+// - 调用 generateWithAudit 生成/落盘日志
+// - 读取本地生成的日志与摘要并 push 到 GitHub
+// - 触发工作流
+// - 回传详细的 env/dispatch/error 便于线上排障
 
+import { NextResponse } from "next/server";
 import {
   generateWithAudit,
-  readText,
-  makeSimpleTemplateFiles,
   commitAndBuild,
+  readText,                 // 读取仓库内相对路径文件
   type FileSpec,
 } from "@/lib/ndjc/generator";
 
-// —— 小工具：递归读取目录为 FileSpec[]（以 repoRoot 为根的相对路径）——
-async function dirToFileSpecs(repoRoot: string, relDir: string): Promise<FileSpec[]> {
-  const out: FileSpec[] = [];
-  const abs = path.join(repoRoot, relDir);
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-  async function walk(rp: string) {
-    const absDir = path.join(repoRoot, rp);
-    const entries = await readdir(absDir, { withFileTypes: true });
-    for (const ent of entries) {
-      const rel = path.join(rp, ent.name).replace(/\\/g, "/");
-      const absPath = path.join(repoRoot, rel);
-      if (ent.isDirectory()) {
-        await walk(rel);
-      } else {
-        const s = await fsStat(absPath);
-        if (s.isFile()) {
-          const content = await readFile(absPath, "utf8");
-          out.push({ filePath: rel, content });
-        }
+function ok(v: unknown) {
+  return !(v === undefined || v === null || v === "");
+}
+
+// 与生成器保持一致：默认的仓库根目录
+const REPO_ROOT = process.env.PACKAGING_REPO_PATH ?? "/tmp/Packaging-warehouse";
+
+// 读取一个相对路径；读不到就跳过
+async function safeRead(rel: string): Promise<FileSpec | null> {
+  try {
+    const content = await readText(REPO_ROOT, rel);
+    return { filePath: rel, content };
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
+  // 1) 解析前端 body（尽量宽松）
+  const body: any = await req.json().catch(() => ({}));
+
+  // 2) 生成：把原始 body 也写入 raw，便于回溯
+  const gen = await generateWithAudit({
+    prompt: body.prompt ?? "",
+    template: body.template ?? "core-template",
+    anchors: Array.isArray(body.anchors) ? body.anchors : [],
+    raw: body,
+    normalized: body.normalized,
+  });
+
+  // 3) 组装需要 push 到仓库的文件清单
+  const reqDir = gen.requestDir; // like: requests/2025-08-31/req_169349...
+  const logRelatives = [
+    `${reqDir}/meta.json`,
+    `${reqDir}/orchestrator.json`,
+    `${reqDir}/generator.json`,
+    `${reqDir}/api_response.json`,
+    `${reqDir}/index.md`,
+  ];
+
+  const filesToPush: FileSpec[] = [];
+
+  // 3.1 push APK 内的摘要
+  const f1 = await safeRead(gen.assetsJsonPath);
+  if (f1) filesToPush.push(f1);
+
+  // 3.2 push 日志目录里的核心文件（不存在的自动跳过）
+  for (const rel of logRelatives) {
+    const f = await safeRead(rel);
+    if (f) filesToPush.push(f);
+  }
+
+  // 3.3 如果前端额外传了差量文件（少见），也一并 push
+  if (Array.isArray(body.files)) {
+    for (const f of body.files) {
+      if (f?.filePath && typeof f?.content === "string") {
+        filesToPush.push({ filePath: f.filePath, content: f.content });
       }
     }
   }
 
-  // 如果目录不存在/为空，吞掉异常即可
+  // 4) 触发 GitHub：显式把 workflowFile/ref 传入
+  const dispatchInput = {
+    files: filesToPush,
+    message: `NDJC: ${process.env.NDJC_APP_NAME ?? "generated"} commit`,
+    ref: process.env.GH_BRANCH ?? "main",
+    workflowFile: process.env.WORKFLOW_ID,
+  };
+
+  // 打印关键上下文到 Vercel 日志
+  console.log("[NDJC] dispatch", {
+    owner: process.env.GH_OWNER,
+    repo: process.env.GH_REPO,
+    branch: dispatchInput.ref,
+    wf: dispatchInput.workflowFile,
+    files: filesToPush.length,
+    buildId: gen.buildId,
+  });
+
+  let dispatch: any = null;
+  let error: any = null;
+
   try {
-    await walk(relDir);
-  } catch { /* noop */ }
-
-  return out;
-}
-
-export async function POST(req: NextRequest) {
-  const started = Date.now();
-
-  try {
-    // 1) 解析请求体
-    const body = await req.json().catch(() => ({}));
-    const {
-      prompt = "",
-      template = "core-template",
-      anchors = [] as string[],
-      appTitle = "NDJCApp",
-      // 可选：前端传 buildId/branch/workflowFile 覆盖
-      buildId: buildIdFromClient,
-      ref: refFromClient,
-      workflowFile: wfFromClient,
-      // 兼容：保留扩展字段
-      ...rest
-    } = body || {};
-
-    // 2) 确定可写目录（Serverless 只保证 /tmp 可写）
-    const repoRoot =
-      process.env.PACKAGING_REPO_PATH?.trim() ||
-      "/tmp/Packaging-warehouse";
-
-    // 3) 准备最小的模板改动（至少往 strings.xml 写个 app_name，避免 files: 0）
-    const templateFiles: FileSpec[] = makeSimpleTemplateFiles({ appTitle });
-
-    // 4) 调用生成器：会把请求归档写到 requests/YYYY-MM-DD/<buildId>，
-    //    并写入 app/src/main/assets/ndjc_info.json（摘要）
-    const { buildId, assetsJsonPath, requestDir } = await generateWithAudit({
-      repoRoot,
-      template,
-      prompt,
-      anchors,
-      files: templateFiles,
-      buildId: buildIdFromClient,   // 若外部指定 buildId 就用外部的
-      extra: { from: "api/generate-apk", ...rest },
-    });
-
-    // 5) 把“这次请求目录下的所有文件 + assets 摘要 + 模板改动”打包成 FileSpec[]
-    const filesFromRequest = await dirToFileSpecs(repoRoot, requestDir);
-    const filesFromAssets: FileSpec[] = [{
-      filePath: assetsJsonPath,
-      content: await readText(repoRoot, assetsJsonPath),
-    }];
-
-    // 注意：模板改动我们已经以内存形式提交过（templateFiles），
-    // 仍可和日志一起推到 GitHub，便于还原本次改动。
-    const filesToCommit: FileSpec[] = [
-      ...templateFiles,
-      ...filesFromAssets,
-      ...filesFromRequest,
-    ];
-
-    // 6) 推送到 GitHub 并触发工作流
-    const ref = (refFromClient || process.env.GH_BRANCH || "main").trim();
-    const workflowFile = (wfFromClient || process.env.WORKFLOW_ID || "android-build-matrix.yml").trim();
-
-    const pushed = await commitAndBuild({
-      files: filesToCommit,
-      ref,
-      workflowFile,
-      message: `NDJC: ${process.env.NDJC_APP_NAME ?? "automated"} commit (buildId=${buildId})`,
-    });
-
-    // 7) 返回给前端
-    return NextResponse.json({
-      ok: true,
-      tookMs: Date.now() - started,
-      buildId,
-      repoRoot,
-      committedFiles: filesToCommit.length,
-      repoPushNote: pushed?.note,
-      dispatchedWorkflow: workflowFile,
-      branch: ref,
-      anchorsInjected: anchors,
-      // 给前端快速导航的提示（仅提示，不包含机密）
-      tips: {
-        requestArchive: `requests/<date>/${buildId}/`,
-        apkSummary: "app/src/main/assets/ndjc_info.json",
-        whereToSee: [
-          "GitHub 仓库：requests/<date>/<buildId>/ 里有 orchestrator/generator/api_response",
-          "GitHub Actions：Artifacts 可下载 APK，assets/ndjc_info.json 里有摘要",
-        ],
-      },
-    });
-
-  } catch (err: any) {
-    console.error("[/api/generate-apk] error:", err);
-    return NextResponse.json(
-      { ok: false, error: String(err?.message || err) },
-      { status: 500 }
-    );
+    dispatch = await commitAndBuild(dispatchInput);
+  } catch (e: any) {
+    error = { message: e?.message ?? String(e) };
+    console.error("[NDJC] commitAndBuild error:", error);
   }
+
+  // 5) 回传：同时暴露 env 配置状态，方便排障
+  const env = {
+    hasOwner: ok(process.env.GH_OWNER),
+    hasRepo: ok(process.env.GH_REPO),
+    hasToken: ok(process.env.GH_TOKEN),
+    hasWorkflow: ok(process.env.WORKFLOW_ID),
+    branch: process.env.GH_BRANCH ?? "main",
+  };
+
+  const success = !error && !!dispatch?.ok;
+
+  return NextResponse.json(
+    {
+      ok: success,
+      env,
+      dispatch, // { ok, writtenCount, note }
+      error,    // { message }
+      generated: {
+        buildId: gen.buildId,
+        requestDir: gen.requestDir,
+        assetsJsonPath: gen.assetsJsonPath,
+      },
+    },
+    { status: success ? 200 : 500 }
+  );
 }
