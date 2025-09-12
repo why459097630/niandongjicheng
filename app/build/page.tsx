@@ -23,7 +23,7 @@ export default function BuildPage() {
   const onGen = async () => {
     setBusy(true);
     setMsg('Dispatching build...');
-    const r = await fetch('/api/build', {
+    const r = await fetch('/api/generate-apk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ template: tpl }),
@@ -67,7 +67,7 @@ export default function BuildPage() {
             disabled={busy}
             className="rounded-lg bg-indigo-500 px-4 py-2 font-medium hover:bg-indigo-400 disabled:opacity-60"
           >
-            {busy ? 'Workingâ€¦' : 'Generate APK'}
+            {busy ? 'Workingâ€? : 'Generate APK'}
           </button>
         </div>
 

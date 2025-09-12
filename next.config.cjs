@@ -1,8 +1,11 @@
-// next.config.cjs
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // 如果你原来还有其它 next 配置，可在这里继续保留/添加
+  experimental: {
+    instrumentationHook: true,
+    // 若 groq.ts 里改为静态导入 `undici`，确保它不被打包
+    serverComponentsExternalPackages: ['undici'],
+  },
 };
 
 module.exports = nextConfig;

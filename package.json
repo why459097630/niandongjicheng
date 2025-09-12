@@ -6,19 +6,26 @@
     "node": ">=18.18"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1 -p 4311",
     "build": "cross-env NEXT_TELEMETRY_DISABLED=1 next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start -H 127.0.0.1 -p 4311",
+    "lint": "next lint",
+    "gen:apk": "node scripts/generate-apk.mjs",
+    "gen:apk:core": "node scripts/generate-apk.mjs --template core",
+    "gen:apk:simple": "node scripts/generate-apk.mjs --template simple",
+    "gen:apk:form": "node scripts/generate-apk.mjs --template form"
   },
   "dependencies": {
     "@octokit/rest": "20.1.1",
-    "octokit": "3.1.2",
-    "https-proxy-agent": "7.0.6",
+    "axios": "^1.11.0",
+    "https-proxy-agent": "^7.0.6",
     "next": "14.2.5",
     "node-fetch": "2.7.0",
+    "octokit": "3.1.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "socks-proxy-agent": "^8.0.5",
+    "undici": "^5.29.0",
     "zod": "3.23.8"
   },
   "devDependencies": {

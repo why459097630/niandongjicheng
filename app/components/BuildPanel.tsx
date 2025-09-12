@@ -12,14 +12,14 @@ export default function BuildPanel({ runId }: Props) {
 
     const poll = async () => {
       try {
-        const r = await fetch(`/api/build/status/${runId}`, { cache: 'no-store' }).then(res => res.json());
+        const r = await fetch(`/api/generate-apk/status/${runId}`, { cache: 'no-store' }).then(res => res.json());
         if (!alive) return;
         setData(r);
         if (r?.status && r.status !== 'completed') {
           setTimeout(poll, 5000);
         }
       } catch {
-        // 忽略瞬时错误，5s 后再拉
+        // 忽略瞬时错误�?s 后再�?
         setTimeout(poll, 5000);
       }
     };
