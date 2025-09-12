@@ -14,7 +14,7 @@ export default function BuildPage() {
         const r = await fetch('/api/templates');
         const j = await r.json();
         setTemplates(j?.templates || []);
-      } catch (e) {
+      } catch {
         // ignore
       }
     })();
@@ -67,7 +67,7 @@ export default function BuildPage() {
             disabled={busy}
             className="rounded-lg bg-indigo-500 px-4 py-2 font-medium hover:bg-indigo-400 disabled:opacity-60"
           >
-            {busy ? 'Workingâ€? : 'Generate APK'}
+            {busy ? 'Working...' : 'Generate APK'}
           </button>
         </div>
 
