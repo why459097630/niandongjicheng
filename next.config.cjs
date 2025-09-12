@@ -1,10 +1,22 @@
+// next.config.js
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
   experimental: {
-    instrumentationHook: true,
-    // 若 groq.ts 里改为静态导入 `undici`，确保它不被打包
-    serverComponentsExternalPackages: ['undici'],
+    // 把要在运行时读取的文件夹强制打进 serverless 包
+    outputFileTracingIncludes: {
+      // App Router 的 API 路由
+      'app/api/**': [
+        'templates/**',
+        'content_pack/**',
+        'requests/**'
+      ],
+      // 如果你还用到了 Pages Router 的 API
+      'pages/api/**': [
+        'templates/**',
+        'content_pack/**',
+        'requests/**'
+      ],
+    },
   },
 };
 
