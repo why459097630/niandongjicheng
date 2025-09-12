@@ -1,0 +1,20 @@
+{
+  "functions": {
+    // App Router 的编译产物是 app/**/route.js
+    "app/api/**/route.js": {
+      "includeFiles": [
+        "templates/**",
+        "content_pack/**",
+        "requests/**"
+      ]
+    },
+    // 兼容 Pages Router（如果你有）
+    "api/**/*.js": {
+      "includeFiles": [
+        "templates/**",
+        "content_pack/**",
+        "requests/**"
+      ]
+    }
+  }
+}
