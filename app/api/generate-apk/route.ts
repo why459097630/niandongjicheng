@@ -9,13 +9,16 @@ import {
   materializeToWorkspace,
   cleanupAnchors,
 } from '@/lib/ndjc/generator';
-import {
-  newRunId,
-  writeJSON,
-  writeText,
-  gitCommitPush,
-  getRepoPath,
-} from '@/lib/ndjc/journal';
+import * as JournalMod from '@/lib/ndjc/journal';
+// 兼容：如果是默认导出就用 default，否则用具名导出集合
+const Journal: any = (JournalMod as any).default ?? JournalMod;
+
+const newRunId     = Journal.newRunId;
+const writeJSON    = Journal.writeJSON;
+const writeText    = Journal.writeText;
+const gitCommitPush= Journal.gitCommitPush;
+const getRepoPath  = Journal.getRepoPath;
+
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
