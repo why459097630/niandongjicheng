@@ -1,0 +1,72 @@
+plugins {
+    // NDJC:PLUGINS_EXTRA
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace "com.ndjc.app"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.ndjc.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        // 可选：多语言配置（整行由生成器填充或留空）
+        NDJC:RES_CONFIGS
+    }
+
+    signingConfigs {
+        release {
+            // 从环境变量读取签名参数
+            storeFile file(System.getenv('NDJC_KEYSTORE_PATH') ?: '')
+            storePassword System.getenv('NDJC_KEYSTORE_PASSWORD') ?: ''
+            keyAlias System.getenv('NDJC_KEY_ALIAS') ?: ''
+            keyPassword System.getenv('NDJC_KEY_PASSWORD') ?: ''
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt') NDJC:PROGUARD_FILES_EXTRA
+            // 由生成器决定是否启用签名（为空则不注入）
+            NDJC:SIGNING_CONFIG
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    packagingOptions {
+        // 规则块整体由生成器填充或留空
+        NDJC:PACKAGING_RULES
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+    buildFeatures { compose true }
+    composeOptions { kotlinCompilerExtensionVersion '1.5.3' }
+}
+
+dependencies {
+    // NDJC:DEPENDENCIES_EXTRA
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+
+    implementation platform('androidx.compose:compose-bom:2024.05.00')
+    implementation 'androidx.activity:activity-compose:1.8.2'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.material3:material3'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+}

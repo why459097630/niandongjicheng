@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- NDJC:BEGIN(header) -->
+    <TextView
+        android:id="@+id/ndjcTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="NDJCApp"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:paddingBottom="12dp"/>
+    <!-- NDJC:END(header) -->
+
+    <!-- NDJC:BEGIN(body) -->
+    <TextView
+        android:id="@+id/ndjcBody"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Hello from NDJC"
+        android:textSize="16sp"
+        android:paddingBottom="16dp"/>
+    <!-- NDJC:END(body) -->
+
+    <!-- NDJC:BEGIN(actions) -->
+    <Button
+        android:id="@+id/ndjcPrimary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Get started"/>
+    <!-- NDJC:END(actions) -->
+
+    <!-- 兼容：给旧代码里可能引用的 ID 占位，避免 Javac 报 cannot find symbol -->
+    <View android:id="@+id/textView"
+        android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+    <View android:id="@+id/button"
+        android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+
+</LinearLayout>

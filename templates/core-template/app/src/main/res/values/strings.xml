@@ -1,0 +1,14 @@
+﻿<resources>
+    <!-- App 显示名 -->
+    <string name="app_name">NDJC:APP_LABEL</string>
+
+    <!-- 页面标题 & 主按钮 -->
+    <string name="ndjc_home_title">NDJC:HOME_TITLE</string>
+    <string name="ndjc_action_primary_text">NDJC:MAIN_BUTTON</string>
+
+    <!-- 其它保留 -->
+    <string name="hello_world">Hello World!</string>
+    <string name="title_home">Home</string>
+    <string name="title_dashboard">Dashboard</string>
+    <string name="title_notifications">Notifications</string>
+</resources>
