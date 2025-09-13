@@ -3,12 +3,27 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
-import { getRepoPath } from './journal';
 
-const TEMPLATE_DIR = { simple: 'simple-template', core: 'core-template', form: 'form-template' } as const;
+// =============== 关键路径策略 ===============
+// 读模板：代码包内只读目录（可通过 TEMPLATES_DIR 覆盖）
+function templatesBase() {
+  return process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
+}
+
+// 写工作区：Vercel 可写盘 /tmp（可通过 NDJC_WORKDIR 覆盖）
+function workRepoRoot() {
+  return process.env.NDJC_WORKDIR || '/tmp/ndjc';
+}
+
+// ===========================================
+const TEMPLATE_DIR = {
+  simple: 'simple-template',
+  core: 'core-template',
+  form: 'form-template',
+} as const;
 
 function templateRoot(t: keyof typeof TEMPLATE_DIR) {
-  return path.join(getRepoPath(), 'templates', TEMPLATE_DIR[t]);
+  return path.join(templatesBase(), TEMPLATE_DIR[t]);
 }
 
 // app 根下优先 .kts
@@ -38,7 +53,7 @@ ${items.map(l => `  <locale android:name="${l}"/>`).join('\n')}
 }
 
 export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
-  const repo = getRepoPath();
+  const repo = workRepoRoot();               // <- 工作区根
   const appRoot = path.join(repo, 'app');
   const gradleFile = pickGradleFile(appRoot);
 
@@ -199,9 +214,10 @@ async function copyDir(src: string, dst: string) {
 }
 
 export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'form') {
-  const repo = getRepoPath();
-  const srcApp = path.join(templateRoot(templateKey), 'app');
+  const repo = workRepoRoot();                 // <- 写入工作区
+  const srcApp = path.join(templateRoot(templateKey), 'app');   // <- 读模板
   const dstApp = path.join(repo, 'app');
+  await fs.mkdir(repo, { recursive: true });   // 确保工作区存在
   await fs.rm(dstApp, { recursive: true, force: true });
   await copyDir(srcApp, dstApp);
   return { dstApp };
@@ -253,14 +269,13 @@ async function walkAndStrip(dir: string) {
 }
 
 export async function cleanupAnchors() {
-  const repo = getRepoPath();
-  const appRoot = path.join(repo, 'app');
+  const appRoot = path.join(workRepoRoot(), 'app');  // <- 工作区
   await walkAndStrip(appRoot);
 }
 
 /* ---------- 伴生文件入口（API 调用） ---------- */
 export async function ensureAuxFiles(o: NdjcOrchestratorOutput) {
-  const appRoot = path.join(getRepoPath(), 'app');
+  const appRoot = path.join(workRepoRoot(), 'app');  // <- 工作区
   // 仅当 resConfigs 非空时生成 locales_config.xml
   if ((o.resConfigs ?? '').trim()) {
     await writeLocalesConfig(appRoot, o.resConfigs);
