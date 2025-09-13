@@ -1,58 +1,70 @@
 // lib/ndjc/journal.ts
-import * as crypto from 'node:crypto';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
-const owner = process.env.GH_OWNER!;
-const repo  = process.env.GH_REPO!;
-const branch = process.env.GH_BRANCH || 'main';
-const token = process.env.GH_PAT!;
+const GH_API = 'https://api.github.com';
 
-function norm(p: string) {
-  return p.replace(/^[/\\]+/, ''); // 去掉前导 / \，避免 404
+function need(k: string) {
+  const v = process.env[k];
+  if (!v) throw new Error(`Missing env: ${k}`);
+  return v;
 }
 
-async function ghPut(path: string, content: string, message: string) {
-  if (!owner || !repo || !token) {
-    throw new Error('Missing GH env (GH_OWNER/GH_REPO/GH_PAT)');
+const owner  = need('GH_OWNER');
+const repo   = need('GH_REPO');
+const branch = process.env.GH_BRANCH || 'main';
+const ghHeaders = {
+  Authorization: `Bearer ${need('GH_PAT')}`,
+  'X-GitHub-Api-Version': '2022-11-28',
+  Accept: 'application/vnd.github+json',
+};
+
+async function ghPutFile(p: string, content: string, message: string) {
+  // 如果文件已存在，先拿到 sha
+  const url = `${GH_API}/repos/${owner}/${repo}/contents/${encodeURIComponent(p)}`;
+  let sha: string | undefined;
+  const r0 = await fetch(`${url}?ref=${encodeURIComponent(branch)}`, { headers: ghHeaders });
+  if (r0.ok) {
+    const j0 = await r0.json();
+    if (j0 && j0.sha) sha = j0.sha;
   }
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(norm(path))}`;
-  const body = JSON.stringify({
+
+  const body = {
     message,
-    content: Buffer.from(content).toString('base64'),
+    content: Buffer.from(content, 'utf8').toString('base64'),
     branch,
-  });
+    ...(sha ? { sha } : {}),
+  };
   const r = await fetch(url, {
     method: 'PUT',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json',
-    },
-    body,
+    headers: ghHeaders,
+    body: JSON.stringify(body),
   });
   if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`GitHub PUT ${r.status} ${r.statusText}: ${url} :: ${t}`);
+    const text = await r.text();
+    throw new Error(`ghPutFile ${r.status} ${r.statusText}: ${text}`);
   }
   return r.json();
 }
 
+// 如果你还有其他地方用到它，保留一个“本地路径”的占位实现即可
 export function getRepoPath() {
-  // 这个返回值仅用于展示；真正写盘完全走 GitHub API
-  return `${owner}/${repo}`;
+  return '/var/Packaging-warehouse';
 }
 
-export async function writeText(runId: string, file: string, text: string) {
-  const path = `requests/${runId}/${file}`;
-  const msg  = `[NDJC] write ${path}`;
-  return ghPut(path, text ?? '', msg);
+export async function writeText(runId: string, name: string, text: string) {
+  // 直接写到 GitHub：requests/<runId>/<name>
+  const p = `requests/${runId}/${name}`;
+  await ghPutFile(p, text, `[NDJC] write ${p}`);
 }
 
-export async function writeJSON(runId: string, file: string, obj: any) {
-  return writeText(runId, file, JSON.stringify(obj, null, 2));
+export async function writeJSON(runId: string, name: string, obj: any) {
+  await writeText(runId, name, JSON.stringify(obj, null, 2));
 }
 
-// 如果你还有 gitCommitPush 之类，本项目用不到也可以保留为 no-op 或继续走 GH actions
 export async function gitCommitPush(_msg: string) {
-  return { committed: true, sha: crypto.randomUUID() };
+  // 用 Contents API 逐文件写入后，不需要再单独 commit/push 了
+  return { committed: true, via: 'gh-contents' };
 }
+
+// newRunId() 原样保留（略）……
