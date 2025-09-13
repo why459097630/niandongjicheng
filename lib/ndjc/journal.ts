@@ -4,25 +4,38 @@ import * as path from 'node:path';
 
 const REMOTE_JOURNAL = process.env.NDJC_JOURNAL_REMOTE === '1';
 
-const GH_OWNER   = process.env.GH_OWNER!;
-const GH_REPO    = process.env.GH_REPO!;
-const GH_BRANCH  = process.env.GH_BRANCH || 'main';
-const GH_PAT     = process.env.GH_PAT!;
+const GH_OWNER  = process.env.GH_OWNER!;
+const GH_REPO   = process.env.GH_REPO!;
+const GH_BRANCH = process.env.GH_BRANCH || 'main';
+const GH_PAT    = process.env.GH_PAT!;
+
+/** 生成 runId：稳定、文件夹安全 */
+function newRunId(): string {
+  // 形如 2025-09-13T06-57-31-972Z
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+/** 返回仓库根路径（在 Vercel/Node 环境下用项目工作目录即可） */
+function getRepoPath(): string {
+  return process.cwd();
+}
 
 async function putContentToGitHub(filePath: string, content: string, message: string) {
-  const api = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(filePath)}`;
+  const api = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodeURIComponent(
+    filePath
+  )}`;
   const headers = {
-    'Authorization': `Bearer ${GH_PAT}`,
-    'Accept': 'application/vnd.github+json',
+    Authorization: `Bearer ${GH_PAT}`,
+    Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
     'Content-Type': 'application/json',
-  };
+  } as const;
 
-  // 查询是否已存在，拿 sha
+  // 先查是否存在以取 sha
   let sha: string | undefined;
   const head = await fetch(`${api}?ref=${encodeURIComponent(GH_BRANCH)}`, { headers });
   if (head.ok) {
-    const j = await head.json().catch(() => undefined);
+    const j = (await head.json().catch(() => undefined)) as any;
     sha = j?.sha;
   }
 
@@ -40,23 +53,33 @@ async function putContentToGitHub(filePath: string, content: string, message: st
   }
 }
 
-// 供 generate-apk 使用的“写文本/写 JSON”
-export async function writeText(runId: string, rel: string, txt: string) {
+/** 写文本到本地/远端 journal */
+async function writeText(runId: string, rel: string, txt: string) {
   const relPath = `requests/${runId}/${rel}`;
+
   if (REMOTE_JOURNAL) {
     await putContentToGitHub(relPath, txt, `[NDJC] write ${relPath}`);
-  } else {
-    const abs = path.join(process.cwd(), relPath);
-    await fs.mkdir(path.dirname(abs), { recursive: true });
-    await fs.writeFile(abs, txt, 'utf8');
+    return;
   }
+
+  const abs = path.join(process.cwd(), relPath);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, txt, 'utf8');
 }
 
-export async function writeJSON(runId: string, rel: string, obj: any) {
+/** 写 JSON 到本地/远端 journal */
+async function writeJSON(runId: string, rel: string, obj: any) {
   await writeText(runId, rel, JSON.stringify(obj, null, 2));
 }
 
-// 若仍保留 gitCommitPush，建议在 Vercel 环境下直接 no-op，避免误导
-export async function gitCommitPush(_msg: string) {
+/** 在 Vercel 环境下不再实际 git 提交，这里仅返回说明 */
+async function gitCommitPush(_msg: string) {
   return { committed: REMOTE_JOURNAL, via: REMOTE_JOURNAL ? 'contents-api' : 'local-fs' };
 }
+
+/* -------------------- 导出 -------------------- */
+// 具名导出（推荐）
+export { newRunId, writeText, writeJSON, gitCommitPush, getRepoPath };
+
+// 兼容默认导出（历史代码可能用过 default）
+export default { newRunId, writeText, writeJSON, gitCommitPush, getRepoPath };
