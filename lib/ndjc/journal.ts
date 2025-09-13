@@ -1,77 +1,71 @@
 // lib/ndjc/journal.ts
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-const GH_OWNER  = process.env.GH_OWNER!;
-const GH_REPO   = process.env.GH_REPO!;
-const GH_BRANCH = process.env.GH_BRANCH || 'main';
-const GH_PAT    = process.env.GH_PAT!;     // 记得使用 classic token，勾选 repo + workflow
-
-function b64(s: string) {
-  return Buffer.from(s, 'utf8').toString('base64');
+function mustEnv(name: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env: ${name}`);
+  return v;
 }
 
-async function putGithubFile(relPath: string, content: string, message: string) {
-  if (!GH_OWNER || !GH_REPO || !GH_PAT) return false;
+const GH = {
+  owner: mustEnv('GH_OWNER'),
+  repo: mustEnv('GH_REPO'),
+  branch: process.env.GH_BRANCH || 'main',
+  token: mustEnv('GH_PAT'),
+};
 
-  const base = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/`;
-  const url  = base + encodeURIComponent(relPath).replace(/%2F/g, '/');
+async function putFileToGitHub(relPath: string, content: string, message: string) {
+  const api = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${encodeURIComponent(relPath)}`;
   const headers = {
-    Authorization: `Bearer ${GH_PAT}`,
     Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${GH.token}`,
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
   };
 
-  // 先查是否存在，拿到 sha
+  // 若文件已存在，需要带 sha 更新
   let sha: string | undefined;
-  const gr = await fetch(`${url}?ref=${encodeURIComponent(GH_BRANCH)}`, { headers });
-  if (gr.ok) {
-    const j = await gr.json().catch(() => null);
-    if (j && j.sha) sha = j.sha;
+  const probe = await fetch(`${api}?ref=${encodeURIComponent(GH.branch)}`, { headers });
+  if (probe.ok) {
+    const j = await probe.json().catch(() => null);
+    if (j?.sha) sha = j.sha;
   }
 
-  const body = JSON.stringify({
+  const body = {
     message,
-    content: b64(content),
-    branch: GH_BRANCH,
-    sha,               // 存在则传 sha，表示更新；不存在则创建
-  });
+    content: Buffer.from(content, 'utf8').toString('base64'),
+    branch: GH.branch,
+    sha,
+  };
 
-  const pr = await fetch(url, { method: 'PUT', headers, body });
-  if (!pr.ok) {
-    const t = await pr.text();
-    throw new Error(`GitHub write ${relPath} failed: ${pr.status} ${pr.statusText} :: ${t}`);
+  const r = await fetch(api, { method: 'PUT', headers, body: JSON.stringify(body) });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`GitHub PUT ${relPath} -> ${r.status} ${r.statusText} :: ${text}`);
   }
-  return true;
 }
 
+// 生成 runId（保持你现有格式）
 export function newRunId() {
-  const d = new Date().toISOString().replace(/[:.]/g, '-');
-  return d + '-' + Math.random().toString(16).slice(2, 6);
+  return new Date().toISOString().replace(/[:.]/g, '-')
+         + '-' + Math.random().toString(16).slice(2, 6);
 }
 
-// 可选：也在 /tmp 保留一份，方便 Debug
-async function writeLocalTmp(relPath: string, content: string) {
-  const p = path.join('/tmp', relPath);
-  await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, content, 'utf8');
-}
-
-export async function writeText(runId: string, file: string, text: string) {
-  const rel = `requests/${runId}/${file}`;
-  await writeLocalTmp(rel, text).catch(() => {});
-  await putGithubFile(rel, text, `ndjc: write ${rel}`);
-}
-
-export async function writeJSON(runId: string, file: string, data: any) {
-  await writeText(runId, file, JSON.stringify(data, null, 2));
-}
-
-// 如果你还有 getRepoPath / gitCommitPush，可以保留空实现或让它们 no-op；后续不再依赖 git。
+// Vercel 上这个路径没意义，但为了兼容导出保留
 export function getRepoPath() {
-  // 现在仅用来给 UI 展示，无需真实存在
-  return 'Packaging-warehouse';
+  return '/tmp';
 }
+
+export async function writeText(runId: string, name: string, text: string) {
+  const rel = path.posix.join('requests', runId, name);
+  await putFileToGitHub(rel, text, `[ndjc] ${runId} ${name}`);
+}
+
+export async function writeJSON(runId: string, name: string, obj: any) {
+  await writeText(runId, name, JSON.stringify(obj, null, 2));
+}
+
+// 在 Vercel 上不再做 git push，返回个占位信息即可
 export async function gitCommitPush(_msg: string) {
-  // 不再用 git；返回一个占位信息即可
-  return { committed: true, via: 'github-contents-api' };
+  return { committed: false, by: 'api' as const };
 }
