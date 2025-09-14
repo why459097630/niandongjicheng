@@ -10,14 +10,14 @@ import {
   cleanupAnchors,
 } from '@/lib/ndjc/generator';
 import * as JournalMod from '@/lib/ndjc/journal';
-// 兼容：如果是默认导出就用 default，否则用具名导出集合
 const Journal: any = (JournalMod as any).default ?? JournalMod;
+const newRunId      = Journal.newRunId;
+const writeJSON     = Journal.writeJSON;
+const writeText     = Journal.writeText;
+const gitCommitPush = Journal.gitCommitPush;
+const getRepoPath   = Journal.getRepoPath;
 
-const newRunId     = Journal.newRunId;
-const writeJSON    = Journal.writeJSON;
-const writeText    = Journal.writeText;
-const gitCommitPush= Journal.gitCommitPush;
-const getRepoPath  = Journal.getRepoPath;
+import { ensureBranch, pushDirByContentsApi } from '@/lib/ndjc/git-contents'; // ★ 新增
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -73,7 +73,7 @@ async function emitCompanions(
   return { written: written.length, files: written };
 }
 
-/* -------------------- GitHub Actions 触发工具（保留，但可跳过） -------------------- */
+/* -------------------- GitHub Actions 触发工具 -------------------- */
 const NEED_ENV = ['GH_OWNER', 'GH_REPO', 'GH_BRANCH', 'WORKFLOW_ID', 'GH_PAT'] as const;
 
 function ensureEnv() {
@@ -87,10 +87,14 @@ function normalizeWorkflowId(wf: string) {
   return `${wf}.yml`;
 }
 
-async function dispatchWorkflow(payload: any): Promise<{ ok: true; degraded: boolean }> {
+// ★ 支持指定 refBranch（不传则用 GH_BRANCH）
+async function dispatchWorkflow(
+  payload: any,
+  refBranch?: string
+): Promise<{ ok: true; degraded: boolean }> {
   const owner = process.env.GH_OWNER!;
   const repo = process.env.GH_REPO!;
-  const branch = process.env.GH_BRANCH || 'main';
+  const branch = refBranch || process.env.GH_BRANCH || 'main';
   const wf = normalizeWorkflowId(process.env.WORKFLOW_ID!);
 
   const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
@@ -116,11 +120,7 @@ async function dispatchWorkflow(payload: any): Promise<{ ok: true; degraded: boo
     });
     if (r2.ok) return { ok: true, degraded: true };
 
-    const r3 = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ ref: branch }),
-    });
+    const r3 = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ref: branch }) });
     if (r3.ok) return { ok: true, degraded: true };
 
     const text2 = await r2.text();
@@ -188,16 +188,13 @@ export async function POST(req: NextRequest) {
     step = 'orchestrate';
     let o: any;
     try {
-      // 显式 offline -> 直接兜底
       if (process.env.NDJC_OFFLINE === '1' || input?.offline === true) {
         throw new Error('force-offline');
       }
-      // 没有 Groq key 也兜底（明确原因）
       if (!process.env.GROQ_API_KEY) {
         throw new Error('groq-key-missing');
       }
 
-      // ✅ 强制 provider=groq；模型可用 env 覆盖
       const groqModel = process.env.GROQ_MODEL || input?.model || 'llama-3.1-8b-instant';
       o = await orchestrate({
         ...input,
@@ -207,7 +204,6 @@ export async function POST(req: NextRequest) {
       });
       await writeText(runId, '01_orchestrator_mode.txt', `online(groq:${groqModel})`);
 
-      // LLM trace 落盘（若 orchestrate 返回了 trace）
       if (o && o._trace) {
         await writeJSON(runId, '01a_llm_trace.json', o._trace);
         if (o._trace.request) await writeJSON(runId, '01a_llm_request.json', o._trace.request);
@@ -304,7 +300,7 @@ ${anchors}
 `;
     await writeText(runId, '05_summary.md', summary);
 
-    // 6) 可选 Git 提交
+    // 6) 可选 Git 提交（保持兼容）
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
@@ -315,7 +311,15 @@ ${anchors}
       await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
-    // 7) 触发 GitHub Actions（可跳过；带容错）
+    // ★ 6.5) 把 /app 推到独立分支（ndjc-run/<runId>）
+    step = 'push-app-branch';
+    ensureEnv();
+    const appDir = path.join(repoRoot, 'app');
+    const runBranch = `ndjc-run/${runId}`;
+    await ensureBranch(runBranch); // 基于 main 创建（已存在会忽略）
+    await pushDirByContentsApi(appDir, 'app', runBranch, `[NDJC ${runId}] sync`);
+
+    // 7) 触发 GitHub Actions（用 runBranch 构建；可跳过）
     step = 'dispatch';
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
@@ -327,14 +331,13 @@ ${anchors}
         'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)'
       );
     } else {
-      ensureEnv();
       const inputs = {
         runId,
         template: o.template,
         appTitle: o.appName,
         packageName: o.packageId,
       };
-      dispatch = await dispatchWorkflow({ inputs });
+      dispatch = await dispatchWorkflow({ inputs }, runBranch); // ★ 用新分支
 
       const owner = process.env.GH_OWNER!;
       const repo = process.env.GH_REPO!;
@@ -350,6 +353,7 @@ ${anchors}
       commit: commitInfo ?? null,
       actionsUrl,
       degraded: dispatch?.degraded ?? null,
+      branch: `ndjc-run/${runId}`, // 便于前端展示
     });
   } catch (e: any) {
     return NextResponse.json(
