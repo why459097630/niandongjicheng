@@ -268,9 +268,10 @@ async function walkAndStrip(dir: string) {
   }
 }
 
-export async function cleanupAnchors() {
-  const appRoot = path.join(workRepoRoot(), 'app');  // <- 工作区
-  await walkAndStrip(appRoot);
+// ✅ 改为可选参数：可传入 appRoot，也可不传（默认工作区 app）
+export async function cleanupAnchors(appRoot?: string) {
+  const base = appRoot ?? path.join(workRepoRoot(), 'app');
+  await walkAndStrip(base);
 }
 
 /* ---------- 伴生文件入口（API 调用） ---------- */
