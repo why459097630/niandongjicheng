@@ -67,12 +67,17 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const DEPENDENCIES_EXTRA = env.NDJC_DEPENDENCIES_EXTRA ?? '';
 
   // 可选字段从 orchestrator 输出读取；若没有则为空串即可
-  const RES_CONFIGS        = o.resConfigs ?? '';
+  const RES_CONFIGS_RAW    = (o.resConfigs ?? '').trim();
   const PROGUARD_EXTRA     = o.proguardExtra ?? '';
   const PACKAGING_RULES    = o.packagingRules ?? '';
 
+  // resConfigs 规范化：变成带引号的参数 "zh-CN", "en"；为空则变成空串
+  const RES_ARGS = RES_CONFIGS_RAW
+    ? RES_CONFIGS_RAW.split(',').map(s => s.trim()).filter(Boolean).map(s => `"${s}"`).join(', ')
+    : '';
+
   // 只要 resConfigs 非空，就在 Manifest 上挂 localeConfig
-  const LOCALE_CONFIG_ATTR = (RES_CONFIGS.trim().length > 0)
+  const LOCALE_CONFIG_ATTR = (RES_CONFIGS_RAW.length > 0)
     ? 'android:localeConfig="@xml/locales_config"'
     : '';
 
@@ -112,7 +117,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'NDJC:PLUGINS_EXTRA',        value: PLUGINS_EXTRA },
         { marker: 'NDJC:DEPENDENCIES_EXTRA',   value: DEPENDENCIES_EXTRA },
         { marker: 'NDJC:SIGNING_CONFIG',       value: SIGNING_CONFIG },
-        { marker: 'NDJC:RES_CONFIGS',          value: RES_CONFIGS },
+        { marker: 'NDJC:RES_CONFIGS',          value: RES_ARGS },        // ✅ 这里用带引号的参数
         { marker: 'NDJC:PROGUARD_FILES_EXTRA', value: PROGUARD_EXTRA },
         { marker: 'NDJC:PACKAGING_RULES',      value: PACKAGING_RULES },
       ],
@@ -172,14 +177,14 @@ export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
         }
       } else {
         // 普通 NDJC:XXX 字面替换
-        const idx = txt.indexOf(marker);
+        const re = new RegExp(escape(marker), 'g');
+        const idx = txt.search(re);
         if (idx >= 0) {
           found = true;
           const s = Math.max(0, idx - 40);
           const e = Math.min(txt.length, idx + marker.length + 40);
           beforeSample = txt.slice(s, e);
 
-          const re = new RegExp(escape(marker), 'g');
           replacedCount = (txt.match(re) || []).length;
           txt = txt.replace(re, r.value ?? '');
 
@@ -193,7 +198,15 @@ export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
       changes.push({ file: p.file, marker, found, replacedCount, beforeSample, afterSample });
     }
 
-    if (txt !== beforeAll) await fs.writeFile(p.file, txt, 'utf8');
+    // 额外清理：如果是 Gradle 文件，去掉裸的 resConfigs 空行（Groovy/KTS 都处理）
+    if (/build\.gradle(\.kts)?$/.test(p.file)) {
+      // resConfigs
+      txt = txt.replace(/^\s*resConfigs\s*(?:\(\s*\))?\s*$/gm, '');
+    }
+
+    if (txt !== beforeAll) {
+      await fs.writeFile(p.file, txt, 'utf8');
+    }
     results.push({ file: p.file, changes });
   }
   return results;
@@ -268,7 +281,7 @@ async function walkAndStrip(dir: string) {
   }
 }
 
-// ✅ 改为可选参数：可传入 appRoot，也可不传（默认工作区 app）
+// ✅ 可传入 appRoot，也可不传（默认工作区 app）
 export async function cleanupAnchors(appRoot?: string) {
   const base = appRoot ?? path.join(workRepoRoot(), 'app');
   await walkAndStrip(base);
