@@ -1,31 +1,30 @@
 plugins {
-    // NDJC:PLUGINS_EXTRA
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    // NDJC:PLUGINS_EXTRA
 }
 
 android {
-    namespace "com.ndjc.app"
-    compileSdk 34
+    namespace 'com.ndjc.app'          // NDJC:PACKAGE_NAME
+    compileSdk 34                     // NDJC:COMPILE_SDK
 
     defaultConfig {
-        applicationId "com.ndjc.app"
-        minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        applicationId 'com.ndjc.app'  // NDJC:PACKAGE_NAME
+        minSdk 24                     // NDJC:MIN_SDK
+        targetSdk 34                  // NDJC:TARGET_SDK
+        versionCode 1                 // NDJC:VERSION_CODE
+        versionName '1.0.0'           // NDJC:VERSION_NAME
 
-        // 可选：多语言配置（整行由生成器填充或留空）
-        NDJC:RES_CONFIGS
+        // NDJC:RES_CONFIGS            // 生成器会替换成：resConfigs 'en', 'zh-CN' 等
     }
 
     signingConfigs {
         release {
-            // 从环境变量读取签名参数
-            storeFile file(System.getenv('NDJC_KEYSTORE_PATH') ?: '')
+            // 从环境变量读取签名参数（留空则构建时被忽略）
+            storeFile     file(System.getenv('NDJC_KEYSTORE_PATH') ?: '')
             storePassword System.getenv('NDJC_KEYSTORE_PASSWORD') ?: ''
-            keyAlias System.getenv('NDJC_KEY_ALIAS') ?: ''
-            keyPassword System.getenv('NDJC_KEY_PASSWORD') ?: ''
+            keyAlias      System.getenv('NDJC_KEY_ALIAS') ?: ''
+            keyPassword   System.getenv('NDJC_KEY_PASSWORD') ?: ''
         }
     }
 
@@ -33,9 +32,9 @@ android {
         release {
             minifyEnabled true
             shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt') NDJC:PROGUARD_FILES_EXTRA
-            // 由生成器决定是否启用签名（为空则不注入）
-            NDJC:SIGNING_CONFIG
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // NDJC:PROGUARD_FILES_EXTRA
+            // NDJC:SIGNING_CONFIG       // 生成器会注入：signingConfig signingConfigs.release
         }
         debug {
             minifyEnabled false
@@ -43,8 +42,7 @@ android {
     }
 
     packagingOptions {
-        // 规则块整体由生成器填充或留空
-        NDJC:PACKAGING_RULES
+        // NDJC:PACKAGING_RULES
     }
 
     compileOptions {
@@ -52,12 +50,12 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = '17' }
+
     buildFeatures { compose true }
     composeOptions { kotlinCompilerExtensionVersion '1.5.3' }
 }
 
 dependencies {
-    // NDJC:DEPENDENCIES_EXTRA
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
@@ -69,4 +67,6 @@ dependencies {
     implementation 'androidx.compose.material3:material3'
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
+
+    // NDJC:DEPENDENCIES_EXTRA
 }
