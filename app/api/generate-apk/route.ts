@@ -8,8 +8,6 @@ import {
   applyPlanDetailed,
   materializeToWorkspace,
   cleanupAnchors,
-  stabilizeGradle,        // ✅ 新增：稳态化修复 Gradle
-  ensureAuxFiles,         // ✅ 新增：按需生成伴生文件（locales_config.xml 等）
 } from '@/lib/ndjc/generator';
 import * as JournalMod from '@/lib/ndjc/journal';
 const Journal: any = (JournalMod as any).default ?? JournalMod;
@@ -29,16 +27,7 @@ export const runtime = 'nodejs';
 /* -------------------- 伴生文件（方案B）安全落地 -------------------- */
 const COMPANION_ROOT = 'companions';
 const COMPANION_WHITELIST = new Set([
-  '.kt',
-  '.kts',
-  '.java',
-  '.xml',
-  '.json',
-  '.txt',
-  '.pro',
-  '.md',
-  '.gradle',
-  '.properties',
+  '.kt', '.kts', '.java', '.xml', '.json', '.txt', '.pro', '.md', '.gradle', '.properties',
 ]);
 
 async function emitCompanions(
@@ -65,9 +54,7 @@ async function emitCompanions(
         await fs.access(dst); // 已存在且不允许覆盖 → 跳过
         continue;
       }
-    } catch {
-      /* not exists */
-    }
+    } catch { /* not exists */ }
 
     await fs.writeFile(dst, file.content ?? '', 'utf8');
     written.push(path.relative(appRoot, dst));
@@ -89,7 +76,6 @@ function normalizeWorkflowId(wf: string) {
   return `${wf}.yml`;
 }
 
-// 支持指定 refBranch（不传则用 GH_BRANCH）
 async function dispatchWorkflow(
   payload: any,
   refBranch?: string
@@ -133,17 +119,25 @@ async function dispatchWorkflow(
   throw new Error(`GitHub ${r1.status} ${r1.statusText} :: ${url} :: ${text1}`);
 }
 
-/* -------------------- 工具 -------------------- */
+/* -------------------- 小工具 -------------------- */
 async function pathExists(p: string) {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
+  try { await fs.access(p); return true; } catch { return false; }
+}
+
+// 预检查：若 build.gradle 出现被转义的引号，提前失败
+async function assertNoEscapedQuotes(appRoot: string) {
+  for (const f of ['build.gradle', 'build.gradle.kts']) {
+    const p = path.join(appRoot, f);
+    try {
+      const s = await fs.readFile(p, 'utf8');
+      if (/\bid\s+\\'/.test(s) || /\\'com\.android\.application\\'/.test(s)) {
+        throw new Error(`${f} contains escaped quotes (\\') — check git-contents uploader`);
+      }
+    } catch { /* ignore missing */ }
   }
 }
 
-/* -------------------- 路由：离线兜底 & 可跳过 Actions（方案A/B） -------------------- */
+/* -------------------- 路由 -------------------- */
 export async function POST(req: NextRequest) {
   let step = 'start';
   let runId = '';
@@ -154,7 +148,7 @@ export async function POST(req: NextRequest) {
     runId = newRunId();
     await writeJSON(runId, '00_input.json', input);
 
-    // 1) 关键路径体检
+    // 1) 路径体检
     step = 'check-paths';
     const repoRoot = getRepoPath();
     const tplRoot = process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
@@ -186,7 +180,7 @@ export async function POST(req: NextRequest) {
     if (!checks.tplRootExists) throw new Error(`TemplatesDirNotFound: ${tplRoot}`);
     if (!checks.tplDirExists) throw new Error(`TemplateMissing: ${tplDir}`);
 
-    // 2) 编排：在线优先（强制 Groq），失败或 offline 时兜底
+    // 2) 编排：在线优先，离线兜底
     step = 'orchestrate';
     let o: any;
     try {
@@ -196,33 +190,23 @@ export async function POST(req: NextRequest) {
       if (!process.env.GROQ_API_KEY) {
         throw new Error('groq-key-missing');
       }
-
       const groqModel = process.env.GROQ_MODEL || input?.model || 'llama-3.1-8b-instant';
-      o = await orchestrate({
-        ...input,
-        provider: 'groq',
-        model: groqModel,
-        forceProvider: 'groq',
-      });
+      o = await orchestrate({ ...input, provider: 'groq', model: groqModel, forceProvider: 'groq' });
       await writeText(runId, '01_orchestrator_mode.txt', `online(groq:${groqModel})`);
 
       if (o && o._trace) {
         await writeJSON(runId, '01a_llm_trace.json', o._trace);
-        if (o._trace.request) await writeJSON(runId, '01a_llm_request.json', o._trace.request);
+        if (o._trace.request)  await writeJSON(runId, '01a_llm_request.json',  o._trace.request);
         if (o._trace.response) await writeJSON(runId, '01b_llm_response.json', o._trace.response);
 
         const rawText =
-          o._trace.rawText ??
-          o._trace.text ??
-          o._trace.response?.text ??
-          o._trace.response?.body ??
-          '';
+          o._trace.rawText ?? o._trace.text ??
+          o._trace.response?.text ?? o._trace.response?.body ?? '';
         if (typeof rawText === 'string' && rawText.trim()) {
           await writeText(runId, '01c_llm_raw.txt', rawText);
         }
       }
     } catch (err: any) {
-      // 兜底：离线方案 A
       o = {
         mode: 'A',
         allowCompanions: false,
@@ -230,38 +214,30 @@ export async function POST(req: NextRequest) {
         appName: input.appName ?? input.appTitle ?? 'NDJC core',
         packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.core',
       };
-      await writeText(
-        runId,
-        '01_orchestrator_mode.txt',
-        `offline (${String(err?.message ?? err)})`
-      );
+      await writeText(runId, '01_orchestrator_mode.txt', `offline (${String(err?.message ?? err)})`);
     }
     await writeJSON(runId, '01_orchestrator.json', o);
 
-    // 3) 生成计划
+    // 3) 计划
     step = 'build-plan';
     const plan = buildPlan(o);
     await writeJSON(runId, '02_plan.json', plan);
 
-    // 4) 物化 + 应用 + 清理（使用临时 appRoot）
+    // 4) 物化+应用+清理（使用临时 appRoot）
     step = 'materialize';
     const material = await materializeToWorkspace(o.template);
-    const appRoot = material.dstApp;                        // ✅ 以后都用这个
+    const appRoot = material.dstApp;
     await writeText(runId, '04_materialize.txt', `app copied to: ${appRoot}`);
 
     step = 'apply';
     const applyResult = await applyPlanDetailed(plan);
     await writeJSON(runId, '03_apply_result.json', applyResult);
 
-    // 4.5) 伴生文件与稳态化（先补充文件，再修复 Gradle）
-    await ensureAuxFiles(o);           // 例如 resConfigs 时生成 locales_config.xml
-    await stabilizeGradle(appRoot);    // 修复“android {{”、“// resConfigs ...”等
-
     step = 'cleanup';
-    await cleanupAnchors(appRoot);     // 清掉 NDJC/BLOCK 标记与多余空白
+    await cleanupAnchors(appRoot); // 传入 appRoot
     await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
-    // 方案 B：伴生文件
+    // 伴生文件（方案B）
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
       const emitted = await emitCompanions(appRoot, o.companions);
       await writeJSON(runId, '03a_companions_emitted.json', emitted);
@@ -269,7 +245,7 @@ export async function POST(req: NextRequest) {
       await writeText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
     }
 
-    // 5) 生成汇总摘要
+    // 5) 摘要
     step = 'summary';
     const anchors =
       (applyResult || [])
@@ -280,7 +256,6 @@ export async function POST(req: NextRequest) {
           )
         )
         .join('\n') || '- (no markers found)';
-
     const summary = `# NDJC Run ${runId}
 
 - mode: **${o.mode ?? 'A'}**
@@ -307,42 +282,32 @@ ${anchors}
 `;
     await writeText(runId, '05_summary.md', summary);
 
-    // 6) 可选 Git 提交（保持兼容）
+    // 6) 可选提交
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
-      commitInfo = await gitCommitPush(
-        `[NDJC run ${runId}] template=${o.template} app=${o.appName}`
-      );
+      commitInfo = await gitCommitPush(`[NDJC run ${runId}] template=${o.template} app=${o.appName}`);
     } else {
       await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
-    // 6.5) 把 /app 推到独立分支（ndjc-run/<runId>）
+    // 6.5) 预检查 & 推分支
     step = 'push-app-branch';
     ensureEnv();
     const runBranch = `ndjc-run/${runId}`;
-    await ensureBranch(runBranch); // 基于 main 创建（已存在会忽略）
+    await ensureBranch(runBranch);
+    await assertNoEscapedQuotes(appRoot); // ⬅ 关键预检：防止转义引号
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync`);
 
-    // 7) 触发 GitHub Actions（用 runBranch 构建；可跳过）
+    // 7) 触发 Actions（可跳过）
     step = 'dispatch';
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
 
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
-      await writeText(
-        runId,
-        '05b_actions_skipped.txt',
-        'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)'
-      );
+      await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
-      const inputs = {
-        runId,
-        template: o.template,
-        appTitle: o.appName,
-        packageName: o.packageId,
-      };
+      const inputs = { runId, template: o.template, appTitle: o.appName, packageName: o.packageId };
       dispatch = await dispatchWorkflow({ inputs }, runBranch);
 
       const owner = process.env.GH_OWNER!;
@@ -351,7 +316,7 @@ ${anchors}
       actionsUrl = `https://github.com/${owner}/${repo}/actions/workflows/${wf}`;
     }
 
-    // 8) 成功响应
+    // 8) OK
     return NextResponse.json({
       ok: true,
       runId,
