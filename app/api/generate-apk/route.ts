@@ -17,7 +17,7 @@ const writeText     = Journal.writeText;
 const gitCommitPush = Journal.gitCommitPush;
 const getRepoPath   = Journal.getRepoPath;
 
-import { ensureBranch, pushDirByContentsApi } from '@/lib/ndjc/git-contents'; // ★ 新增
+import { ensureBranch, pushDirByContentsApi } from '@/lib/ndjc/git-contents'; // ★ 推送到新分支
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -87,7 +87,7 @@ function normalizeWorkflowId(wf: string) {
   return `${wf}.yml`;
 }
 
-// ★ 支持指定 refBranch（不传则用 GH_BRANCH）
+// 支持指定 refBranch（不传则用 GH_BRANCH）
 async function dispatchWorkflow(
   payload: any,
   refBranch?: string
@@ -241,22 +241,23 @@ export async function POST(req: NextRequest) {
     const plan = buildPlan(o);
     await writeJSON(runId, '02_plan.json', plan);
 
-    // 4) 物化 + 应用 + 清理
+    // 4) 物化 + 应用 + 清理（使用临时 appRoot）
     step = 'materialize';
     const material = await materializeToWorkspace(o.template);
-    await writeText(runId, '04_materialize.txt', `app copied to: ${material.dstApp}`);
+    const appRoot = material.dstApp;                        // ✅ 以后都用这个
+    await writeText(runId, '04_materialize.txt', `app copied to: ${appRoot}`);
 
     step = 'apply';
     const applyResult = await applyPlanDetailed(plan);
     await writeJSON(runId, '03_apply_result.json', applyResult);
 
     step = 'cleanup';
-    await cleanupAnchors();
+    await cleanupAnchors(appRoot);                          // ✅ 传入 appRoot
     await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
     // 方案 B：伴生文件
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
-      const emitted = await emitCompanions(path.join(repoRoot, 'app'), o.companions);
+      const emitted = await emitCompanions(appRoot, o.companions); // ✅ 使用 appRoot
       await writeJSON(runId, '03a_companions_emitted.json', emitted);
     } else {
       await writeText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
@@ -281,7 +282,7 @@ export async function POST(req: NextRequest) {
 - template: **${o.template}**
 - appName: **${o.appName}**
 - packageId: **${o.packageId}**
-- repo: \`${repoRoot}\`
+- repo: \`${getRepoPath()}\`
 
 ## Artifacts
 - 00_input.json
@@ -311,13 +312,12 @@ ${anchors}
       await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
-    // ★ 6.5) 把 /app 推到独立分支（ndjc-run/<runId>）
+    // 6.5) 把 /app 推到独立分支（ndjc-run/<runId>）
     step = 'push-app-branch';
     ensureEnv();
-    const appDir = path.join(repoRoot, 'app');
     const runBranch = `ndjc-run/${runId}`;
     await ensureBranch(runBranch); // 基于 main 创建（已存在会忽略）
-    await pushDirByContentsApi(appDir, 'app', runBranch, `[NDJC ${runId}] sync`);
+    await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync`); // ✅ 用 appRoot
 
     // 7) 触发 GitHub Actions（用 runBranch 构建；可跳过）
     step = 'dispatch';
@@ -337,7 +337,7 @@ ${anchors}
         appTitle: o.appName,
         packageName: o.packageId,
       };
-      dispatch = await dispatchWorkflow({ inputs }, runBranch); // ★ 用新分支
+      dispatch = await dispatchWorkflow({ inputs }, runBranch); // ✅ 用新分支
 
       const owner = process.env.GH_OWNER!;
       const repo = process.env.GH_REPO!;
@@ -353,7 +353,7 @@ ${anchors}
       commit: commitInfo ?? null,
       actionsUrl,
       degraded: dispatch?.degraded ?? null,
-      branch: `ndjc-run/${runId}`, // 便于前端展示
+      branch: runBranch, // 便于前端展示
     });
   } catch (e: any) {
     return NextResponse.json(
