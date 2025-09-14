@@ -6,14 +6,14 @@ plugins {
 
 android {
     namespace 'com.ndjc.app'          // NDJC:PACKAGE_NAME
-    compileSdk 34                     // NDJC:COMPILE_SDK
+    compileSdk 34                      // NDJC:COMPILE_SDK
 
     defaultConfig {
         applicationId 'com.ndjc.app'  // NDJC:PACKAGE_NAME
-        minSdk 24                     // NDJC:MIN_SDK
-        targetSdk 34                  // NDJC:TARGET_SDK
-        versionCode 1                 // NDJC:VERSION_CODE
-        versionName '1.0.0'           // NDJC:VERSION_NAME
+        minSdk 24                      // NDJC:MIN_SDK
+        targetSdk 34                   // NDJC:TARGET_SDK
+        versionCode 1                  // NDJC:VERSION_CODE
+        versionName '1.0.0'            // NDJC:VERSION_NAME
 
         // NDJC:RES_CONFIGS            // 生成器会替换成：resConfigs 'en', 'zh-CN' 等
     }
@@ -67,6 +67,10 @@ dependencies {
     implementation 'androidx.compose.material3:material3'
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
+
+    // === Preferences DataStore（用于 ThemePrefs 等） ===
+    implementation 'androidx.datastore:datastore-preferences:1.1.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
 
     // NDJC:DEPENDENCIES_EXTRA
 }
