@@ -39,20 +39,27 @@ export async function ensureBranch(branch: string, base = process.env.GH_BRANCH 
 // 单文件 put（带 sha 则更新，不带 sha 则新建）
 async function putFile(remotePath: string, content: Buffer | string, message: string, branch: string) {
   const url = `${API}/contents/${encodeURIComponent(remotePath)}`;
-  // 拿 sha
+
+  // 查询是否已存在，存在则带 sha 覆盖
   let sha: string | undefined;
   const head = await fetch(`${url}?ref=${encodeURIComponent(branch)}`, { headers: HEADERS });
   if (head.ok) {
     const j = await head.json().catch(() => undefined);
     sha = j?.sha;
   }
+
+  // **关键点**：使用 Buffer → base64；不要做任何转义/字符串替换
+  const base64 = Buffer.isBuffer(content)
+    ? content.toString('base64')
+    : Buffer.from(content, 'utf8').toString('base64');
+
   const body = {
     message,
     branch,
-    content: Buffer.isBuffer(content) ? content.toString('base64')
-                                      : Buffer.from(content, 'utf8').toString('base64'),
+    content: base64,
     ...(sha ? { sha } : {}),
   };
+
   const r = await fetch(url, { method: 'PUT', headers: HEADERS, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(`PUT ${remotePath} :: ${r.status} ${await r.text()}`);
 }
@@ -67,7 +74,7 @@ export async function pushDirByContentsApi(localDir: string, remoteDir: string, 
       if (e.name === 'build' || e.name === '.gradle') continue;
       await pushDirByContentsApi(lp, rp, branch, msgPrefix);
     } else {
-      const buf = await fs.readFile(lp);
+      const buf = await fs.readFile(lp); // ← 读二进制
       await putFile(rp, buf, `${msgPrefix} ${rp}`, branch);
     }
   }
