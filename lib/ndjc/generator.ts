@@ -67,12 +67,22 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const DEPENDENCIES_EXTRA = env.NDJC_DEPENDENCIES_EXTRA ?? '';
 
   // 可选字段从 orchestrator 输出读取；若没有则为空串即可
-  const RES_CONFIGS        = o.resConfigs ?? '';
+  const RES_CONFIGS = (o.resConfigs ?? '').trim();
+
+  // ✅ 把 "en, zh-CN" 转成 "'en', 'zh-CN'"（Gradle/Groovy 或 Kotlin DSL 都能接受）
+  const RES_CONFIGS_GRADLE = RES_CONFIGS
+    ? RES_CONFIGS.split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(s => `'${s.replace(/'/g, "\\'")}'`)
+        .join(', ')
+    : '';
+
   const PROGUARD_EXTRA     = o.proguardExtra ?? '';
   const PACKAGING_RULES    = o.packagingRules ?? '';
 
   // 只要 resConfigs 非空，就在 Manifest 上挂 localeConfig
-  const LOCALE_CONFIG_ATTR = (RES_CONFIGS.trim().length > 0)
+  const LOCALE_CONFIG_ATTR = (RES_CONFIGS.length > 0)
     ? 'android:localeConfig="@xml/locales_config"'
     : '';
 
@@ -112,7 +122,8 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'NDJC:PLUGINS_EXTRA',        value: PLUGINS_EXTRA },
         { marker: 'NDJC:DEPENDENCIES_EXTRA',   value: DEPENDENCIES_EXTRA },
         { marker: 'NDJC:SIGNING_CONFIG',       value: SIGNING_CONFIG },
-        { marker: 'NDJC:RES_CONFIGS',          value: RES_CONFIGS },
+        // ✅ 用已格式化的 Gradle 形态
+        { marker: 'NDJC:RES_CONFIGS',          value: RES_CONFIGS_GRADLE },
         { marker: 'NDJC:PROGUARD_FILES_EXTRA', value: PROGUARD_EXTRA },
         { marker: 'NDJC:PACKAGING_RULES',      value: PACKAGING_RULES },
       ],
@@ -268,62 +279,10 @@ async function walkAndStrip(dir: string) {
   }
 }
 
-/** -------------------- 防御式稳态化（Gradle 修复） --------------------
- * 兜底修复：android {{ / defaultConfig {{ / buildTypes {{ 等双花括号。
- * 仅在若干区块名后做收敛，避免误伤 ${...} 字符串插值。
- */
-async function defensiveStabilize(appRoot: string) {
-  const candidates = [
-    path.join(appRoot, 'build.gradle'),
-    path.join(appRoot, 'build.gradle.kts'),
-  ].filter(p => existsSync(p));
-
-  const sectionKeywords = [
-    'android',
-    'defaultConfig',
-    'buildTypes',
-    'productFlavors',
-    'flavorDimensions',
-    'signingConfigs',
-    'compileOptions',
-    'kotlinOptions',
-    'packagingOptions',
-    'buildFeatures',
-    'dependencies',
-    'plugins',
-  ];
-
-  const fixes: Array<[RegExp, string]> = [];
-
-  for (const key of sectionKeywords) {
-    // key {{   /   key { {   /   key{{  → key {
-    fixes.push([new RegExp(`(\\b${key}\\b\\s*)\\{\\s*\\{`, 'g'), '$1{']);
-    fixes.push([new RegExp(`(\\b${key}\\b)\\{\\{`, 'g'), '$1{']);
-  }
-
-  // "}\s+}" → "}}"
-  fixes.push([/\}\s+\}/g, '}}']);
-  // 非 ${...} 场景下的 "{ {" → "{"
-  fixes.push([/([^$])\{\s*\{/g, '$1{']);
-
-  for (const file of candidates) {
-    let txt = await fs.readFile(file, 'utf8');
-    const before = txt;
-    for (const [re, rep] of fixes) {
-      txt = txt.replace(re, rep);
-    }
-    if (txt !== before) {
-      await fs.writeFile(file, txt, 'utf8');
-    }
-  }
-}
-
-// ✅ 可传入 appRoot，也可不传（默认工作区 app）；
-// 清理锚点后追加“防御式稳态化”。
+// ✅ 可选参数：可传入 appRoot，也可不传（默认工作区 app）
 export async function cleanupAnchors(appRoot?: string) {
   const base = appRoot ?? path.join(workRepoRoot(), 'app');
   await walkAndStrip(base);
-  await defensiveStabilize(base);
 }
 
 /* ---------- 伴生文件入口（API 调用） ---------- */
