@@ -4,55 +4,35 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
 
-/* =============== 关键路径策略 =============== */
-// 读模板：代码包内只读目录（可通过 TEMPLATES_DIR 覆盖）
+/* ========= 路径策略 ========= */
+// 模板只读根（可用 TEMPLATES_DIR 覆盖）
 function templatesBase() {
   return process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
 }
-
-// 写工作区：Vercel 可写盘 /tmp（可通过 NDJC_WORKDIR 覆盖）
+// 工作区（可写），Vercel 上默认 /tmp（可用 NDJC_WORKDIR 覆盖）
 function workRepoRoot() {
   return process.env.NDJC_WORKDIR || '/tmp/ndjc';
 }
 
-/* =========================================== */
-const TEMPLATE_DIR = {
-  simple: 'simple-template',
-  core: 'core-template',
-  form: 'form-template',
-} as const;
-
+/* ========= 模板选择 ========= */
+const TEMPLATE_DIR = { simple: 'simple-template', core: 'core-template', form: 'form-template' } as const;
 function templateRoot(t: keyof typeof TEMPLATE_DIR) {
   return path.join(templatesBase(), TEMPLATE_DIR[t]);
 }
 
-// app 根下优先 .kts
+/* ========= 基础工具 ========= */
 function pickGradleFile(appRoot: string) {
   const kts = path.join(appRoot, 'build.gradle.kts');
   const groovy = path.join(appRoot, 'build.gradle');
   return existsSync(kts) ? kts : groovy;
 }
-
 type Patch = { file: string; replace: Array<{ marker: string; value: string }> };
 
-/* ---------- 辅助：把 "zh-CN, en" => "resConfigs 'zh-CN', 'en'" ---------- */
-function resConfigsDirective(list?: string) {
-  const raw = (list || '').trim();
-  if (!raw) return '';
-  const items = raw
-    .split(/[,\s]+/)
-    .map(s => s.trim())
-    .filter(Boolean);
-  if (!items.length) return '';
-  const joined = items.map(s => `'${s}'`).join(', ');
-  return `resConfigs ${joined}`;
-}
-
-/* ---------- locales_config.xml（仅当 resConfigs 非空时生成） ---------- */
+/* ========= locales_config.xml ========= */
 async function writeLocalesConfig(appRoot: string, localesList?: string) {
   const list = (localesList || '').trim();
   if (!list) return;
-  const items = list.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+  const items = list.split(',').map(s => s.trim()).filter(Boolean);
   if (!items.length) return;
 
   const xml =
@@ -65,7 +45,19 @@ ${items.map(l => `  <locale android:name="${l}"/>`).join('\n')}
   await fs.writeFile(path.join(dir, 'locales_config.xml'), xml, 'utf8');
 }
 
-/* =================== 计划构建 =================== */
+/* ========= resConfigs 转换为 Gradle 正确写法 ========= */
+function toGradleResConfigs(list?: string): string {
+  const raw = (list || '').trim();
+  if (!raw) return '';
+  const items = raw.split(',').map(s => s.trim()).filter(Boolean);
+  if (!items.length) return '';
+
+  // 允许 zh-Hans-CN 这类，Gradle 照常接收
+  const quoted = items.map(v => `'${v}'`).join(', ');
+  return `resConfigs ${quoted}`;
+}
+
+/* ========= 生成计划 ========= */
 export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const repo = workRepoRoot();
   const appRoot = path.join(repo, 'app');
@@ -80,21 +72,17 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const PLUGINS_EXTRA      = env.NDJC_PLUGINS_EXTRA      ?? '';
   const DEPENDENCIES_EXTRA = env.NDJC_DEPENDENCIES_EXTRA ?? '';
 
-  // 可选字段从 orchestrator 输出读取；若没有则为空串即可
-  const RES_CONFIGS        = o.resConfigs ?? '';
-  const PROGUARD_EXTRA     = o.proguardExtra ?? '';
-  const PACKAGING_RULES    = o.packagingRules ?? '';
+  const RES_CONFIGS     = toGradleResConfigs(o.resConfigs);
+  const PROGUARD_EXTRA  = o.proguardExtra ?? '';
+  const PACKAGING_RULES = o.packagingRules ?? '';
 
-  // Manifest localeConfig（仅当 resConfigs 非空）
-  const LOCALE_CONFIG_ATTR = (RES_CONFIGS.trim().length > 0)
-    ? 'android:localeConfig="@xml/locales_config"'
-    : '';
+  // Manifest 可选 localeConfig
+  const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim() ? 'android:localeConfig="@xml/locales_config"' : '';
 
-  // 是否真正生效取决于模板 signingConfigs 是否存在
-  const SIGNING_CONFIG     = 'signingConfig signingConfigs.release';
+  const SIGNING_CONFIG = 'signingConfig signingConfigs.release';
 
   return [
-    // strings.xml：三处必选 UI 文案
+    // strings.xml
     {
       file: path.join(appRoot, 'src/main/res/values/strings.xml'),
       replace: [
@@ -103,7 +91,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'NDJC:MAIN_BUTTON', value: o.mainButtonText },
       ],
     },
-    // Manifest：应用名 + 可选 localeConfig 属性 + 两个 BLOCK 注入点
+    // Manifest
     {
       file: path.join(appRoot, 'src/main/AndroidManifest.xml'),
       replace: [
@@ -113,7 +101,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'BLOCK:INTENT_FILTERS', value: o.intentFiltersXml ?? '' },
       ],
     },
-    // Gradle：版本/签名/额外规则/多语言（占位都在注释/独立行，替换更安全）
+    // build.gradle / .kts
     {
       file: gradleFile,
       replace: [
@@ -126,19 +114,17 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'NDJC:PLUGINS_EXTRA',        value: PLUGINS_EXTRA },
         { marker: 'NDJC:DEPENDENCIES_EXTRA',   value: DEPENDENCIES_EXTRA },
         { marker: 'NDJC:SIGNING_CONFIG',       value: SIGNING_CONFIG },
-        { marker: 'NDJC:RES_CONFIGS',          value: resConfigsDirective(RES_CONFIGS) },
+        { marker: 'NDJC:RES_CONFIGS',          value: RES_CONFIGS },
         { marker: 'NDJC:PROGUARD_FILES_EXTRA', value: PROGUARD_EXTRA },
         { marker: 'NDJC:PACKAGING_RULES',      value: PACKAGING_RULES },
       ],
     },
-    // 主题覆盖块
+    // themes 覆盖块
     {
       file: path.join(appRoot, 'src/main/res/values/themes.xml'),
-      replace: [
-        { marker: 'BLOCK:THEME_OVERRIDES', value: o.themeOverridesXml ?? '' },
-      ],
+      replace: [{ marker: 'BLOCK:THEME_OVERRIDES', value: o.themeOverridesXml ?? '' }],
     },
-    // 主页按钮/标题（若有）
+    // MainActivity 文案
     {
       file: path.join(appRoot, 'src/main/java/com/ndjc/app/MainActivity.kt'),
       replace: [
@@ -149,7 +135,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   ];
 }
 
-/* =================== 应用计划 =================== */
+/* ========= 应用计划 ========= */
 export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
   const results: ApplyResult[] = [];
 
@@ -168,7 +154,6 @@ export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
       let afterSample: string | undefined;
 
       if (marker.startsWith('BLOCK:')) {
-        // 替换整个注释节点：<!-- BLOCK:XXX --> 或 <!-- //BLOCK:XXX -->
         const re = new RegExp(`<!--\\s*\\/??\\s*${escape(marker)}\\s*-->`, 'g');
         const m = [...txt.matchAll(re)];
         if (m.length > 0) {
@@ -186,7 +171,6 @@ export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
           afterSample = txt.slice(ns, ne);
         }
       } else {
-        // 普通 NDJC:XXX 字面替换
         const idx = txt.indexOf(marker);
         if (idx >= 0) {
           found = true;
@@ -214,7 +198,7 @@ export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
   return results;
 }
 
-/* =================== 目录复制 =================== */
+/* ========= 目录复制 ========= */
 async function copyDir(src: string, dst: string) {
   await fs.mkdir(dst, { recursive: true });
   for (const e of await fs.readdir(src, { withFileTypes: true })) {
@@ -239,34 +223,10 @@ export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'f
   return { dstApp };
 }
 
-/* =================== 稳态化（防御式） =================== */
-// 修复常见 Gradle 模板污染：android {{ / }}、把 // resConfigs ... 反注释等
-export async function stabilizeGradle(appRoot: string) {
-  const gradleFile = pickGradleFile(appRoot);
-  let txt = await fs.readFile(gradleFile, 'utf8');
-  const before = txt;
-
-  // 1) 折叠重复花括号
-  txt = txt.replace(/android\s*\{\s*\{/g, 'android {');
-  txt = txt.replace(/\}\s*\}/g, '}');
-
-  // 2) 如果把 NDJC:RES_CONFIGS 替换成 resConfigs ... 但前面还有注释符，则去掉注释
-  txt = txt.replace(/^\s*\/\/\s*(resConfigs\b[^\n]*)/gm, '$1');
-
-  // 3) 去掉全局遗留的 "NDJC:" 字面（防手滑未被 cleanup 覆盖）
-  txt = txt.replace(/"NDJC:[^"]*"/g, '""').replace(/NDJC:[^\s<>"']+/g, '');
-
-  // 4) 末尾空白/多余空行
-  txt = txt.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
-
-  if (txt !== before) await fs.writeFile(gradleFile, txt, 'utf8');
-}
-
-/* =================== 清理锚点 =================== */
+/* ========= 清理标记 ========= */
 const STRIP_EXTS = new Set([
   '.xml', '.gradle', '.kts', '.kt', '.java', '.pro', '.txt', '.json', '.properties', '.cfg', '.ini'
 ]);
-
 const ANCHOR_PATTERNS: RegExp[] = [
   /<!--\s*\/{0,2}\s*NDJC:[\s\S]*?-->/gs,
   /<!--\s*\/{0,2}\s*BLOCK:[\s\S]*?-->/gs,
@@ -275,13 +235,11 @@ const ANCHOR_PATTERNS: RegExp[] = [
   /\/\*+\s*NDJC:[\s\S]*?\*+\//g,
   /\/\*+\s*BLOCK:[\s\S]*?\*+\//g,
 ];
-
 function stripRawTokens(text: string): string {
   let out = text.replace(/"NDJC:[^"]*"/g, '""');
   out = out.replace(/NDJC:[^\s<>"']+/g, '');
   return out;
 }
-
 async function stripAnchorsInFile(file: string) {
   const ext = path.extname(file).toLowerCase();
   if (!STRIP_EXTS.has(ext)) return;
@@ -289,11 +247,9 @@ async function stripAnchorsInFile(file: string) {
   const before = txt;
   for (const re of ANCHOR_PATTERNS) txt = txt.replace(re, '');
   txt = stripRawTokens(txt);
-  txt = txt.replace(/[ \t]+$/gm, '');
-  txt = txt.replace(/\n{3,}/g, '\n\n');
+  txt = txt.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
   if (txt !== before) await fs.writeFile(file, txt, 'utf8');
 }
-
 async function walkAndStrip(dir: string) {
   for (const e of await fs.readdir(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
@@ -305,17 +261,56 @@ async function walkAndStrip(dir: string) {
     }
   }
 }
-
-// ✅ 可传入 appRoot（默认工作区）
 export async function cleanupAnchors(appRoot?: string) {
   const base = appRoot ?? path.join(workRepoRoot(), 'app');
   await walkAndStrip(base);
 }
 
-/* =================== 伴生文件入口（API 调用） =================== */
+/* ========= 稳态化（防御式）修复 ========= */
+export async function stabilizeGradle(appRoot: string) {
+  const gradleFile = pickGradleFile(appRoot);
+  let txt = await fs.readFile(gradleFile, 'utf8');
+  const before = txt;
+
+  // 0) 统一换行 + 去 BOM
+  txt = txt.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+
+  // 1) 修 android {{ / }} 多花括号
+  txt = txt.replace(/android\s*\{\s*\{/g, 'android {');
+  txt = txt.replace(/\}\s*\}/g, '}');
+
+  // 2) plugins 未闭合则在 android 之前补 }
+  {
+    const idxPlugins = txt.indexOf('plugins');
+    const idxAndroid = txt.indexOf('android');
+    if (idxPlugins >= 0 && idxAndroid > idxPlugins) {
+      const head = txt.slice(idxPlugins, idxAndroid);
+      const open = (head.match(/\{/g) || []).length;
+      const close = (head.match(/\}/g) || []).length;
+      if (open > close) {
+        txt = txt.slice(0, idxAndroid).replace(/\s*$/, '\n}\n') + txt.slice(idxAndroid);
+      }
+    }
+  }
+
+  // 3) 反注释 resConfigs
+  txt = txt.replace(/^\s*\/\/\s*(resConfigs\b[^\n]*)/gm, '$1');
+
+  // 4) 清理 NDJC: 残留标记
+  txt = txt.replace(/"NDJC:[^"]*"/g, '""').replace(/NDJC:[^\s<>"']+/g, '');
+
+  // 5) 保证 android { 在独立行
+  txt = txt.replace(/\n\s*android\s*\{/m, '\nandroid {');
+
+  // 6) 收尾
+  txt = txt.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
+
+  if (txt !== before) await fs.writeFile(gradleFile, txt, 'utf8');
+}
+
+/* ========= 伴生文件入口 ========= */
 export async function ensureAuxFiles(o: NdjcOrchestratorOutput) {
   const appRoot = path.join(workRepoRoot(), 'app');
-  // 仅当 resConfigs 非空时生成 locales_config.xml（Manifest 会挂 android:localeConfig）
   if ((o.resConfigs ?? '').trim()) {
     await writeLocalesConfig(appRoot, o.resConfigs);
   }
