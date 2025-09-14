@@ -269,11 +269,8 @@ async function walkAndStrip(dir: string) {
 }
 
 /** -------------------- 防御式稳态化（Gradle 修复） --------------------
- * 目的：兜底修复常见模板/替换造成的语法噪音，例如：
- *   android {{
- *   defaultConfig {{
- *   buildTypes {{
- * 仅在已知区块名后进行“{{ / { {”→“{”收敛，避免误伤 ${...} 字符串插值。
+ * 兜底修复：android {{ / defaultConfig {{ / buildTypes {{ 等双花括号。
+ * 仅在若干区块名后做收敛，避免误伤 ${...} 字符串插值。
  */
 async function defensiveStabilize(appRoot: string) {
   const candidates = [
@@ -296,44 +293,37 @@ async function defensiveStabilize(appRoot: string) {
     'plugins',
   ];
 
-  const makeFixes = () => {
-    const fixes: Array<[RegExp, string]> = [];
-    for (const key of sectionKeywords) {
-      // key {{   /   key { {   /   key{{
-      fixes.push(new RegExp(`(\\b${key}\\b\\s*)\\{\\s*\\{`, 'g'), '$1{'));
-      fixes.push(new RegExp(`(\\b${key}\\b)\\{\\{`, 'g'), '$1{'));
-      fixes.push(new RegExp(`(\\b${key}\\b\\s*)\\{\\s*`, 'g'), '$1{'); // 统一格式
-    }
-    // 某些情况下会出现："} }" 多余空格 —— 收敛为 "}}"
-    fixes.push([/\}\s+\}/g, '}}']);
-    // 出现孤立的 "{ {"（不在 ${ 之后），做一次保守收敛
-    // 仅当前一字符不是 $ 才归一；无法用负向回溯时，采用温和的“安全窗口”：
-    fixes.push([/([^$])\{\s*\{/g, '$1{']);
-    return fixes;
-  };
+  const fixes: Array<[RegExp, string]> = [];
 
-  const fixes = makeFixes();
+  for (const key of sectionKeywords) {
+    // key {{   /   key { {   /   key{{  → key {
+    fixes.push([new RegExp(`(\\b${key}\\b\\s*)\\{\\s*\\{`, 'g'), '$1{']);
+    fixes.push([new RegExp(`(\\b${key}\\b)\\{\\{`, 'g'), '$1{']);
+  }
+
+  // "}\s+}" → "}}"
+  fixes.push([/\}\s+\}/g, '}}']);
+  // 非 ${...} 场景下的 "{ {" → "{"
+  fixes.push([/([^$])\{\s*\{/g, '$1{']);
 
   for (const file of candidates) {
     let txt = await fs.readFile(file, 'utf8');
     const before = txt;
-
     for (const [re, rep] of fixes) {
       txt = txt.replace(re, rep);
     }
-
     if (txt !== before) {
       await fs.writeFile(file, txt, 'utf8');
     }
   }
 }
 
-// ✅ 改为可选参数：可传入 appRoot，也可不传（默认工作区 app）
-// 且在清理锚点后，增加一次“防御式稳态化”以兜底常见模板错误。
+// ✅ 可传入 appRoot，也可不传（默认工作区 app）；
+// 清理锚点后追加“防御式稳态化”。
 export async function cleanupAnchors(appRoot?: string) {
   const base = appRoot ?? path.join(workRepoRoot(), 'app');
   await walkAndStrip(base);
-  await defensiveStabilize(base);   // ← 新增：稳态化兜底
+  await defensiveStabilize(base);
 }
 
 /* ---------- 伴生文件入口（API 调用） ---------- */
