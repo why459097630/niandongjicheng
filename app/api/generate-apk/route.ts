@@ -8,6 +8,8 @@ import {
   applyPlanDetailed,
   materializeToWorkspace,
   cleanupAnchors,
+  stabilizeGradle,        // ✅ 新增：稳态化修复 Gradle
+  ensureAuxFiles,         // ✅ 新增：按需生成伴生文件（locales_config.xml 等）
 } from '@/lib/ndjc/generator';
 import * as JournalMod from '@/lib/ndjc/journal';
 const Journal: any = (JournalMod as any).default ?? JournalMod;
@@ -17,7 +19,7 @@ const writeText     = Journal.writeText;
 const gitCommitPush = Journal.gitCommitPush;
 const getRepoPath   = Journal.getRepoPath;
 
-import { ensureBranch, pushDirByContentsApi } from '@/lib/ndjc/git-contents'; // ★ 推送到新分支
+import { ensureBranch, pushDirByContentsApi } from '@/lib/ndjc/git-contents';
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -251,13 +253,17 @@ export async function POST(req: NextRequest) {
     const applyResult = await applyPlanDetailed(plan);
     await writeJSON(runId, '03_apply_result.json', applyResult);
 
+    // 4.5) 伴生文件与稳态化（先补充文件，再修复 Gradle）
+    await ensureAuxFiles(o);           // 例如 resConfigs 时生成 locales_config.xml
+    await stabilizeGradle(appRoot);    // 修复“android {{”、“// resConfigs ...”等
+
     step = 'cleanup';
-    await cleanupAnchors(appRoot);                          // ✅ 传入 appRoot
+    await cleanupAnchors(appRoot);     // 清掉 NDJC/BLOCK 标记与多余空白
     await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
     // 方案 B：伴生文件
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
-      const emitted = await emitCompanions(appRoot, o.companions); // ✅ 使用 appRoot
+      const emitted = await emitCompanions(appRoot, o.companions);
       await writeJSON(runId, '03a_companions_emitted.json', emitted);
     } else {
       await writeText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
@@ -317,7 +323,7 @@ ${anchors}
     ensureEnv();
     const runBranch = `ndjc-run/${runId}`;
     await ensureBranch(runBranch); // 基于 main 创建（已存在会忽略）
-    await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync`); // ✅ 用 appRoot
+    await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync`);
 
     // 7) 触发 GitHub Actions（用 runBranch 构建；可跳过）
     step = 'dispatch';
@@ -337,7 +343,7 @@ ${anchors}
         appTitle: o.appName,
         packageName: o.packageId,
       };
-      dispatch = await dispatchWorkflow({ inputs }, runBranch); // ✅ 用新分支
+      dispatch = await dispatchWorkflow({ inputs }, runBranch);
 
       const owner = process.env.GH_OWNER!;
       const repo = process.env.GH_REPO!;
@@ -353,7 +359,7 @@ ${anchors}
       commit: commitInfo ?? null,
       actionsUrl,
       degraded: dispatch?.degraded ?? null,
-      branch: runBranch, // 便于前端展示
+      branch: runBranch,
     });
   } catch (e: any) {
     return NextResponse.json(
