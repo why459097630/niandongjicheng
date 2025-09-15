@@ -3,38 +3,36 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="16dp"
+    android:gravity="center">
 
-    <!-- NDJC:BEGIN(header) -->
+    <!-- 标题：用 ndjc_home_title（生成器会替换） -->
     <TextView
         android:id="@+id/ndjcTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="NDJCApp"
+        android:text="@string/ndjc_home_title"
         android:textSize="22sp"
         android:textStyle="bold"
-        android:paddingBottom="12dp"/>
-    <!-- NDJC:END(header) -->
+        android:paddingBottom="12dp" />
 
-    <!-- NDJC:BEGIN(body) -->
+    <!-- 正文：也可以用 ndjc_home_body（可选，没有就沿用同一个） -->
     <TextView
         android:id="@+id/ndjcBody"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Hello from NDJC"
+        android:text="@string/ndjc_home_title"
         android:textSize="16sp"
-        android:paddingBottom="16dp"/>
-    <!-- NDJC:END(body) -->
+        android:paddingBottom="16dp" />
 
-    <!-- NDJC:BEGIN(actions) -->
+    <!-- 主按钮：用 ndjc_action_primary_text（生成器会替换） -->
     <Button
         android:id="@+id/ndjcPrimary"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Get started"/>
-    <!-- NDJC:END(actions) -->
+        android:text="@string/ndjc_action_primary_text" />
 
-    <!-- 兼容：给旧代码里可能引用的 ID 占位，避免 Javac 报 cannot find symbol -->
+    <!-- 下面这两个 0dp 的占位 View 可以保留也可以删除；保留不影响显示 -->
     <View android:id="@+id/textView"
         android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
     <View android:id="@+id/button"
