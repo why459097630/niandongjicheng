@@ -5,9 +5,11 @@ import path from 'node:path';
 import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
 
 /* ========= 路径策略 ========= */
+// 模板只读根（可用 TEMPLATES_DIR 覆盖）
 function templatesBase() {
   return process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
 }
+// 工作区（可写），Vercel 上默认 /tmp（可用 NDJC_WORKDIR 覆盖）
 function workRepoRoot() {
   return process.env.NDJC_WORKDIR || '/tmp/ndjc';
 }
@@ -49,7 +51,8 @@ function toGradleResConfigs(list?: string): string {
   if (!raw) return '';
   const items = raw.split(',').map(s => s.trim()).filter(Boolean);
   if (!items.length) return '';
-  return `resConfigs ${items.map(v => `'${v}'`).join(', ')}`;
+  const quoted = items.map(v => `'${v}'`).join(', ');
+  return `resConfigs ${quoted}`;
 }
 
 /* ========= 生成计划 ========= */
@@ -70,19 +73,25 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const RES_CONFIGS     = toGradleResConfigs(o.resConfigs);
   const PROGUARD_EXTRA  = o.proguardExtra ?? '';
   const PACKAGING_RULES = o.packagingRules ?? '';
-  const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim()
-    ? 'android:localeConfig="@xml/locales_config"' : '';
+
+  // Manifest 可选 localeConfig
+  const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim() ? 'android:localeConfig="@xml/locales_config"' : '';
+
   const SIGNING_CONFIG = 'signingConfig signingConfigs.release';
 
   return [
-    { file: path.join(appRoot, 'src/main/res/values/strings.xml'),
+    // strings.xml（锚点替换）
+    {
+      file: path.join(appRoot, 'src/main/res/values/strings.xml'),
       replace: [
         { marker: 'NDJC:APP_LABEL',   value: o.appName },
         { marker: 'NDJC:HOME_TITLE',  value: o.homeTitle },
         { marker: 'NDJC:MAIN_BUTTON', value: o.mainButtonText },
       ],
     },
-    { file: path.join(appRoot, 'src/main/AndroidManifest.xml'),
+    // Manifest（锚点替换）
+    {
+      file: path.join(appRoot, 'src/main/AndroidManifest.xml'),
       replace: [
         { marker: 'NDJC:APP_LABEL', value: o.appName },
         { marker: 'NDJC:LOCALE_CONFIG', value: LOCALE_CONFIG_ATTR },
@@ -90,7 +99,9 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'BLOCK:INTENT_FILTERS', value: o.intentFiltersXml ?? '' },
       ],
     },
-    { file: gradleFile,
+    // build.gradle / .kts（锚点替换）
+    {
+      file: gradleFile,
       replace: [
         { marker: 'NDJC:PACKAGE_NAME',         value: o.packageId },
         { marker: 'NDJC:COMPILE_SDK',          value: COMPILE_SDK },
@@ -106,10 +117,14 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'NDJC:PACKAGING_RULES',      value: PACKAGING_RULES },
       ],
     },
-    { file: path.join(appRoot, 'src/main/res/values/themes.xml'),
+    // themes 覆盖块
+    {
+      file: path.join(appRoot, 'src/main/res/values/themes.xml'),
       replace: [{ marker: 'BLOCK:THEME_OVERRIDES', value: o.themeOverridesXml ?? '' }],
     },
-    { file: path.join(appRoot, 'src/main/java/com/ndjc/app/MainActivity.kt'),
+    // MainActivity 文案（Compose 里也保留锚点替换）
+    {
+      file: path.join(appRoot, 'src/main/java/com/ndjc/app/MainActivity.kt'),
       replace: [
         { marker: 'NDJC:HOME_TITLE',  value: o.homeTitle },
         { marker: 'NDJC:MAIN_BUTTON', value: o.mainButtonText },
@@ -121,13 +136,16 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
 /* ========= 应用计划 ========= */
 export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
   const results: ApplyResult[] = [];
+
   for (const p of plan) {
     let txt = await fs.readFile(p.file, 'utf8');
     const beforeAll = txt;
     const changes: AnchorChange[] = [];
+
     for (const r of p.replace) {
       const marker = r.marker;
       const escape = (s: string) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+
       let found = false;
       let replacedCount = 0;
       let beforeSample: string | undefined;
@@ -139,22 +157,39 @@ export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
         if (m.length > 0) {
           found = true;
           replacedCount = m.length;
-          beforeSample = txt.slice(Math.max(0, m[0].index! - 40), Math.min(txt.length, m[0].index! + m[0][0].length + 40));
+          const first = m[0];
+          const s = Math.max(0, first.index! - 40);
+          const e = Math.min(txt.length, first.index! + first[0].length + 40);
+          beforeSample = txt.slice(s, e);
+
           txt = txt.replace(re, r.value ?? '');
-          afterSample = txt;
+          const ni = txt.indexOf(r.value ?? '', s);
+          const ns = Math.max(0, ni - 40);
+          const ne = Math.min(txt.length, (ni + (r.value ?? '').length) + 40);
+          afterSample = txt.slice(ns, ne);
         }
       } else {
         const idx = txt.indexOf(marker);
         if (idx >= 0) {
           found = true;
+          const s = Math.max(0, idx - 40);
+          const e = Math.min(txt.length, idx + marker.length + 40);
+          beforeSample = txt.slice(s, e);
+
           const re = new RegExp(escape(marker), 'g');
           replacedCount = (txt.match(re) || []).length;
           txt = txt.replace(re, r.value ?? '');
-          afterSample = txt;
+
+          const ni = txt.indexOf(r.value ?? '', s);
+          const ns = Math.max(0, ni - 40);
+          const ne = Math.min(txt.length, (ni + (r.value ?? '').length) + 40);
+          afterSample = txt.slice(ns, ne);
         }
       }
+
       changes.push({ file: p.file, marker, found, replacedCount, beforeSample, afterSample });
     }
+
     if (txt !== beforeAll) await fs.writeFile(p.file, txt, 'utf8');
     results.push({ file: p.file, changes });
   }
@@ -176,14 +211,110 @@ async function copyDir(src: string, dst: string) {
   }
 }
 
+/** 强制每次运行都先清空工作目录再 materialize */
 export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'form') {
   const repo = workRepoRoot();
-  // ✅ 强制清空整个工作区，确保是干净的
-  await fs.rm(repo, { recursive: true, force: true });
-
   const srcApp = path.join(templateRoot(templateKey), 'app');
   const dstApp = path.join(repo, 'app');
+
+  // 清空工作目录
+  await fs.rm(repo, { recursive: true, force: true });
   await fs.mkdir(repo, { recursive: true });
+
   await copyDir(srcApp, dstApp);
   return { dstApp };
+}
+
+/* ========= 清理标记（anchors） ========= */
+const STRIP_EXTS = new Set([
+  '.xml', '.gradle', '.kts', '.kt', '.java', '.pro', '.txt', '.json', '.properties', '.cfg', '.ini'
+]);
+const ANCHOR_PATTERNS: RegExp[] = [
+  /<!--\s*\/{0,2}\s*NDJC:[\s\S]*?-->/gs,
+  /<!--\s*\/{0,2}\s*BLOCK:[\s\S]*?-->/gs,
+  /^\s*\/\/+\s*NDJC:.*$/gm,
+  /^\s*\/\/+\s*BLOCK:.*$/gm,
+  /\/\*+\s*NDJC:[\s\S]*?\*+\//g,
+  /\/\*+\s*BLOCK:[\s\S]*?\*+\//g,
+];
+function stripRawTokens(text: string): string {
+  let out = text.replace(/"NDJC:[^"]*"/g, '""');
+  out = out.replace(/NDJC:[^\s<>"']+/g, '');
+  return out;
+}
+async function stripAnchorsInFile(file: string) {
+  const ext = path.extname(file).toLowerCase();
+  if (!STRIP_EXTS.has(ext)) return;
+  let txt = await fs.readFile(file, 'utf8');
+  const before = txt;
+  for (const re of ANCHOR_PATTERNS) txt = txt.replace(re, '');
+  txt = stripRawTokens(txt);
+  txt = txt.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
+  if (txt !== before) await fs.writeFile(file, txt, 'utf8');
+}
+async function walkAndStrip(dir: string) {
+  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      if (e.name === 'build' || e.name === '.gradle') continue;
+      await walkAndStrip(p);
+    } else {
+      await stripAnchorsInFile(p);
+    }
+  }
+}
+/** ✅ 保留导出：供 route.ts 引用 */
+export async function cleanupAnchors(appRoot?: string) {
+  const base = appRoot ?? path.join(workRepoRoot(), 'app');
+  await walkAndStrip(base);
+}
+
+/* ========= 稳态化（防御式）修复 ========= */
+export async function stabilizeGradle(appRoot: string) {
+  const gradleFile = pickGradleFile(appRoot);
+  let txt = await fs.readFile(gradleFile, 'utf8');
+  const before = txt;
+
+  // 0) 统一换行 + 去 BOM
+  txt = txt.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+
+  // 1) 修 android {{ / }} 多花括号
+  txt = txt.replace(/android\s*\{\s*\{/g, 'android {');
+  txt = txt.replace(/\}\s*\}/g, '}');
+
+  // 2) plugins 未闭合则在 android 之前补 }
+  {
+    const idxPlugins = txt.indexOf('plugins');
+    const idxAndroid = txt.indexOf('android');
+    if (idxPlugins >= 0 && idxAndroid > idxPlugins) {
+      const head = txt.slice(idxPlugins, idxAndroid);
+      const open = (head.match(/\{/g) || []).length;
+      const close = (head.match(/\}/g) || []).length;
+      if (open > close) {
+        txt = txt.slice(0, idxAndroid).replace(/\s*$/, '\n}\n') + txt.slice(idxAndroid);
+      }
+    }
+  }
+
+  // 3) 反注释 resConfigs
+  txt = txt.replace(/^\s*\/\/\s*(resConfigs\b[^\n]*)/gm, '$1');
+
+  // 4) 清理 NDJC 残留标记
+  txt = txt.replace(/"NDJC:[^"]*"/g, '""').replace(/NDJC:[^\s<>"']+/g, '');
+
+  // 5) 保证 android { 在独立行
+  txt = txt.replace(/\n\s*android\s*\{/m, '\nandroid {');
+
+  // 6) 收尾
+  txt = txt.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
+
+  if (txt !== before) await fs.writeFile(gradleFile, txt, 'utf8');
+}
+
+/* ========= 伴生文件入口 ========= */
+export async function ensureAuxFiles(o: NdjcOrchestratorOutput) {
+  const appRoot = path.join(workRepoRoot(), 'app');
+  if ((o.resConfigs ?? '').trim()) {
+    await writeLocalesConfig(appRoot, o.resConfigs);
+  }
 }
