@@ -137,7 +137,7 @@ async function assertNoEscapedQuotes(appRoot: string) {
   }
 }
 
-// 统计关键锚点替换次数（保险丝）
+// 统计关键锚点替换次数（保险丝：=0 时直接中止）
 function countCriticalReplacements(applyResult: any[]): number {
   const KEY = new Set([
     'NDJC:PACKAGE_NAME',
@@ -308,7 +308,7 @@ ${anchors}
 `;
     await writeText(runId, '05_summary.md', summary);
 
-    // 6) 可选把“日志”提交到默认分支（保持你原有开关）
+    // 6) 可选提交（日志到默认分支，保留你原有开关）
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
@@ -329,9 +329,22 @@ ${anchors}
     // ① 推 app/（从 /tmp/ndjc/app → repo 的 app/）
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`);
 
-    // ② 推 requests/<runId>/ 日志（让 CI 同一分支可见 02/03）
-    const reqLocalDir = path.join(getRepoPath(), 'requests', runId);
-    await pushDirByContentsApi(reqLocalDir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`);
+    // ② 推 requests/<runId>/ 日志（在多个候选路径中寻找；找不到则跳过）
+    const reqCandidates = [
+      path.join(getRepoPath(), 'requests', runId), // 本地开发时可能写在仓库根
+      path.join(process.cwd(), 'requests', runId), // 兼容 CWD
+      path.join('/tmp/ndjc', 'requests', runId),   // Serverless 常见
+      path.join('/tmp', 'requests', runId),        // 兜底
+    ];
+    let reqLocalDir: string | null = null;
+    for (const p of reqCandidates) {
+      try { await fs.access(p); reqLocalDir = p; break; } catch {}
+    }
+    if (reqLocalDir) {
+      await pushDirByContentsApi(reqLocalDir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`);
+    } else {
+      await writeText(runId, '05c_logs_push_skipped.txt', 'skip pushing logs: local requests/<runId> not found');
+    }
 
     // 7) 触发 Actions（ref 指向 runBranch）
     step = 'dispatch';
