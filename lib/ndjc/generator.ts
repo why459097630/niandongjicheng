@@ -5,11 +5,9 @@ import path from 'node:path';
 import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
 
 /* ========= 路径策略 ========= */
-// 模板只读根（可用 TEMPLATES_DIR 覆盖）
 function templatesBase() {
   return process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
 }
-// 工作区（可写），Vercel 上默认 /tmp（可用 NDJC_WORKDIR 覆盖）
 function workRepoRoot() {
   return process.env.NDJC_WORKDIR || '/tmp/ndjc';
 }
@@ -51,8 +49,6 @@ function toGradleResConfigs(list?: string): string {
   if (!raw) return '';
   const items = raw.split(',').map(s => s.trim()).filter(Boolean);
   if (!items.length) return '';
-
-  // 允许 zh-Hans-CN 这类，Gradle 照常接收
   const quoted = items.map(v => `'${v}'`).join(', ');
   return `resConfigs ${quoted}`;
 }
@@ -76,13 +72,11 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const PROGUARD_EXTRA  = o.proguardExtra ?? '';
   const PACKAGING_RULES = o.packagingRules ?? '';
 
-  // Manifest 可选 localeConfig
   const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim() ? 'android:localeConfig="@xml/locales_config"' : '';
-
   const SIGNING_CONFIG = 'signingConfig signingConfigs.release';
 
   return [
-    // strings.xml
+    // strings.xml（注意：apply 时会自动扩展到所有 values*/strings.xml）
     {
       file: path.join(appRoot, 'src/main/res/values/strings.xml'),
       replace: [
@@ -135,65 +129,117 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   ];
 }
 
-/* ========= 应用计划 ========= */
+/* ========= 辅助：展开 strings.xml 到所有 locale ========= */
+function shouldExpandValuesStrings(p: string) {
+  // 只在 app/src/main/res/values/strings.xml 触发扩展
+  const norm = p.replace(/\\/g, '/');
+  return /\/src\/main\/res\/values\/strings\.xml$/.test(norm);
+}
+async function expandLocaleStringTargets(primary: string): Promise<string[]> {
+  if (!shouldExpandValuesStrings(primary)) return [primary];
+
+  const resDir = path.dirname(path.dirname(primary)); // .../res
+  let entries: string[];
+  try {
+    entries = await fs.readdir(resDir, { withFileTypes: true }).then(list => list.map(e => e.name));
+  } catch {
+    return [primary];
+  }
+
+  const candidates = entries
+    .filter(n => n.startsWith('values'))             // values, values-zh-rCN, values-en, ...
+    .map(n => path.join(resDir, n, 'strings.xml'));
+
+  // 包含主文件 + 仅保留存在的
+  const uniq = new Set<string>([primary, ...candidates]);
+  const filtered: string[] = [];
+  for (const f of uniq) {
+    try {
+      if (existsSync(f)) filtered.push(f);
+    } catch { /* ignore */ }
+  }
+  return filtered;
+}
+
+/* ========= 应用计划（增强版：多 locale + fail-fast） ========= */
 export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
   const results: ApplyResult[] = [];
 
   for (const p of plan) {
-    let txt = await fs.readFile(p.file, 'utf8');
-    const beforeAll = txt;
-    const changes: AnchorChange[] = [];
+    // 1) 计算本 Patch 实际要处理的文件（strings.xml 会扩展到所有 values*）
+    const targetFiles = await expandLocaleStringTargets(p.file);
+    // 用于 fail-fast：统计每个 marker 是否至少在一个目标文件里被找到
+    const markerFoundAny: Record<string, number> = Object.fromEntries(
+      p.replace.map(r => [r.marker, 0]),
+    );
 
-    for (const r of p.replace) {
-      const marker = r.marker;
-      const escape = (s: string) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    for (const file of targetFiles) {
+      let txt = await fs.readFile(file, 'utf8');
+      const beforeAll = txt;
+      const changes: AnchorChange[] = [];
 
-      let found = false;
-      let replacedCount = 0;
-      let beforeSample: string | undefined;
-      let afterSample: string | undefined;
+      for (const r of p.replace) {
+        const marker = r.marker;
+        const escape = (s: string) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
 
-      if (marker.startsWith('BLOCK:')) {
-        const re = new RegExp(`<!--\\s*\\/??\\s*${escape(marker)}\\s*-->`, 'g');
-        const m = [...txt.matchAll(re)];
-        if (m.length > 0) {
-          found = true;
-          replacedCount = m.length;
-          const first = m[0];
-          const s = Math.max(0, first.index! - 40);
-          const e = Math.min(txt.length, first.index! + first[0].length + 40);
-          beforeSample = txt.slice(s, e);
+        let found = false;
+        let replacedCount = 0;
+        let beforeSample: string | undefined;
+        let afterSample: string | undefined;
 
-          txt = txt.replace(re, r.value ?? '');
-          const ni = txt.indexOf(r.value ?? '', s);
-          const ns = Math.max(0, ni - 40);
-          const ne = Math.min(txt.length, (ni + (r.value ?? '').length) + 40);
-          afterSample = txt.slice(ns, ne);
+        if (marker.startsWith('BLOCK:')) {
+          const re = new RegExp(`<!--\\s*\\/??\\s*${escape(marker)}\\s*-->`, 'g');
+          const m = [...txt.matchAll(re)];
+          if (m.length > 0) {
+            found = true;
+            replacedCount = m.length;
+            const first = m[0];
+            const s = Math.max(0, first.index! - 40);
+            const e = Math.min(txt.length, first.index! + first[0].length + 40);
+            beforeSample = txt.slice(s, e);
+
+            txt = txt.replace(re, r.value ?? '');
+            const ni = txt.indexOf(r.value ?? '', s);
+            const ns = Math.max(0, ni - 40);
+            const ne = Math.min(txt.length, (ni + (r.value ?? '').length) + 40);
+            afterSample = txt.slice(ns, ne);
+          }
+        } else {
+          const idx = txt.indexOf(marker);
+          if (idx >= 0) {
+            found = true;
+            const s = Math.max(0, idx - 40);
+            const e = Math.min(txt.length, idx + marker.length + 40);
+            beforeSample = txt.slice(s, e);
+
+            const re = new RegExp(escape(marker), 'g');
+            replacedCount = (txt.match(re) || []).length;
+            txt = txt.replace(re, r.value ?? '');
+
+            const ni = txt.indexOf(r.value ?? '', s);
+            const ns = Math.max(0, ni - 40);
+            const ne = Math.min(txt.length, (ni + (r.value ?? '').length) + 40);
+            afterSample = txt.slice(ns, ne);
+          }
         }
-      } else {
-        const idx = txt.indexOf(marker);
-        if (idx >= 0) {
-          found = true;
-          const s = Math.max(0, idx - 40);
-          const e = Math.min(txt.length, idx + marker.length + 40);
-          beforeSample = txt.slice(s, e);
 
-          const re = new RegExp(escape(marker), 'g');
-          replacedCount = (txt.match(re) || []).length;
-          txt = txt.replace(re, r.value ?? '');
-
-          const ni = txt.indexOf(r.value ?? '', s);
-          const ns = Math.max(0, ni - 40);
-          const ne = Math.min(txt.length, (ni + (r.value ?? '').length) + 40);
-          afterSample = txt.slice(ns, ne);
-        }
+        if (found) markerFoundAny[marker] = (markerFoundAny[marker] ?? 0) + replacedCount;
+        changes.push({ file, marker, found, replacedCount, beforeSample, afterSample });
       }
 
-      changes.push({ file: p.file, marker, found, replacedCount, beforeSample, afterSample });
+      if (txt !== beforeAll) await fs.writeFile(file, txt, 'utf8');
+      results.push({ file, changes });
     }
 
-    if (txt !== beforeAll) await fs.writeFile(p.file, txt, 'utf8');
-    results.push({ file: p.file, changes });
+    // 2) fail-fast：如果某个 marker 在所有目标文件里都没被找到，则中断
+    const missed = Object.entries(markerFoundAny)
+      .filter(([, cnt]) => !cnt)
+      .map(([m]) => m);
+    if (missed.length) {
+      throw new Error(
+        `NDJC applyPlan: markers not found in any target file for "${p.file}": ${missed.join(', ')}`
+      );
+    }
   }
   return results;
 }
@@ -212,7 +258,6 @@ async function copyDir(src: string, dst: string) {
     }
   }
 }
-
 export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'form') {
   const repo = workRepoRoot();
   const srcApp = path.join(templateRoot(templateKey), 'app');
@@ -272,14 +317,10 @@ export async function stabilizeGradle(appRoot: string) {
   let txt = await fs.readFile(gradleFile, 'utf8');
   const before = txt;
 
-  // 0) 统一换行 + 去 BOM
   txt = txt.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
-
-  // 1) 修 android {{ / }} 多花括号
   txt = txt.replace(/android\s*\{\s*\{/g, 'android {');
   txt = txt.replace(/\}\s*\}/g, '}');
 
-  // 2) plugins 未闭合则在 android 之前补 }
   {
     const idxPlugins = txt.indexOf('plugins');
     const idxAndroid = txt.indexOf('android');
@@ -293,16 +334,9 @@ export async function stabilizeGradle(appRoot: string) {
     }
   }
 
-  // 3) 反注释 resConfigs
   txt = txt.replace(/^\s*\/\/\s*(resConfigs\b[^\n]*)/gm, '$1');
-
-  // 4) 清理 NDJC: 残留标记
   txt = txt.replace(/"NDJC:[^"]*"/g, '""').replace(/NDJC:[^\s<>"']+/g, '');
-
-  // 5) 保证 android { 在独立行
   txt = txt.replace(/\n\s*android\s*\{/m, '\nandroid {');
-
-  // 6) 收尾
   txt = txt.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
 
   if (txt !== before) await fs.writeFile(gradleFile, txt, 'utf8');
