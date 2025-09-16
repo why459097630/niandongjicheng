@@ -1,17 +1,19 @@
 // lib/ndjc/generator.ts
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import path from 'node:path';
+import path, { dirname } from 'node:path';
 import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
 
 /* ========= 路径策略 ========= */
-// 模板只读根（可用 TEMPLATES_DIR 覆盖）
 function templatesBase() {
   return process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
 }
-// 工作区（可写），Vercel 上默认 /tmp（可用 NDJC_WORKDIR 覆盖）
 function workRepoRoot() {
   return process.env.NDJC_WORKDIR || '/tmp/ndjc';
+}
+function repoRoot() {
+  // 仓库根（即包含 app/ 与 requests/ 的根目录）
+  return process.cwd();
 }
 
 /* ========= 模板选择 ========= */
@@ -28,6 +30,20 @@ function pickGradleFile(appRoot: string) {
 }
 type Patch = { file: string; replace: Array<{ marker: string; value: string }> };
 
+async function writeJson(p: string, data: any) {
+  await fs.mkdir(dirname(p), { recursive: true });
+  await fs.writeFile(p, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function toGradleResConfigs(list?: string): string {
+  const raw = (list || '').trim();
+  if (!raw) return '';
+  const items = raw.split(',').map(s => s.trim()).filter(Boolean);
+  if (!items.length) return '';
+  const quoted = items.map(v => `'${v}'`).join(', ');
+  return `resConfigs ${quoted}`;
+}
+
 /* ========= locales_config.xml ========= */
 async function writeLocalesConfig(appRoot: string, localesList?: string) {
   const list = (localesList || '').trim();
@@ -38,21 +54,10 @@ async function writeLocalesConfig(appRoot: string, localesList?: string) {
   const xml =
 `<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
 ${items.map(l => `  <locale android:name="${l}"/>`).join('\n')}
-</locale-config>
-`;
+</locale-config>\n`;
   const dir = path.join(appRoot, 'src/main/res/xml');
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, 'locales_config.xml'), xml, 'utf8');
-}
-
-/* ========= resConfigs 转换为 Gradle 正确写法 ========= */
-function toGradleResConfigs(list?: string): string {
-  const raw = (list || '').trim();
-  if (!raw) return '';
-  const items = raw.split(',').map(s => s.trim()).filter(Boolean);
-  if (!items.length) return '';
-  const quoted = items.map(v => `'${v}'`).join(', ');
-  return `resConfigs ${quoted}`;
 }
 
 /* ========= 生成计划 ========= */
@@ -74,13 +79,10 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const PROGUARD_EXTRA  = o.proguardExtra ?? '';
   const PACKAGING_RULES = o.packagingRules ?? '';
 
-  // Manifest 可选 localeConfig
   const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim() ? 'android:localeConfig="@xml/locales_config"' : '';
-
   const SIGNING_CONFIG = 'signingConfig signingConfigs.release';
 
   return [
-    // strings.xml（锚点替换）
     {
       file: path.join(appRoot, 'src/main/res/values/strings.xml'),
       replace: [
@@ -89,7 +91,6 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'NDJC:MAIN_BUTTON', value: o.mainButtonText },
       ],
     },
-    // Manifest（锚点替换）
     {
       file: path.join(appRoot, 'src/main/AndroidManifest.xml'),
       replace: [
@@ -99,30 +100,27 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'BLOCK:INTENT_FILTERS', value: o.intentFiltersXml ?? '' },
       ],
     },
-    // build.gradle / .kts（锚点替换）
     {
       file: gradleFile,
       replace: [
         { marker: 'NDJC:PACKAGE_NAME',         value: o.packageId },
-        { marker: 'NDJC:COMPILE_SDK',          value: COMPILE_SDK },
-        { marker: 'NDJC:MIN_SDK',              value: MIN_SDK },
-        { marker: 'NDJC:TARGET_SDK',           value: TARGET_SDK },
-        { marker: 'NDJC:VERSION_CODE',         value: VERSION_CODE },
-        { marker: 'NDJC:VERSION_NAME',         value: VERSION_NAME },
-        { marker: 'NDJC:PLUGINS_EXTRA',        value: PLUGINS_EXTRA },
-        { marker: 'NDJC:DEPENDENCIES_EXTRA',   value: DEPENDENCIES_EXTRA },
+        { marker: 'NDJC:COMPILE_SDK',          value: process.env.NDJC_COMPILE_SDK ?? '34' },
+        { marker: 'NDJC:MIN_SDK',              value: process.env.NDJC_MIN_SDK ?? '24' },
+        { marker: 'NDJC:TARGET_SDK',           value: process.env.NDJC_TARGET_SDK ?? '34' },
+        { marker: 'NDJC:VERSION_CODE',         value: process.env.NDJC_VERSION_CODE ?? '1' },
+        { marker: 'NDJC:VERSION_NAME',         value: process.env.NDJC_VERSION_NAME ?? '1.0.0' },
+        { marker: 'NDJC:PLUGINS_EXTRA',        value: process.env.NDJC_PLUGINS_EXTRA ?? '' },
+        { marker: 'NDJC:DEPENDENCIES_EXTRA',   value: process.env.NDJC_DEPENDENCIES_EXTRA ?? '' },
         { marker: 'NDJC:SIGNING_CONFIG',       value: SIGNING_CONFIG },
         { marker: 'NDJC:RES_CONFIGS',          value: RES_CONFIGS },
         { marker: 'NDJC:PROGUARD_FILES_EXTRA', value: PROGUARD_EXTRA },
         { marker: 'NDJC:PACKAGING_RULES',      value: PACKAGING_RULES },
       ],
     },
-    // themes 覆盖块
     {
       file: path.join(appRoot, 'src/main/res/values/themes.xml'),
       replace: [{ marker: 'BLOCK:THEME_OVERRIDES', value: o.themeOverridesXml ?? '' }],
     },
-    // MainActivity 文案（Compose 里也保留锚点替换）
     {
       file: path.join(appRoot, 'src/main/java/com/ndjc/app/MainActivity.kt'),
       replace: [
@@ -196,7 +194,7 @@ export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
   return results;
 }
 
-/* ========= 目录复制 ========= */
+/* ========= 复制目录 ========= */
 async function copyDir(src: string, dst: string) {
   await fs.mkdir(dst, { recursive: true });
   for (const e of await fs.readdir(src, { withFileTypes: true })) {
@@ -217,15 +215,13 @@ export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'f
   const srcApp = path.join(templateRoot(templateKey), 'app');
   const dstApp = path.join(repo, 'app');
 
-  // 清空工作目录
   await fs.rm(repo, { recursive: true, force: true });
   await fs.mkdir(repo, { recursive: true });
-
   await copyDir(srcApp, dstApp);
   return { dstApp };
 }
 
-/* ========= 清理标记（anchors） ========= */
+/* ========= 清理标记 ========= */
 const STRIP_EXTS = new Set([
   '.xml', '.gradle', '.kts', '.kt', '.java', '.pro', '.txt', '.json', '.properties', '.cfg', '.ini'
 ]);
@@ -263,26 +259,19 @@ async function walkAndStrip(dir: string) {
     }
   }
 }
-/** ✅ 保留导出：供 route.ts 引用 */
 export async function cleanupAnchors(appRoot?: string) {
   const base = appRoot ?? path.join(workRepoRoot(), 'app');
   await walkAndStrip(base);
 }
 
-/* ========= 稳态化（防御式）修复 ========= */
+/* ========= 稳态化修复 ========= */
 export async function stabilizeGradle(appRoot: string) {
   const gradleFile = pickGradleFile(appRoot);
   let txt = await fs.readFile(gradleFile, 'utf8');
   const before = txt;
 
-  // 0) 统一换行 + 去 BOM
-  txt = txt.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
-
-  // 1) 修 android {{ / }} 多花括号
-  txt = txt.replace(/android\s*\{\s*\{/g, 'android {');
-  txt = txt.replace(/\}\s*\}/g, '}');
-
-  // 2) plugins 未闭合则在 android 之前补 }
+  txt = txt.replace/^\uFEFF/, '').replace(/\r\n?/g, '\n'); // 去 BOM + 统一换行
+  txt = txt.replace(/android\s*\{\s*\{/g, 'android {').replace(/\}\s*\}/g, '}');
   {
     const idxPlugins = txt.indexOf('plugins');
     const idxAndroid = txt.indexOf('android');
@@ -290,31 +279,96 @@ export async function stabilizeGradle(appRoot: string) {
       const head = txt.slice(idxPlugins, idxAndroid);
       const open = (head.match(/\{/g) || []).length;
       const close = (head.match(/\}/g) || []).length;
-      if (open > close) {
-        txt = txt.slice(0, idxAndroid).replace(/\s*$/, '\n}\n') + txt.slice(idxAndroid);
-      }
+      if (open > close) txt = txt.slice(0, idxAndroid).replace(/\s*$/, '\n}\n') + txt.slice(idxAndroid);
     }
   }
-
-  // 3) 反注释 resConfigs
   txt = txt.replace(/^\s*\/\/\s*(resConfigs\b[^\n]*)/gm, '$1');
-
-  // 4) 清理 NDJC 残留标记
   txt = txt.replace(/"NDJC:[^"]*"/g, '""').replace(/NDJC:[^\s<>"']+/g, '');
-
-  // 5) 保证 android { 在独立行
-  txt = txt.replace(/\n\s*android\s*\{/m, '\nandroid {');
-
-  // 6) 收尾
+  txt = txt.replace(/\n\s*android\s*\{/, '\nandroid {');
   txt = txt.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
 
   if (txt !== before) await fs.writeFile(gradleFile, txt, 'utf8');
 }
 
-/* ========= 伴生文件入口 ========= */
+/* ========= 伴生文件 ========= */
 export async function ensureAuxFiles(o: NdjcOrchestratorOutput) {
   const appRoot = path.join(workRepoRoot(), 'app');
   if ((o.resConfigs ?? '').trim()) {
     await writeLocalesConfig(appRoot, o.resConfigs);
   }
+}
+
+/* ========= 统计 & 写回 ========= */
+function countReplacements(detail: ApplyResult[], keyAnchors: string[]): number {
+  let n = 0;
+  for (const f of detail) {
+    for (const c of f.changes) {
+      if (keyAnchors.includes(c.marker) && c.replacedCount > 0) n += c.replacedCount;
+    }
+  }
+  return n;
+}
+
+async function syncBackAppToRepo() {
+  const src = path.join(workRepoRoot(), 'app');
+  const dst = path.join(repoRoot(), 'app');
+
+  // 覆盖式写回（排除 build/.gradle）
+  await fs.rm(dst, { recursive: true, force: true });
+  await copyDir(src, dst);
+}
+
+/* ========= 统一入口：生成 + 注入 + 日志 + 写回 ========= */
+/**
+ * 执行一轮生成，并把修改过的 app/ 写回仓库根目录。
+ * 返回：需要提交的路径列表（给 route.ts 用现有 GitHub 推送逻辑一次性提交）。
+ */
+export async function generateAndSync(
+  o: NdjcOrchestratorOutput,
+  templateKey: 'simple' | 'core' | 'form',
+) {
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const reqDir = path.join(repoRoot(), 'requests', ts);
+
+  // 1) 清空工作区并 materialize
+  await materializeToWorkspace(templateKey);
+
+  // 2) 构建计划 & 应用
+  const plan = buildPlan(o);
+  const detail = await applyPlanDetailed(plan);
+  await ensureAuxFiles(o);
+  await cleanupAnchors();
+
+  // 3) 关键锚点计数 & 必落盘日志
+  const KEY = [
+    'NDJC:PACKAGE_NAME', 'NDJC:APP_LABEL', 'NDJC:HOME_TITLE',
+    'NDJC:MAIN_BUTTON', 'BLOCK:PERMISSIONS', 'BLOCK:INTENT_FILTERS'
+  ];
+  const replacedCount = countReplacements(detail, KEY);
+
+  await writeJson(path.join(reqDir, '02_plan.json'), plan);
+  await writeJson(path.join(reqDir, '03_apply_result.json'), detail);
+
+  if (replacedCount === 0) {
+    // 即使失败也把 03 写好，方便 CI 保险丝读取
+    throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
+  }
+
+  // 4) 把 /tmp/ndjc/app 写回仓库根的 ./app
+  await syncBackAppToRepo();
+
+  // 5) 返回给调用方（route.ts）用于一次性提交
+  const commitPaths = [
+    'app/**',
+    `requests/${ts}/02_plan.json`,
+    `requests/${ts}/03_apply_result.json`,
+  ];
+
+  return {
+    ok: true,
+    timestamp: ts,
+    replacedCount,
+    commitPaths,
+    requestDir: `requests/${ts}`,
+  };
 }
