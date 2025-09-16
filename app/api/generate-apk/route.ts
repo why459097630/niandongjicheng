@@ -137,6 +137,25 @@ async function assertNoEscapedQuotes(appRoot: string) {
   }
 }
 
+// 统计关键锚点替换次数（保险丝）
+function countCriticalReplacements(applyResult: any[]): number {
+  const KEY = new Set([
+    'NDJC:PACKAGE_NAME',
+    'NDJC:APP_LABEL',
+    'NDJC:HOME_TITLE',
+    'NDJC:MAIN_BUTTON',
+    'BLOCK:PERMISSIONS',
+    'BLOCK:INTENT_FILTERS',
+  ]);
+  let n = 0;
+  for (const f of applyResult || []) {
+    for (const c of f?.changes || []) {
+      if (KEY.has(c.marker) && (c.replacedCount || 0) > 0) n += c.replacedCount;
+    }
+  }
+  return n;
+}
+
 /* -------------------- 路由 -------------------- */
 export async function POST(req: NextRequest) {
   let step = 'start';
@@ -233,6 +252,13 @@ export async function POST(req: NextRequest) {
     const applyResult = await applyPlanDetailed(plan);
     await writeJSON(runId, '03_apply_result.json', applyResult);
 
+    // 保险丝：关键锚点替换必须 > 0（否则直接中止，阻断空包）
+    const replacedTotal = countCriticalReplacements(applyResult);
+    if (replacedTotal === 0) {
+      await writeText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
+      throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
+    }
+
     step = 'cleanup';
     await cleanupAnchors(appRoot); // 传入 appRoot
     await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
@@ -282,7 +308,7 @@ ${anchors}
 `;
     await writeText(runId, '05_summary.md', summary);
 
-    // 6) 可选提交
+    // 6) 可选把“日志”提交到默认分支（保持你原有开关）
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
@@ -291,15 +317,23 @@ ${anchors}
       await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
-    // 6.5) 预检查 & 推分支
+    // 6.5) 推送“构建分支”：app/ 与 requests/<runId>/ 同步到同一分支
     step = 'push-app-branch';
     ensureEnv();
     const runBranch = `ndjc-run/${runId}`;
     await ensureBranch(runBranch);
-    await assertNoEscapedQuotes(appRoot); // ⬅ 关键预检：防止转义引号
-    await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync`);
 
-    // 7) 触发 Actions（可跳过）
+    // 预检 Gradle（防止引号被转义）
+    await assertNoEscapedQuotes(appRoot);
+
+    // ① 推 app/（从 /tmp/ndjc/app → repo 的 app/）
+    await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`);
+
+    // ② 推 requests/<runId>/ 日志（让 CI 同一分支可见 02/03）
+    const reqLocalDir = path.join(getRepoPath(), 'requests', runId);
+    await pushDirByContentsApi(reqLocalDir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`);
+
+    // 7) 触发 Actions（ref 指向 runBranch）
     step = 'dispatch';
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
@@ -320,6 +354,7 @@ ${anchors}
     return NextResponse.json({
       ok: true,
       runId,
+      replaced: replacedTotal,
       committed: !!commitInfo?.committed,
       commit: commitInfo ?? null,
       actionsUrl,
