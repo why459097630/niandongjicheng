@@ -8,6 +8,8 @@ import {
   applyPlanDetailed,
   materializeToWorkspace,
   cleanupAnchors,
+  ensureAuxFiles,          // ✅ 新增
+  stabilizeGradle,         // ✅ 新增
 } from '@/lib/ndjc/generator';
 import * as JournalMod from '@/lib/ndjc/journal';
 const Journal: any = (JournalMod as any).default ?? JournalMod;
@@ -137,15 +139,16 @@ async function assertNoEscapedQuotes(appRoot: string) {
   }
 }
 
-// 统计关键锚点替换次数（保险丝：=0 时直接中止）
+// ✅ 修正：统计“关键锚点”的替换次数（NDJC:BLOCK 前缀 + 签名锚点）
 function countCriticalReplacements(applyResult: any[]): number {
   const KEY = new Set([
     'NDJC:PACKAGE_NAME',
     'NDJC:APP_LABEL',
     'NDJC:HOME_TITLE',
     'NDJC:MAIN_BUTTON',
-    'BLOCK:PERMISSIONS',
-    'BLOCK:INTENT_FILTERS',
+    'NDJC:BLOCK:PERMISSIONS',
+    'NDJC:BLOCK:INTENT_FILTERS',
+    'NDJC:SIGNING_CONFIG',
   ]);
   let n = 0;
   for (const f of applyResult || []) {
@@ -232,6 +235,8 @@ export async function POST(req: NextRequest) {
         template: input.template ?? 'core',
         appName: input.appName ?? input.appTitle ?? 'NDJC core',
         packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.core',
+        locales: input.locales ?? ['en', 'zh-rCN', 'zh-rTW'],
+        resConfigs: input.resConfigs ?? 'en,zh-rCN,zh-rTW',
       };
       await writeText(runId, '01_orchestrator_mode.txt', `offline (${String(err?.message ?? err)})`);
     }
@@ -242,7 +247,7 @@ export async function POST(req: NextRequest) {
     const plan = buildPlan(o);
     await writeJSON(runId, '02_plan.json', plan);
 
-    // 4) 物化+应用+清理（使用临时 appRoot）
+    // 4) 物化+应用（使用临时 appRoot）
     step = 'materialize';
     const material = await materializeToWorkspace(o.template);
     const appRoot = material.dstApp;
@@ -259,9 +264,12 @@ export async function POST(req: NextRequest) {
       throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
     }
 
-    step = 'cleanup';
-    await cleanupAnchors(appRoot); // 传入 appRoot
-    await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
+    // ✅ 新增：伴随文件与 Gradle 稳态化，与 generateAndSync 保持一致
+    step = 'aux-and-stabilize';
+    await ensureAuxFiles(o);           // 写 locales_config.xml 等（当 resConfigs 存在）
+    await cleanupAnchors(appRoot);     // 清理 NDJC/BLOCK 标记
+    await stabilizeGradle(appRoot);    // 修复潜在 Gradle 小毛刺
+    await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped & gradle stabilized');
 
     // 伴生文件（方案B）
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
