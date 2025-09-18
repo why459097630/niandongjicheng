@@ -8,8 +8,6 @@ import {
   applyPlanDetailed,
   materializeToWorkspace,
   cleanupAnchors,
-  ensureAuxFiles,          // ✅ 新增
-  stabilizeGradle,         // ✅ 新增
 } from '@/lib/ndjc/generator';
 import * as JournalMod from '@/lib/ndjc/journal';
 const Journal: any = (JournalMod as any).default ?? JournalMod;
@@ -78,14 +76,19 @@ function normalizeWorkflowId(wf: string) {
   return `${wf}.yml`;
 }
 
+/**
+ * 首选 workflow_dispatch 触发指定分支上的工作流；
+ * 若返回 422（包含 “does not have 'workflow_dispatch' trigger”等各种提示），
+ * 退化为 repository_dispatch（工作流在默认分支上跑，使用 client_payload.ref 指向代码分支）。
+ */
 async function dispatchWorkflow(
   payload: any,
   refBranch?: string
 ): Promise<{ ok: true; degraded: boolean }> {
-  const owner = process.env.GH_OWNER!;
-  const repo = process.env.GH_REPO!;
+  const owner  = process.env.GH_OWNER!;
+  const repo   = process.env.GH_REPO!;
   const branch = refBranch || process.env.GH_BRANCH || 'main';
-  const wf = normalizeWorkflowId(process.env.WORKFLOW_ID!);
+  const wf     = normalizeWorkflowId(process.env.WORKFLOW_ID!);
 
   const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
   const headers: Record<string, string> = {
@@ -94,6 +97,7 @@ async function dispatchWorkflow(
     Accept: 'application/vnd.github+json',
   };
 
+  // ① 首选：workflow_dispatch 到目标分支
   const r1 = await fetch(url, {
     method: 'POST',
     headers,
@@ -101,8 +105,13 @@ async function dispatchWorkflow(
   });
   if (r1.ok) return { ok: true, degraded: false };
 
+  // 读取错误文本，便于诊断
   const text1 = await r1.text();
-  if (r1.status === 422 && /Unexpected inputs|cannot be used/i.test(text1)) {
+
+  // ★ 放宽回退条件：只要是 422，就执行回退逻辑（覆盖：Unexpected inputs / cannot be used /
+  // does not have 'workflow_dispatch' trigger 等所有 422 文案）
+  if (r1.status === 422) {
+    // ② 有些仓库不接受自定义 inputs，尝试只传 runId 的极简 inputs
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
@@ -110,12 +119,21 @@ async function dispatchWorkflow(
     });
     if (r2.ok) return { ok: true, degraded: true };
 
-    const r3 = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ref: branch }) });
+    // ③ 最终回退：repository_dispatch（工作流需声明 repository_dispatch）
+    const repoUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
+    const r3 = await fetch(repoUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        event_type: 'generate-apk',
+        client_payload: { ...payload, ref: branch },
+      }),
+    });
     if (r3.ok) return { ok: true, degraded: true };
 
     const text2 = await r2.text();
     const text3 = await r3.text();
-    throw new Error(`GitHub 422 (retry failed) :: ${url} :: ${text1} :: ${text2} :: ${text3}`);
+    throw new Error(`GitHub 422 (fallback failed) :: ${url} :: ${text1} :: ${text2} :: ${text3}`);
   }
 
   throw new Error(`GitHub ${r1.status} ${r1.statusText} :: ${url} :: ${text1}`);
@@ -139,16 +157,15 @@ async function assertNoEscapedQuotes(appRoot: string) {
   }
 }
 
-// ✅ 修正：统计“关键锚点”的替换次数（NDJC:BLOCK 前缀 + 签名锚点）
+// 统计关键锚点替换次数（保险丝：=0 时直接中止）
 function countCriticalReplacements(applyResult: any[]): number {
   const KEY = new Set([
     'NDJC:PACKAGE_NAME',
     'NDJC:APP_LABEL',
     'NDJC:HOME_TITLE',
     'NDJC:MAIN_BUTTON',
-    'NDJC:BLOCK:PERMISSIONS',
-    'NDJC:BLOCK:INTENT_FILTERS',
-    'NDJC:SIGNING_CONFIG',
+    'BLOCK:PERMISSIONS',
+    'BLOCK:INTENT_FILTERS',
   ]);
   let n = 0;
   for (const f of applyResult || []) {
@@ -235,8 +252,6 @@ export async function POST(req: NextRequest) {
         template: input.template ?? 'core',
         appName: input.appName ?? input.appTitle ?? 'NDJC core',
         packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.core',
-        locales: input.locales ?? ['en', 'zh-rCN', 'zh-rTW'],
-        resConfigs: input.resConfigs ?? 'en,zh-rCN,zh-rTW',
       };
       await writeText(runId, '01_orchestrator_mode.txt', `offline (${String(err?.message ?? err)})`);
     }
@@ -247,7 +262,7 @@ export async function POST(req: NextRequest) {
     const plan = buildPlan(o);
     await writeJSON(runId, '02_plan.json', plan);
 
-    // 4) 物化+应用（使用临时 appRoot）
+    // 4) 物化+应用+清理（使用临时 appRoot）
     step = 'materialize';
     const material = await materializeToWorkspace(o.template);
     const appRoot = material.dstApp;
@@ -264,12 +279,9 @@ export async function POST(req: NextRequest) {
       throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
     }
 
-    // ✅ 新增：伴随文件与 Gradle 稳态化，与 generateAndSync 保持一致
-    step = 'aux-and-stabilize';
-    await ensureAuxFiles(o);           // 写 locales_config.xml 等（当 resConfigs 存在）
-    await cleanupAnchors(appRoot);     // 清理 NDJC/BLOCK 标记
-    await stabilizeGradle(appRoot);    // 修复潜在 Gradle 小毛刺
-    await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped & gradle stabilized');
+    step = 'cleanup';
+    await cleanupAnchors(appRoot); // 传入 appRoot
+    await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
     // 伴生文件（方案B）
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
@@ -366,9 +378,9 @@ ${anchors}
       dispatch = await dispatchWorkflow({ inputs }, runBranch);
 
       const owner = process.env.GH_OWNER!;
-      const repo = process.env.GH_REPO!;
-      const wf = normalizeWorkflowId(process.env.WORKFLOW_ID!);
-      actionsUrl = `https://github.com/${owner}/${repo}/actions/workflows/${wf}`;
+      const repo  = process.env.GH_REPO!;
+      const wf    = normalizeWorkflowId(process.env.WORKFLOW_ID!);
+      actionsUrl  = `https://github.com/${owner}/${repo}/actions/workflows/${wf}`;
     }
 
     // 8) OK
