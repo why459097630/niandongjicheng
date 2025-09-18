@@ -54,7 +54,7 @@ ${items.map(l => `  <locale android:name="${l}"/>`).join('\n')}
   await fs.writeFile(path.join(dir, 'locales_config.xml'), xml, 'utf8');
 }
 
-/* ========= resConfigs 转为 Gradle 正确写法 ========= */
+/* ========= resConfigs -> Gradle ========= */
 function toGradleResConfigs(list?: string): string {
   const raw = (list || '').trim();
   if (!raw) return '';
@@ -104,8 +104,8 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
       replace: [
         { marker: 'NDJC:APP_LABEL', value: o.appName },
         { marker: 'NDJC:LOCALE_CONFIG', value: LOCALE_CONFIG_ATTR },
-        { marker: 'BLOCK:PERMISSIONS', value: o.permissionsXml ?? '' },
-        { marker: 'BLOCK:INTENT_FILTERS', value: o.intentFiltersXml ?? '' },
+        { marker: 'NDJC:BLOCK:PERMISSIONS', value: o.permissionsXml ?? '' },
+        { marker: 'NDJC:BLOCK:INTENT_FILTERS', value: o.intentFiltersXml ?? '' },
       ],
     },
     // build.gradle / .kts（锚点替换）
@@ -120,7 +120,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
         { marker: 'NDJC:VERSION_NAME',         value: VERSION_NAME },
         { marker: 'NDJC:PLUGINS_EXTRA',        value: PLUGINS_EXTRA },
         { marker: 'NDJC:DEPENDENCIES_EXTRA',   value: DEPENDENCIES_EXTRA },
-        { marker: 'NDJC:SIGNING_CONFIG',       value: SIGNING_CONFIG },
+        { marker: 'NDJC:SIGNING_CONFIG',       value: SIGNING_CONFIG },   // 可选
         { marker: 'NDJC:RES_CONFIGS',          value: RES_CONFIGS },
         { marker: 'NDJC:PROGUARD_FILES_EXTRA', value: PROGUARD_EXTRA },
         { marker: 'NDJC:PACKAGING_RULES',      value: PACKAGING_RULES },
@@ -129,7 +129,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
     // themes 覆盖块
     {
       file: path.join(appRoot, 'src/main/res/values/themes.xml'),
-      replace: [{ marker: 'BLOCK:THEME_OVERRIDES', value: o.themeOverridesXml ?? '' }],
+      replace: [{ marker: 'NDJC:BLOCK:THEME_OVERRIDES', value: o.themeOverridesXml ?? '' }],
     },
     // MainActivity 文案（Compose 里也保留锚点替换）
     {
@@ -160,7 +160,7 @@ export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
       let beforeSample: string | undefined;
       let afterSample: string | undefined;
 
-      if (marker.startsWith('BLOCK:')) {
+      if (marker.startsWith('NDJC:BLOCK:')) {
         const re = new RegExp(`<!--\\s*\\/??\\s*${escape(marker)}\\s*-->`, 'g');
         const m = [...txt.matchAll(re)];
         if (m.length > 0) {
@@ -284,7 +284,7 @@ export async function stabilizeGradle(appRoot: string) {
   let txt = await fs.readFile(gradleFile, 'utf8');
   const before = txt;
 
-  // 0) 统一换行 + 去 BOM（修复原先语法错误）
+  // 0) 统一换行 + 去 BOM
   txt = txt.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
 
   // 1) 修 android {{ / }} 多花括号
@@ -349,10 +349,6 @@ async function syncBackAppToRepo() {
 }
 
 /* ========= 统一入口：生成 + 注入 + 日志 + 写回 ========= */
-/**
- * 执行一轮生成，并把修改过的 app/ 写回仓库根目录。
- * 返回：需要提交的路径列表（供 route.ts / 推送逻辑一次性提交）。
- */
 export async function generateAndSync(
   o: NdjcOrchestratorOutput,
   templateKey: 'simple' | 'core' | 'form',
@@ -372,7 +368,7 @@ export async function generateAndSync(
   await cleanupAnchors();
   await stabilizeGradle(path.join(workRepoRoot(), 'app'));
 
-  // 4) 写日志（务必保证 01/02/03 都存在）
+  // 4) 写日志
   await writeJson(path.join(reqDir, '01_materialize.json'), { templateKey, dstApp });
   await writeJson(path.join(reqDir, '02_plan.json'), plan);
   await writeJson(path.join(reqDir, '03_apply_result.json'), detail);
@@ -380,17 +376,17 @@ export async function generateAndSync(
   // 5) 关键锚点计数，0 则中止（阻断空包）
   const KEY = [
     'NDJC:PACKAGE_NAME', 'NDJC:APP_LABEL', 'NDJC:HOME_TITLE',
-    'NDJC:MAIN_BUTTON', 'BLOCK:PERMISSIONS', 'BLOCK:INTENT_FILTERS'
+    'NDJC:MAIN_BUTTON', 'NDJC:BLOCK:PERMISSIONS', 'NDJC:BLOCK:INTENT_FILTERS'
   ];
   const replacedCount = countReplacements(detail, KEY);
   if (replacedCount === 0) {
     throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
   }
 
-  // 6) 把 /tmp/ndjc/app 写回仓库根的 ./app
+  // 6) 写回 ./app
   await syncBackAppToRepo();
 
-  // 7) 返回给调用方用于一次性提交
+  // 7) 返回提交清单
   const commitPaths = [
     'app/**',
     `requests/${ts}/01_materialize.json`,
