@@ -69,7 +69,9 @@ function ensurePackageId(input?: string, fallback = "com.ndjc.demo.core") {
   let v = (input || "").trim();
   if (!v) return fallback;
   // 粗略清洗：只保留字母/数字/下划线/点；首尾去点；多个点折叠
-  v = v.replace(/[^a-zA-Z0-9_.]+/g, "").replace(/^\.+|\.+$/g, "").replace(/\.+/g, ".");
+  v = v.replace(/[^a-zA-Z0-9_.]+/g, "")
+       .replace(/^\.+|\.+$/g, "")
+       .replace(/\.+/g, ".");
   if (!v) return fallback;
   return v.toLowerCase();
 }
@@ -79,9 +81,7 @@ function mkPermissionsXml(perms?: string[]) {
     .map(p => (p || "").trim())
     .filter(Boolean);
   if (!list.length) return undefined;
-  return list
-    .map(p => `<uses-permission android:name="${p}"/>`)
-    .join("\n");
+  return list.map(p => `<uses-permission android:name="${p}"/>`).join("\n");
 }
 
 function mkIntentFiltersXml(host?: string | null) {
@@ -235,7 +235,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   // 3) 组装块锚点需要的 XML 片段
   const permissionsXml = mkPermissionsXml(permissions);
   const intentFiltersXml = mkIntentFiltersXml(intentHost);
-  // themeOverrides 默认不强制
   const themeOverridesXml = (input as any).themeOverridesXml || undefined;
 
   // 4) Sprint5/6 衍生：resConfigs 优先入参，否则由 locales 推导
