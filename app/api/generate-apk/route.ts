@@ -25,39 +25,42 @@ import * as path from 'node:path';
 export const runtime = 'nodejs';
 
 /* -------------------- 伴生文件（方案B）安全落地 -------------------- */
-const COMPANION_ROOT = 'companions';
 const COMPANION_WHITELIST = new Set([
   '.kt', '.kts', '.java', '.xml', '.json', '.txt', '.pro', '.md', '.gradle', '.properties',
 ]);
 
+// ✅ 直接写入 app/src/main/... 真正参与编译的目录（传入的 path 不要带 app/ 前缀）
 async function emitCompanions(
   appRoot: string,
   companions: Array<{ path: string; content: string; overwrite?: boolean }>
 ) {
   if (!companions?.length) return { written: 0, files: [] as string[] };
 
-  const dstRoot = path.join(appRoot, COMPANION_ROOT);
-  await fs.mkdir(dstRoot, { recursive: true });
-
   const written: string[] = [];
   for (const file of companions) {
-    const rel = file.path.replace(/^[/\\]+/, '');
-    const dst = path.join(dstRoot, rel);
+    const rel = (file.path || '').replace(/^[/\\]+/, ''); // e.g. src/main/java/com/ndjc/app/MainActivity.kt
+    if (!rel) continue;
+
+    const dst = path.join(appRoot, rel);
     const ext = path.extname(dst).toLowerCase();
 
     if (!COMPANION_WHITELIST.has(ext)) continue;
-    if (!dst.startsWith(dstRoot)) continue; // 防目录穿越
-    await fs.mkdir(path.dirname(dst), { recursive: true });
+
+    // 目录穿越防护
+    const safeDst = path.resolve(dst);
+    if (!safeDst.startsWith(path.resolve(appRoot))) continue;
+
+    await fs.mkdir(path.dirname(safeDst), { recursive: true });
 
     try {
       if (!file.overwrite) {
-        await fs.access(dst); // 已存在且不允许覆盖 → 跳过
+        await fs.access(safeDst); // 已存在且不允许覆盖 → 跳过
         continue;
       }
     } catch { /* not exists */ }
 
-    await fs.writeFile(dst, file.content ?? '', 'utf8');
-    written.push(path.relative(appRoot, dst));
+    await fs.writeFile(safeDst, file.content ?? '', 'utf8');
+    written.push(path.relative(appRoot, safeDst));
   }
   return { written: written.length, files: written };
 }
@@ -77,9 +80,9 @@ function normalizeWorkflowId(wf: string) {
 }
 
 /**
- * 首选 workflow_dispatch 触发指定分支上的工作流；
- * 若返回 422（包含 “does not have 'workflow_dispatch' trigger”等各种提示），
- * 退化为 repository_dispatch（工作流在默认分支上跑，使用 client_payload.ref 指向代码分支）。
+ * 首选 workflow_dispatch 到 run 分支；
+ * 若 422（含 "Unexpected inputs" / "cannot be used" / "does not have 'workflow_dispatch' trigger" 等），
+ * 回退为最小 inputs；仍失败则改用 repository_dispatch（client_payload.ref 指向分支）。
  */
 async function dispatchWorkflow(
   payload: any,
@@ -97,19 +100,13 @@ async function dispatchWorkflow(
     Accept: 'application/vnd.github+json',
   };
 
-  // ① 首选：workflow_dispatch 到目标分支
-  const r1 = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ref: branch, ...payload }),
-  });
+  // ① workflow_dispatch（完整 inputs）
+  const r1 = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ref: branch, ...payload }) });
   if (r1.ok) return { ok: true, degraded: false };
 
   const text1 = await r1.text();
-
-  // ② 任意 422 都回退（Unexpected inputs / cannot be used / no workflow_dispatch 等）
   if (r1.status === 422) {
-    // ②a 极简 inputs（只传 runId），仍然走 workflow_dispatch
+    // ② 最小 inputs（只传 runId）
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
@@ -117,15 +114,12 @@ async function dispatchWorkflow(
     });
     if (r2.ok) return { ok: true, degraded: true };
 
-    // ②b 最终回退：repository_dispatch（工作流需声明 repository_dispatch）
+    // ③ repository_dispatch（工作流需声明 repository_dispatch）
     const repoUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
     const r3 = await fetch(repoUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        event_type: 'generate-apk',
-        client_payload: { ...payload, ref: branch },
-      }),
+      body: JSON.stringify({ event_type: 'generate-apk', client_payload: { ...payload, ref: branch } }),
     });
     if (r3.ok) return { ok: true, degraded: true };
 
@@ -326,7 +320,7 @@ ${anchors}
 `;
     await writeText(runId, '05_summary.md', summary);
 
-    // 6) 可选提交（日志到默认分支，保留你原有开关）
+    // 6) 可选提交（日志到默认分支，保留你的开关）
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
@@ -349,10 +343,10 @@ ${anchors}
 
     // ② 推 requests/<runId>/ 日志（在多个候选路径中寻找；找不到则跳过）
     const reqCandidates = [
-      path.join(getRepoPath(), 'requests', runId), // 本地开发时可能写在仓库根
-      path.join(process.cwd(), 'requests', runId), // 兼容 CWD
-      path.join('/tmp/ndjc', 'requests', runId),   // Serverless 常见
-      path.join('/tmp', 'requests', runId),        // 兜底
+      path.join(getRepoPath(), 'requests', runId),
+      path.join(process.cwd(), 'requests', runId),
+      path.join('/tmp/ndjc', 'requests', runId),
+      path.join('/tmp', 'requests', runId),
     ];
     let reqLocalDir: string | null = null;
     for (const p of reqCandidates) {
@@ -372,16 +366,7 @@ ${anchors}
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
       await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
-      // ✅ 传入 branch，让 workflow_dispatch 在该分支上构建
-      const inputs = {
-        runId,
-        template: o.template,
-        appTitle: o.appName,
-        packageName: o.packageId,
-        branch: runBranch,               // <—— 新增关键字段
-      };
-      await writeJSON(runId, '05d_dispatch_payload.json', { inputs, runBranch });
-
+      const inputs = { runId, template: o.template, appTitle: o.appName, packageName: o.packageId };
       dispatch = await dispatchWorkflow({ inputs }, runBranch);
 
       const owner = process.env.GH_OWNER!;
@@ -399,7 +384,7 @@ ${anchors}
       commit: commitInfo ?? null,
       actionsUrl,
       degraded: dispatch?.degraded ?? null,
-      branch: `ndjc-run/${runId}`,
+      branch: runBranch,
     });
   } catch (e: any) {
     return NextResponse.json(
