@@ -1,5 +1,5 @@
 // app/api/generate-apk/route.ts
-import '@/lib/proxy'; // ✅ 让 fetch/undici 走系统代理（如 Clash/Proxifier）
+import '@/lib/proxy'; // 让 fetch/undici 走系统代理（如 Clash/Proxifier）
 
 import { NextRequest, NextResponse } from 'next/server';
 import { orchestrate } from '@/lib/ndjc/orchestrator';
@@ -9,6 +9,7 @@ import {
   materializeToWorkspace,
   cleanupAnchors,
 } from '@/lib/ndjc/generator';
+
 import * as JournalMod from '@/lib/ndjc/journal';
 const Journal: any = (JournalMod as any).default ?? JournalMod;
 const newRunId      = Journal.newRunId;
@@ -25,11 +26,14 @@ import * as path from 'node:path';
 export const runtime = 'nodejs';
 
 /* -------------------- 伴生文件（方案B）安全落地 -------------------- */
-const COMPANION_WHITELIST = new Set([
+/**
+ * 在线 LLM 生成的 companions 必须真正写入可编译目录（app/src/main/...）
+ * 同时维持白名单 + 防目录穿越。
+ */
+const ALLOWED_SUFFIX = new Set([
   '.kt', '.kts', '.java', '.xml', '.json', '.txt', '.pro', '.md', '.gradle', '.properties',
 ]);
 
-// ✅ 直接写入 app/src/main/... 真正参与编译的目录（传入的 path 不要带 app/ 前缀）
 async function emitCompanions(
   appRoot: string,
   companions: Array<{ path: string; content: string; overwrite?: boolean }>
@@ -38,29 +42,34 @@ async function emitCompanions(
 
   const written: string[] = [];
   for (const file of companions) {
-    const rel = (file.path || '').replace(/^[/\\]+/, ''); // e.g. src/main/java/com/ndjc/app/MainActivity.kt
-    if (!rel) continue;
-
+    // 1) 归一化相对路径（LLM 需返回以 src/main/... 开头的路径）
+    const rel = (file.path || '').replace(/^[/\\]+/, '');
     const dst = path.join(appRoot, rel);
     const ext = path.extname(dst).toLowerCase();
 
-    if (!COMPANION_WHITELIST.has(ext)) continue;
+    // 2) 后缀白名单
+    if (!ALLOWED_SUFFIX.has(ext)) continue;
 
-    // 目录穿越防护
-    const safeDst = path.resolve(dst);
-    if (!safeDst.startsWith(path.resolve(appRoot))) continue;
+    // 3) 防目录穿越 + 仅允许 src/main/*（含 AndroidManifest.xml）
+    if (!dst.startsWith(appRoot)) continue;
+    const relToRoot = path.relative(appRoot, dst).replace(/\\/g, '/');
+    if (
+      !relToRoot.startsWith('src/main/') &&
+      relToRoot !== 'src/main/AndroidManifest.xml'
+    ) continue;
 
-    await fs.mkdir(path.dirname(safeDst), { recursive: true });
+    await fs.mkdir(path.dirname(dst), { recursive: true });
 
+    // 4) 覆盖策略（默认不覆盖）
     try {
       if (!file.overwrite) {
-        await fs.access(safeDst); // 已存在且不允许覆盖 → 跳过
+        await fs.access(dst); // 已存在且不允许覆盖 → 跳过
         continue;
       }
     } catch { /* not exists */ }
 
-    await fs.writeFile(safeDst, file.content ?? '', 'utf8');
-    written.push(path.relative(appRoot, safeDst));
+    await fs.writeFile(dst, file.content ?? '', 'utf8');
+    written.push(relToRoot);
   }
   return { written: written.length, files: written };
 }
@@ -80,9 +89,8 @@ function normalizeWorkflowId(wf: string) {
 }
 
 /**
- * 首选 workflow_dispatch 到 run 分支；
- * 若 422（含 "Unexpected inputs" / "cannot be used" / "does not have 'workflow_dispatch' trigger" 等），
- * 回退为最小 inputs；仍失败则改用 repository_dispatch（client_payload.ref 指向分支）。
+ * 首选 workflow_dispatch 到目标分支；若 422（无触发器/inputs 不兼容等），
+ * 退化为 repository_dispatch，并通过 client_payload.ref 指定构建分支。
  */
 async function dispatchWorkflow(
   payload: any,
@@ -100,13 +108,19 @@ async function dispatchWorkflow(
     Accept: 'application/vnd.github+json',
   };
 
-  // ① workflow_dispatch（完整 inputs）
-  const r1 = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ref: branch, ...payload }) });
+  // ① workflow_dispatch
+  const r1 = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ ref: branch, ...payload }),
+  });
   if (r1.ok) return { ok: true, degraded: false };
 
   const text1 = await r1.text();
+
+  // ② 任意 422 都尝试回退
   if (r1.status === 422) {
-    // ② 最小 inputs（只传 runId）
+    // ②-1 极简 inputs（仅 runId）
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
@@ -114,12 +128,15 @@ async function dispatchWorkflow(
     });
     if (r2.ok) return { ok: true, degraded: true };
 
-    // ③ repository_dispatch（工作流需声明 repository_dispatch）
+    // ②-2 repository_dispatch
     const repoUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
     const r3 = await fetch(repoUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ event_type: 'generate-apk', client_payload: { ...payload, ref: branch } }),
+      body: JSON.stringify({
+        event_type: 'generate-apk',
+        client_payload: { ...payload, ref: branch },
+      }),
     });
     if (r3.ok) return { ok: true, degraded: true };
 
@@ -222,7 +239,13 @@ export async function POST(req: NextRequest) {
         throw new Error('groq-key-missing');
       }
       const groqModel = process.env.GROQ_MODEL || input?.model || 'llama-3.1-8b-instant';
-      o = await orchestrate({ ...input, provider: 'groq', model: groqModel, forceProvider: 'groq' });
+      // ★ 关键：B 模式 + allowCompanions 由前端入参控制
+      o = await orchestrate({
+        ...input,
+        provider: 'groq',
+        model: groqModel,
+        forceProvider: 'groq',
+      });
       await writeText(runId, '01_orchestrator_mode.txt', `online(groq:${groqModel})`);
 
       if (o && o._trace) {
@@ -238,6 +261,7 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (err: any) {
+      // 离线兜底：最小字段，仅方案A
       o = {
         mode: 'A',
         allowCompanions: false,
@@ -264,24 +288,25 @@ export async function POST(req: NextRequest) {
     const applyResult = await applyPlanDetailed(plan);
     await writeJSON(runId, '03_apply_result.json', applyResult);
 
-    // 保险丝：关键锚点替换必须 > 0（否则直接中止，阻断空包）
+    // 保险丝：关键锚点替换必须 > 0
     const replacedTotal = countCriticalReplacements(applyResult);
     if (replacedTotal === 0) {
       await writeText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
       throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
     }
 
-    step = 'cleanup';
-    await cleanupAnchors(appRoot); // 传入 appRoot
-    await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
-
-    // 伴生文件（方案B）
+    // 伴生文件（方案B）——直接写入 app/src/main/**
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
       const emitted = await emitCompanions(appRoot, o.companions);
       await writeJSON(runId, '03a_companions_emitted.json', emitted);
     } else {
       await writeText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
     }
+
+    // 清理 NDJC/BLOCK 标记
+    step = 'cleanup';
+    await cleanupAnchors(appRoot);
+    await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
     // 5) 摘要
     step = 'summary';
@@ -320,7 +345,7 @@ ${anchors}
 `;
     await writeText(runId, '05_summary.md', summary);
 
-    // 6) 可选提交（日志到默认分支，保留你的开关）
+    // 6) 可选提交日志到默认分支
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
@@ -329,7 +354,7 @@ ${anchors}
       await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
-    // 6.5) 推送“构建分支”：app/ 与 requests/<runId>/ 同步到同一分支
+    // 6.5) 推送“构建分支”：app/ 与 requests/<runId>/ 到同一分支
     step = 'push-app-branch';
     ensureEnv();
     const runBranch = `ndjc-run/${runId}`;
@@ -338,10 +363,10 @@ ${anchors}
     // 预检 Gradle（防止引号被转义）
     await assertNoEscapedQuotes(appRoot);
 
-    // ① 推 app/（从 /tmp/ndjc/app → repo 的 app/）
+    // ① 推 app/
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`);
 
-    // ② 推 requests/<runId>/ 日志（在多个候选路径中寻找；找不到则跳过）
+    // ② 推 requests/<runId>/
     const reqCandidates = [
       path.join(getRepoPath(), 'requests', runId),
       path.join(process.cwd(), 'requests', runId),
@@ -358,7 +383,7 @@ ${anchors}
       await writeText(runId, '05c_logs_push_skipped.txt', 'skip pushing logs: local requests/<runId> not found');
     }
 
-    // 7) 触发 Actions（ref 指向 runBranch）
+    // 7) 触发 Actions（ref 指 runBranch）
     step = 'dispatch';
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
