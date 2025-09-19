@@ -105,13 +105,11 @@ async function dispatchWorkflow(
   });
   if (r1.ok) return { ok: true, degraded: false };
 
-  // 读取错误文本，便于诊断
   const text1 = await r1.text();
 
-  // ★ 放宽回退条件：只要是 422，就执行回退逻辑（覆盖：Unexpected inputs / cannot be used /
-  // does not have 'workflow_dispatch' trigger 等所有 422 文案）
+  // ② 任意 422 都回退（Unexpected inputs / cannot be used / no workflow_dispatch 等）
   if (r1.status === 422) {
-    // ② 有些仓库不接受自定义 inputs，尝试只传 runId 的极简 inputs
+    // ②a 极简 inputs（只传 runId），仍然走 workflow_dispatch
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
@@ -119,7 +117,7 @@ async function dispatchWorkflow(
     });
     if (r2.ok) return { ok: true, degraded: true };
 
-    // ③ 最终回退：repository_dispatch（工作流需声明 repository_dispatch）
+    // ②b 最终回退：repository_dispatch（工作流需声明 repository_dispatch）
     const repoUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
     const r3 = await fetch(repoUrl, {
       method: 'POST',
@@ -374,7 +372,16 @@ ${anchors}
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
       await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
-      const inputs = { runId, template: o.template, appTitle: o.appName, packageName: o.packageId };
+      // ✅ 传入 branch，让 workflow_dispatch 在该分支上构建
+      const inputs = {
+        runId,
+        template: o.template,
+        appTitle: o.appName,
+        packageName: o.packageId,
+        branch: runBranch,               // <—— 新增关键字段
+      };
+      await writeJSON(runId, '05d_dispatch_payload.json', { inputs, runBranch });
+
       dispatch = await dispatchWorkflow({ inputs }, runBranch);
 
       const owner = process.env.GH_OWNER!;
@@ -392,7 +399,7 @@ ${anchors}
       commit: commitInfo ?? null,
       actionsUrl,
       degraded: dispatch?.degraded ?? null,
-      branch: runBranch,
+      branch: `ndjc-run/${runId}`,
     });
   } catch (e: any) {
     return NextResponse.json(
