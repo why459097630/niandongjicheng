@@ -37,21 +37,20 @@ async function writeJson(p: string, data: any) {
   await fs.writeFile(p, JSON.stringify(data, null, 2), 'utf8');
 }
 
-/* ========= locales_config.xml ========= */
+/* ========= locale_config.xml（固定文件名，无 s；每次都写） ========= */
 async function writeLocalesConfig(appRoot: string, localesList?: string) {
-  const list = (localesList || '').trim();
-  if (!list) return;
-  const items = list.split(',').map(s => s.trim()).filter(Boolean);
-  if (!items.length) return;
+  const raw = (localesList ?? 'en,zh-CN').trim();
+  const items = raw.split(',').map(s => s.trim()).filter(Boolean);
+  const safeItems = items.length ? items : ['en'];
 
-  const xml =
-`<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
-${items.map(l => `  <locale android:name="${l}"/>`).join('\n')}
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+${safeItems.map(l => `    <locale android:name="${l}"/>`).join('\n')}
 </locale-config>
 `;
   const dir = path.join(appRoot, 'src/main/res/xml');
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'locales_config.xml'), xml, 'utf8');
+  await fs.writeFile(path.join(dir, 'locale_config.xml'), xml, 'utf8'); // ← 统一：locale_config.xml
 }
 
 /* ========= resConfigs -> Gradle ========= */
@@ -83,8 +82,11 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const PROGUARD_EXTRA  = o.proguardExtra ?? '';
   const PACKAGING_RULES = o.packagingRules ?? '';
 
-  // Manifest 可选 localeConfig
-  const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim() ? 'android:localeConfig="@xml/locales_config"' : '';
+  // Manifest 的 localeConfig：当传了 resConfigs 才注入属性；否则不注入（空串）
+  // ⚠️ 若模板中锚点写在注释里，替换后仍是注释文本，不会生效。建议把锚点放到 <application … NDJC:LOCALE_CONFIG> 中。
+  const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim()
+    ? 'android:localeConfig="@xml/locale_config"'
+    : '';
 
   const SIGNING_CONFIG = 'signingConfig signingConfigs.release';
 
@@ -323,9 +325,8 @@ export async function stabilizeGradle(appRoot: string) {
 /* ========= 伴生文件入口 ========= */
 export async function ensureAuxFiles(o: NdjcOrchestratorOutput) {
   const appRoot = path.join(workRepoRoot(), 'app');
-  if ((o.resConfigs ?? '').trim()) {
-    await writeLocalesConfig(appRoot, o.resConfigs);
-  }
+  // ★ 无条件写入（即使没传 resConfigs 也会落一个兜底文件）
+  await writeLocalesConfig(appRoot, o.resConfigs);
 }
 
 /* ========= 统计 & 写回 ========= */
