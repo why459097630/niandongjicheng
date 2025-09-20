@@ -2,14 +2,15 @@
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path, { dirname } from 'node:path';
-import { exec as cpExec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import https from 'node:https';
 import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
 
-const exec = promisify(cpExec);
+const execFileAsync = promisify(execFile);
 
 /* ========= 路径策略 ========= */
-// 模板只读根（默认 ./templates；但 materialize 时将优先使用远端）
+// （保留：如果没设远端就用它）
 function templatesBase() {
   return process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
 }
@@ -22,57 +23,93 @@ function repoRoot() {
   return process.cwd();
 }
 
-/* ========= 远端模板（新增） ========= */
-/** 本次运行临时放远端模板的目录 */
-function remoteTemplatesDir() {
-  return path.join(workRepoRoot(), '__templates_remote__');
-}
+/** 远端模板：优先拉最新（有 token 用 token），失败回退本地 templates */
+async function resolveTemplatesBase(): Promise<string> {
+  const env = process.env;
+  const repo = env.TEMPLATES_REPO;                 // 例如 why459097630/Packaging-warehouse
+  const branch = env.TEMPLATES_BRANCH || 'main';
+  const ref = env.TEMPLATES_REF || '';
+  const token = env.GH_TOKEN || env.GH_PAT || '';
 
-/** 拉取远端模板；成功返回远端“templates”根路径，失败返回 null（会回退到本地） */
-async function fetchRemoteTemplates(): Promise<string | null> {
-  const repo = process.env.TEMPLATES_REPO?.trim(); // 形如：owner/repo
-  if (!repo) return null;
+  if (!repo) return templatesBase();
 
-  const branch = (process.env.TEMPLATES_BRANCH || 'main').trim();
-  const token = (process.env.GH_TOKEN || process.env.GH_PAT || '').trim();
-  const dir = remoteTemplatesDir();
+  const baseDir = path.join(workRepoRoot(), '_remote_templates');
+  const dst = path.join(baseDir, 'repo');
 
-  // 干净重拉，确保总是最新
-  await fs.rm(dir, { recursive: true, force: true });
-  await fs.mkdir(dir, { recursive: true });
-
-  const url = token
-    ? `https://${token}@github.com/${repo}.git`
-    : `https://github.com/${repo}.git`;
+  // 每次都拉最新：清空后再取
+  await fs.rm(dst, { recursive: true, force: true }).catch(() => {});
+  await fs.mkdir(baseDir, { recursive: true });
 
   try {
-    await exec(`git clone --depth=1 --branch ${branch} ${url} ${dir}`);
-    // 记录 commit，便于排查 & 溯源
-    try {
-      const { stdout } = await exec(`git -C ${dir} rev-parse HEAD`);
-      await fs.writeFile(path.join(dir, '.templates_commit'), stdout.trim(), 'utf8');
-    } catch {}
-    return path.join(dir, 'templates');
+    if (await isGitAvailable()) {
+      const url = token
+        ? `https://${token}:x-oauth-basic@github.com/${repo}.git`
+        : `https://github.com/${repo}.git`;
+      const checkout = ref || branch;
+      await execFileAsync('git', ['clone', '--depth=1', '--branch', checkout, url, dst], {
+        env: process.env,
+      });
+    } else {
+      // 无 git 时走 zipball（tar.gz）
+      const tarUrl = ref
+        ? `https://codeload.github.com/${repo}/tar.gz/${ref}`
+        : `https://codeload.github.com/${repo}/tar.gz/${branch}`;
+      const tarPath = path.join(baseDir, 'repo.tar.gz');
+      await downloadFile(tarUrl, tarPath, token);
+      await execFileAsync('tar', ['-xzf', tarPath, '-C', baseDir]);
+      const entries = await fs.readdir(baseDir, { withFileTypes: true });
+      const firstDir = entries.find(e => e.isDirectory() && e.name !== 'repo');
+      if (!firstDir) throw new Error('tarball unpack failed');
+      await fs.rename(path.join(baseDir, firstDir.name), dst);
+      await fs.rm(tarPath, { force: true });
+    }
+    return path.join(dst, 'templates');
   } catch {
-    // 拉取失败 -> 用本地模板
-    return null;
+    // 远端失败回退本地
+    return templatesBase();
   }
 }
 
-/** 统一获取“模板根”（远端优先，失败回退到本地） */
-async function getTemplatesBase(): Promise<string> {
-  const remote = await fetchRemoteTemplates();
-  if (remote) return remote;
-  return templatesBase();
+async function isGitAvailable(): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['--version']);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-/* ========= 模板选择 ========= */
+async function downloadFile(url: string, out: string, token = ''): Promise<void> {
+  await fs.mkdir(path.dirname(out), { recursive: true });
+  await new Promise<void>((resolve, reject) => {
+    const options: https.RequestOptions = token
+      ? { headers: { Authorization: `token ${token}` } }
+      : {};
+    https
+      .get(url, options, res => {
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+          return;
+        }
+        fs
+          .open(out, 'w')
+          .then(fh => {
+            const ws = fh.createWriteStream();
+            res.pipe(ws);
+            ws.on('finish', () => ws.close().then(resolve));
+            ws.on('error', reject);
+          })
+          .catch(reject);
+      })
+      .on('error', reject);
+  });
+}
+
+/* ========= 模板选择（常量名不变，便于保持与现有目录结构兼容） ========= */
 const TEMPLATE_DIR = { simple: 'simple-template', core: 'core-template', form: 'form-template' } as const;
 function templateRoot(t: keyof typeof TEMPLATE_DIR) {
+  // 注意：此函数不再用于 materialize（保留以兼容可能其它地方的引用）
   return path.join(templatesBase(), TEMPLATE_DIR[t]);
-}
-function templateRootFrom(base: string, t: keyof typeof TEMPLATE_DIR) {
-  return path.join(base, TEMPLATE_DIR[t]);
 }
 
 /* ========= 基础工具 ========= */
@@ -102,7 +139,7 @@ ${items.map(l => `  <locale android:name="${l}"/>`).join('\n')}
 `;
   const dir = path.join(appRoot, 'src/main/res/xml');
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'locale_config.xml'), xml, 'utf8'); // 统一写为 locale_config.xml
+  await fs.writeFile(path.join(dir, 'locales_config.xml'), xml, 'utf8');
 }
 
 /* ========= resConfigs -> Gradle ========= */
@@ -134,8 +171,8 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const PROGUARD_EXTRA  = o.proguardExtra ?? '';
   const PACKAGING_RULES = o.packagingRules ?? '';
 
-  // Manifest 可选 localeConfig（有配置才注入）
-  const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim() ? 'android:localeConfig="@xml/locale_config"' : '';
+  // Manifest 可选 localeConfig
+  const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim() ? 'android:localeConfig="@xml/locales_config"' : '';
 
   const SIGNING_CONFIG = 'signingConfig signingConfigs.release';
 
@@ -271,11 +308,14 @@ async function copyDir(src: string, dst: string) {
   }
 }
 
-/** 强制每次运行都先清空工作目录再 materialize（远端优先） */
+/** 强制每次运行都先清空工作目录再 materialize（✅ 改为远端优先） */
 export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'form') {
   const repo = workRepoRoot();
-  const base = await getTemplatesBase(); // ★ 远端优先，失败回退本地
-  const srcApp = path.join(templateRootFrom(base, templateKey), 'app');
+
+  // 关键：解析模板根（远端优先，失败回退本地）
+  const base = await resolveTemplatesBase();
+  const srcApp = path.join(base, TEMPLATE_DIR[templateKey], 'app');
+
   const dstApp = path.join(repo, 'app');
 
   // 清空工作目录
@@ -283,15 +323,6 @@ export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'f
   await fs.mkdir(repo, { recursive: true });
 
   await copyDir(srcApp, dstApp);
-
-  // 记录来源，便于排查
-  const meta: any = { sourceBase: base };
-  try {
-    const commit = await fs.readFile(path.join(remoteTemplatesDir(), '.templates_commit'), 'utf8').catch(() => '');
-    if (commit) meta.remoteCommit = commit.trim();
-  } catch {}
-  await writeJson(path.join(repoRoot(), 'requests', 'last_templates_source.json'), meta);
-
   return { dstApp, templateKey };
 }
 
