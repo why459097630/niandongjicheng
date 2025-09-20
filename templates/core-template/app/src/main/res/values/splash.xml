@@ -1,4 +1,0 @@
-<resources>
-    <item name="ndjc_splash_bg" type="color">NDJC:SPLASH_BACKGROUND</item>
-    <item name="ndjc_splash_icon" type="drawable">@mipmap/ic_launcher</item>
-</resources>
