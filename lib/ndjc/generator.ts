@@ -2,49 +2,16 @@
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path, { dirname } from 'node:path';
-import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
-import { execFile } from 'node:child_process';
+import { exec as cpExec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
 
-const exec = promisify(execFile);
+const exec = promisify(cpExec);
 
 /* ========= 路径策略 ========= */
-// （A 方案）模板根目录解析：优先使用远端仓库的最新模板
-async function resolveTemplatesBase(): Promise<string> {
-  const repo = process.env.NDJC_TEMPLATES_REPO;          // e.g. https://github.com/you/Packaging-warehouse.git
-  const ref  = process.env.NDJC_TEMPLATES_REF || 'main'; // 分支 / Tag / Commit
-
-  if (repo) {
-    const rootBase = '/tmp/ndjc-templates';
-    const root = path.join(rootBase, ref.replace(/[^\w.-]/g, '_'));
-    await fs.mkdir(rootBase, { recursive: true });
-
-    if (!existsSync(root)) {
-      await exec('git', ['clone', '--depth', '1', '--branch', ref, repo, root]);
-    } else {
-      // 拉最新
-      await exec('git', ['-C', root, 'fetch', 'origin', ref, '--depth', '1']);
-      // 对齐远端 HEAD
-      // 兼容 tag/commit：尽量 reset 到 FETCH_HEAD；失败再尝试 origin/<ref>
-      try {
-        await exec('git', ['-C', root, 'reset', '--hard', 'FETCH_HEAD']);
-      } catch {
-        await exec('git', ['-C', root, 'reset', '--hard', `origin/${ref}`]);
-      }
-      // 清理未跟踪文件，保持纯净
-      await exec('git', ['-C', root, 'clean', '-fdx']);
-    }
-    // 远端仓库中模板根：要求与本地一致为 /templates
-    return path.join(root, 'templates');
-  }
-
-  // 本地回退：仍然支持用仓库自带 templates 目录
+// 模板只读根（默认 ./templates；但 materialize 时将优先使用远端）
+function templatesBase() {
   return process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
-}
-const TEMPLATE_DIR = { simple: 'simple-template', core: 'core-template', form: 'form-template' } as const;
-async function templateRootAsync(t: keyof typeof TEMPLATE_DIR) {
-  const base = await resolveTemplatesBase();
-  return path.join(base, TEMPLATE_DIR[t]);
 }
 // 工作区（可写），Vercel 上默认 /tmp（可用 NDJC_WORKDIR 覆盖）
 function workRepoRoot() {
@@ -53,6 +20,59 @@ function workRepoRoot() {
 // 仓库根（含 app/ 与 requests/）
 function repoRoot() {
   return process.cwd();
+}
+
+/* ========= 远端模板（新增） ========= */
+/** 本次运行临时放远端模板的目录 */
+function remoteTemplatesDir() {
+  return path.join(workRepoRoot(), '__templates_remote__');
+}
+
+/** 拉取远端模板；成功返回远端“templates”根路径，失败返回 null（会回退到本地） */
+async function fetchRemoteTemplates(): Promise<string | null> {
+  const repo = process.env.TEMPLATES_REPO?.trim(); // 形如：owner/repo
+  if (!repo) return null;
+
+  const branch = (process.env.TEMPLATES_BRANCH || 'main').trim();
+  const token = (process.env.GH_TOKEN || process.env.GH_PAT || '').trim();
+  const dir = remoteTemplatesDir();
+
+  // 干净重拉，确保总是最新
+  await fs.rm(dir, { recursive: true, force: true });
+  await fs.mkdir(dir, { recursive: true });
+
+  const url = token
+    ? `https://${token}@github.com/${repo}.git`
+    : `https://github.com/${repo}.git`;
+
+  try {
+    await exec(`git clone --depth=1 --branch ${branch} ${url} ${dir}`);
+    // 记录 commit，便于排查 & 溯源
+    try {
+      const { stdout } = await exec(`git -C ${dir} rev-parse HEAD`);
+      await fs.writeFile(path.join(dir, '.templates_commit'), stdout.trim(), 'utf8');
+    } catch {}
+    return path.join(dir, 'templates');
+  } catch {
+    // 拉取失败 -> 用本地模板
+    return null;
+  }
+}
+
+/** 统一获取“模板根”（远端优先，失败回退到本地） */
+async function getTemplatesBase(): Promise<string> {
+  const remote = await fetchRemoteTemplates();
+  if (remote) return remote;
+  return templatesBase();
+}
+
+/* ========= 模板选择 ========= */
+const TEMPLATE_DIR = { simple: 'simple-template', core: 'core-template', form: 'form-template' } as const;
+function templateRoot(t: keyof typeof TEMPLATE_DIR) {
+  return path.join(templatesBase(), TEMPLATE_DIR[t]);
+}
+function templateRootFrom(base: string, t: keyof typeof TEMPLATE_DIR) {
+  return path.join(base, TEMPLATE_DIR[t]);
 }
 
 /* ========= 基础工具 ========= */
@@ -68,9 +88,7 @@ async function writeJson(p: string, data: any) {
   await fs.writeFile(p, JSON.stringify(data, null, 2), 'utf8');
 }
 
-/* ========= locales_config.xml（单数：locale_config.xml）=========
-   注意：文件名改成 locale_config.xml，并与 Manifest 的
-   android:localeConfig="@xml/locale_config" 保持一致。 */
+/* ========= locales_config.xml ========= */
 async function writeLocalesConfig(appRoot: string, localesList?: string) {
   const list = (localesList || '').trim();
   if (!list) return;
@@ -84,7 +102,7 @@ ${items.map(l => `  <locale android:name="${l}"/>`).join('\n')}
 `;
   const dir = path.join(appRoot, 'src/main/res/xml');
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'locale_config.xml'), xml, 'utf8');
+  await fs.writeFile(path.join(dir, 'locale_config.xml'), xml, 'utf8'); // 统一写为 locale_config.xml
 }
 
 /* ========= resConfigs -> Gradle ========= */
@@ -116,7 +134,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const PROGUARD_EXTRA  = o.proguardExtra ?? '';
   const PACKAGING_RULES = o.packagingRules ?? '';
 
-  // Manifest localeConfig（支持 block 与 text 两种锚点）
+  // Manifest 可选 localeConfig（有配置才注入）
   const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim() ? 'android:localeConfig="@xml/locale_config"' : '';
 
   const SIGNING_CONFIG = 'signingConfig signingConfigs.release';
@@ -136,9 +154,8 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
       file: path.join(appRoot, 'src/main/AndroidManifest.xml'),
       replace: [
         { marker: 'NDJC:APP_LABEL', value: o.appName },
-        { marker: 'NDJC:LOCALE_CONFIG',        value: LOCALE_CONFIG_ATTR }, // 兼容旧锚点
-        { marker: 'NDJC:BLOCK:LOCALE_CONFIG',  value: LOCALE_CONFIG_ATTR }, // 新 block 锚点
-        { marker: 'NDJC:BLOCK:PERMISSIONS',    value: o.permissionsXml ?? '' },
+        { marker: 'NDJC:LOCALE_CONFIG', value: LOCALE_CONFIG_ATTR },
+        { marker: 'NDJC:BLOCK:PERMISSIONS', value: o.permissionsXml ?? '' },
         { marker: 'NDJC:BLOCK:INTENT_FILTERS', value: o.intentFiltersXml ?? '' },
       ],
     },
@@ -254,25 +271,11 @@ async function copyDir(src: string, dst: string) {
   }
 }
 
-// 兜底：清理夜间主题目录，避免引用旧色值导致 AAPT 失败
-async function purgeNightValues(appRoot: string) {
-  const resDir = path.join(appRoot, 'src/main/res');
-  try {
-    const list = await fs.readdir(resDir, { withFileTypes: true });
-    for (const it of list) {
-      if (it.isDirectory() && it.name.startsWith('values-night')) {
-        await fs.rm(path.join(resDir, it.name), { recursive: true, force: true });
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-/** 强制每次运行都先清空工作目录再 materialize（总是使用最新模板） */
+/** 强制每次运行都先清空工作目录再 materialize（远端优先） */
 export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'form') {
   const repo = workRepoRoot();
-  const srcApp = path.join(await templateRootAsync(templateKey), 'app');
+  const base = await getTemplatesBase(); // ★ 远端优先，失败回退本地
+  const srcApp = path.join(templateRootFrom(base, templateKey), 'app');
   const dstApp = path.join(repo, 'app');
 
   // 清空工作目录
@@ -280,7 +283,15 @@ export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'f
   await fs.mkdir(repo, { recursive: true });
 
   await copyDir(srcApp, dstApp);
-  await purgeNightValues(dstApp);
+
+  // 记录来源，便于排查
+  const meta: any = { sourceBase: base };
+  try {
+    const commit = await fs.readFile(path.join(remoteTemplatesDir(), '.templates_commit'), 'utf8').catch(() => '');
+    if (commit) meta.remoteCommit = commit.trim();
+  } catch {}
+  await writeJson(path.join(repoRoot(), 'requests', 'last_templates_source.json'), meta);
+
   return { dstApp, templateKey };
 }
 
@@ -406,7 +417,7 @@ export async function generateAndSync(
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const reqDir = path.join(repoRoot(), 'requests', ts);
 
-  // 1) 清空工作区并 materialize（总是最新模板）
+  // 1) 清空工作区并 materialize（远端优先）
   const { dstApp } = await materializeToWorkspace(templateKey);
 
   // 2) 构建计划 & 应用
