@@ -2,13 +2,13 @@
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path, { dirname } from 'node:path';
+import { exec as _exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
 
+const exec = promisify(_exec);
+
 /* ========= 路径策略 ========= */
-// 模板只读根（可用 TEMPLATES_DIR 覆盖）
-function templatesBase() {
-  return process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
-}
 // 工作区（可写），Vercel 上默认 /tmp（可用 NDJC_WORKDIR 覆盖）
 function workRepoRoot() {
   return process.env.NDJC_WORKDIR || '/tmp/ndjc';
@@ -18,10 +18,42 @@ function repoRoot() {
   return process.cwd();
 }
 
+/** 从 Git 拉取最新模板（若配置了 NDJC_TEMPLATES_GIT_URL）；返回 <...>/templates 目录路径 */
+async function ensureTemplatesFromGit(): Promise<string | null> {
+  const gitUrl = process.env.NDJC_TEMPLATES_GIT_URL; // e.g. https://github.com/you/Packaging-warehouse.git
+  if (!gitUrl) return null;
+  const ref = process.env.NDJC_TEMPLATES_REF || 'main';
+  const base = '/tmp/ndjc-templates';
+  const dir = path.join(base, `${Buffer.from(gitUrl).toString('hex')}-${ref}`);
+  await fs.mkdir(base, { recursive: true });
+
+  try {
+    if (!existsSync(path.join(dir, '.git'))) {
+      await exec(`git clone --depth=1 --branch ${ref} ${gitUrl} ${dir}`);
+    } else {
+      await exec(`git -C ${dir} fetch origin ${ref} --depth=1`);
+      await exec(`git -C ${dir} reset --hard origin/${ref}`);
+      await exec(`git -C ${dir} clean -xdf`);
+    }
+    return path.join(dir, 'templates');
+  } catch (e) {
+    // 如果运行环境没有 git 或拉取失败，回退到 null（走本地 templates）
+    return null;
+  }
+}
+
+// 模板根（优先级：TEMPLATES_DIR > NDJC_TEMPLATES_GIT_URL > 部署包 templates/）
+async function templatesBaseAsync(): Promise<string> {
+  if (process.env.TEMPLATES_DIR) return process.env.TEMPLATES_DIR;
+  const fromGit = await ensureTemplatesFromGit();
+  if (fromGit) return fromGit;
+  return path.join(process.cwd(), 'templates');
+}
+
 /* ========= 模板选择 ========= */
 const TEMPLATE_DIR = { simple: 'simple-template', core: 'core-template', form: 'form-template' } as const;
-function templateRoot(t: keyof typeof TEMPLATE_DIR) {
-  return path.join(templatesBase(), TEMPLATE_DIR[t]);
+async function templateRoot(t: keyof typeof TEMPLATE_DIR) {
+  return path.join(await templatesBaseAsync(), TEMPLATE_DIR[t]);
 }
 
 /* ========= 基础工具 ========= */
@@ -37,20 +69,23 @@ async function writeJson(p: string, data: any) {
   await fs.writeFile(p, JSON.stringify(data, null, 2), 'utf8');
 }
 
-/* ========= locale_config.xml（固定文件名，无 s；每次都写） ========= */
+/* ========= locales_config.xml ========= */
 async function writeLocalesConfig(appRoot: string, localesList?: string) {
-  const raw = (localesList ?? 'en,zh-CN').trim();
-  const items = raw.split(',').map(s => s.trim()).filter(Boolean);
-  const safeItems = items.length ? items : ['en'];
+  const list = (localesList || '').trim();
+  if (!list) return;
+  const items = list.split(',').map(s => s.trim()).filter(Boolean);
+  if (!items.length) return;
 
-  const xml = `<?xml version="1.0" encoding="utf-8"?>
+  const xml =
+`<?xml version="1.0" encoding="utf-8"?>
 <locale-config xmlns:android="http://schemas.android.com/apk/res/android">
-${safeItems.map(l => `    <locale android:name="${l}"/>`).join('\n')}
+${items.map(l => `    <locale android:name="${l}"/>`).join('\n')}
 </locale-config>
 `;
   const dir = path.join(appRoot, 'src/main/res/xml');
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'locale_config.xml'), xml, 'utf8'); // ← 统一：locale_config.xml
+  // 统一写 locale_config.xml（注意：不是 locales_config.xml）
+  await fs.writeFile(path.join(dir, 'locale_config.xml'), xml, 'utf8');
 }
 
 /* ========= resConfigs -> Gradle ========= */
@@ -82,9 +117,9 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const PROGUARD_EXTRA  = o.proguardExtra ?? '';
   const PACKAGING_RULES = o.packagingRules ?? '';
 
-  // 使用 BLOCK 锚点注入属性：有 resConfigs 才注入，否则清空
-  const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim()
-    ? 'android:localeConfig="@xml/locale_config"'
+  // 通过 BLOCK 注入 localeConfig（由生成器额外写入文件）
+  const LOCALE_BLOCK = (o.resConfigs || '').trim()
+    ? `<!-- NDJC:BLOCK:LOCALE_CONFIG --><meta-data android:name="android.app.locale_config" android:resource="@xml/locale_config" />`
     : '';
 
   const SIGNING_CONFIG = 'signingConfig signingConfigs.release';
@@ -104,7 +139,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
       file: path.join(appRoot, 'src/main/AndroidManifest.xml'),
       replace: [
         { marker: 'NDJC:APP_LABEL', value: o.appName },
-        { marker: 'NDJC:BLOCK:LOCALE_CONFIG', value: LOCALE_CONFIG_ATTR }, // ← BLOCK 注入
+        { marker: 'NDJC:BLOCK:LOCALE_CONFIG', value: LOCALE_BLOCK },
         { marker: 'NDJC:BLOCK:PERMISSIONS', value: o.permissionsXml ?? '' },
         { marker: 'NDJC:BLOCK:INTENT_FILTERS', value: o.intentFiltersXml ?? '' },
       ],
@@ -221,10 +256,21 @@ async function copyDir(src: string, dst: string) {
   }
 }
 
+/* ======== 兜底：移除 legacy 夜间主题（含旧色值/属性） ======== */
+async function pruneLegacyNightTheme(appRoot: string) {
+  const p = path.join(appRoot, 'src/main/res/values-night/themes.xml');
+  if (!existsSync(p)) return;
+  const txt = await fs.readFile(p, 'utf8');
+  const legacy = /(colorPrimary|purple_|teal_|ndjc_color_|errorColor)/;
+  if (legacy.test(txt)) {
+    await fs.rm(p);
+  }
+}
+
 /** 强制每次运行都先清空工作目录再 materialize */
 export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'form') {
   const repo = workRepoRoot();
-  const srcApp = path.join(templateRoot(templateKey), 'app');
+  const srcApp = path.join(await templateRoot(templateKey), 'app');
   const dstApp = path.join(repo, 'app');
 
   // 清空工作目录
@@ -232,6 +278,10 @@ export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'f
   await fs.mkdir(repo, { recursive: true });
 
   await copyDir(srcApp, dstApp);
+
+  // 兜底：剔除可能遗留的旧夜间主题
+  await pruneLegacyNightTheme(dstApp);
+
   return { dstApp, templateKey };
 }
 
@@ -324,8 +374,9 @@ export async function stabilizeGradle(appRoot: string) {
 /* ========= 伴生文件入口 ========= */
 export async function ensureAuxFiles(o: NdjcOrchestratorOutput) {
   const appRoot = path.join(workRepoRoot(), 'app');
-  // ★ 无条件写入（即使没传 resConfigs 也会落一个兜底文件）
-  await writeLocalesConfig(appRoot, o.resConfigs);
+  if ((o.resConfigs ?? '').trim()) {
+    await writeLocalesConfig(appRoot, o.resConfigs);
+  }
 }
 
 /* ========= 统计 & 写回 ========= */
@@ -356,7 +407,7 @@ export async function generateAndSync(
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const reqDir = path.join(repoRoot(), 'requests', ts);
 
-  // 1) 清空工作区并 materialize
+  // 1) 清空工作区并 materialize（此处已确保用最新模板源）
   const { dstApp } = await materializeToWorkspace(templateKey);
 
   // 2) 构建计划 & 应用
@@ -381,6 +432,7 @@ export async function generateAndSync(
   const replacedCount = countReplacements(detail, KEY);
   if (replacedCount === 0) {
     throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
+    // （留意：BLOCK:LOCALE_CONFIG 非关键锚点，不计入空包保险丝）
   }
 
   // 6) 写回 ./app
