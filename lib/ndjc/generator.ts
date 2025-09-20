@@ -82,8 +82,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
   const PROGUARD_EXTRA  = o.proguardExtra ?? '';
   const PACKAGING_RULES = o.packagingRules ?? '';
 
-  // Manifest 的 localeConfig：当传了 resConfigs 才注入属性；否则不注入（空串）
-  // ⚠️ 若模板中锚点写在注释里，替换后仍是注释文本，不会生效。建议把锚点放到 <application … NDJC:LOCALE_CONFIG> 中。
+  // 使用 BLOCK 锚点注入属性：有 resConfigs 才注入，否则清空
   const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim()
     ? 'android:localeConfig="@xml/locale_config"'
     : '';
@@ -105,7 +104,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
       file: path.join(appRoot, 'src/main/AndroidManifest.xml'),
       replace: [
         { marker: 'NDJC:APP_LABEL', value: o.appName },
-        { marker: 'NDJC:LOCALE_CONFIG', value: LOCALE_CONFIG_ATTR },
+        { marker: 'NDJC:BLOCK:LOCALE_CONFIG', value: LOCALE_CONFIG_ATTR }, // ← BLOCK 注入
         { marker: 'NDJC:BLOCK:PERMISSIONS', value: o.permissionsXml ?? '' },
         { marker: 'NDJC:BLOCK:INTENT_FILTERS', value: o.intentFiltersXml ?? '' },
       ],
