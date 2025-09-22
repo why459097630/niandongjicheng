@@ -21,6 +21,7 @@ import { ensureBranch, pushDirByContentsApi } from '@/lib/ndjc/git-contents';
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import * as yaml from 'js-yaml';
 
 export const runtime = 'nodejs';
 
@@ -243,7 +244,7 @@ function countCriticalReplacements(applyResult: any[]): number {
     'NDJC:PACKAGE_NAME',
     'NDJC:APP_LABEL',
     'NDJC:HOME_TITLE',
-    'NDJC:MAIN_BUTTON',
+    'NDJC:PRIMARY_BUTTON_TEXT',
     'BLOCK:PERMISSIONS',
     'BLOCK:INTENT_FILTERS',
   ]);
@@ -264,20 +265,49 @@ export async function POST(req: NextRequest) {
     // 0) 入参 & runId
     step = 'parse-input';
     const input = await req.json().catch(() => ({}));
-    runId = newRunId();
-    await writeJSON(runId, '00_input.json', input);
+
+    // === 新字段兼容与兜底 ===
+    const runIdFromClient = (input.run_id || input.runId) as string | undefined;
+    runId = runIdFromClient || newRunId();
+
+    // 兼容 template / template_key
+    const rawTemplate: string =
+      (input.template_key || input.template || 'circle-basic').toString();
+
+    // 兼容自然语言字段
+    const nl: string = (input.nl ?? input.requirement ?? '').toString();
+
+    const presetHint: 'minimal'|'social'|'i18n'|undefined = input.preset_hint;
+    const mode: 'A'|'B' = (input.mode === 'B' ? 'B' : 'A');
+    const allowCompanions: boolean = !!input.allowCompanions && mode === 'B';
+    const features = input.features ?? {};
+    const anchorsHint = input.anchorsHint ?? {};
+
+    await writeJSON(runId, '00_input.json', {
+      ...input,
+      _normalized: { runId, rawTemplate, nl, presetHint, mode, allowCompanions }
+    });
 
     // 0.5) 在线拉取模板（如配置了 TEMPLATES_REPO）
     step = 'fetch-templates';
     const tplFetch = await ensureLatestTemplates(runId);
     await writeJSON(runId, '00_templates_source.json', tplFetch);
 
-    // 1) 路径体检
+    // 1) 路径体检（新/旧模板目录均支持）
     step = 'check-paths';
     const repoRoot = getRepoPath();
     const tplRoot = process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
-    const templateName = String(input?.template || 'core');
-    const tplDir = path.join(tplRoot, `${templateName}-template`);
+
+    // 新样式：直接使用 key 作为目录（如 templates/circle-basic）
+    const tplDirNew = path.join(tplRoot, rawTemplate);
+    // 旧样式：templates/<name>-template
+    const tplDirOld = path.join(tplRoot, `${rawTemplate}-template`);
+
+    const tplDirNewExists = await pathExists(tplDirNew);
+    const tplDirOldExists = await pathExists(tplDirOld);
+
+    // 实际使用目录
+    const tplDir = tplDirNewExists ? tplDirNew : tplDirOld;
 
     const checks = {
       repoRoot,
@@ -285,7 +315,8 @@ export async function POST(req: NextRequest) {
       tplDir,
       repoRootExists: await pathExists(repoRoot),
       tplRootExists: await pathExists(tplRoot),
-      tplDirExists: await pathExists(tplDir),
+      tplDirNewExists,
+      tplDirOldExists,
       env: {
         GH_OWNER: !!process.env.GH_OWNER,
         GH_REPO: !!process.env.GH_REPO,
@@ -304,7 +335,9 @@ export async function POST(req: NextRequest) {
 
     if (!checks.repoRootExists) throw new Error(`RepoNotFound: ${repoRoot}`);
     if (!checks.tplRootExists) throw new Error(`TemplatesDirNotFound: ${tplRoot}`);
-    if (!checks.tplDirExists) throw new Error(`TemplateMissing: ${tplDir}`);
+    if (!tplDirNewExists && !tplDirOldExists) {
+      throw new Error(`TemplateMissing: ${tplDirNew} (fallback ${tplDirOld})`);
+    }
 
     // 2) 编排：在线优先，离线兜底
     step = 'orchestrate';
@@ -314,7 +347,22 @@ export async function POST(req: NextRequest) {
       if (!process.env.GROQ_API_KEY) throw new Error('groq-key-missing');
 
       const groqModel = process.env.GROQ_MODEL || input?.model || 'llama-3.1-8b-instant';
-      o = await orchestrate({ ...input, provider: 'groq', model: groqModel, forceProvider: 'groq' });
+      o = await orchestrate({
+        // 兼容旧字段 + 新字段
+        ...input,
+        run_id: runId,
+        template: rawTemplate,
+        template_key: rawTemplate,
+        nl,
+        preset_hint: presetHint,
+        mode,
+        allowCompanions,
+        features,
+        anchorsHint,
+        provider: 'groq',
+        model: groqModel,
+        forceProvider: 'groq',
+      });
       await writeText(runId, '01_orchestrator_mode.txt', `online(groq:${groqModel})`);
 
       if (o && o._trace) {
@@ -330,25 +378,59 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (err: any) {
+      // 离线兜底（最小可用）
       o = {
-        mode: 'A',
-        allowCompanions: false,
-        template: input.template ?? 'core',
-        appName: input.appName ?? input.appTitle ?? 'NDJC core',
-        packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.core',
+        mode,
+        allowCompanions,
+        template: rawTemplate,
+        template_key: rawTemplate,
+        appName: input.appName ?? input.appTitle ?? 'NDJC App',
+        packageId: input.packageId ?? input.packageName ?? 'com.ndjc.app',
+        nl,
+        preset_hint: presetHint,
+        features,
+        anchorsHint,
       };
       await writeText(runId, '01_orchestrator_mode.txt', `offline (${String(err?.message ?? err)})`);
     }
     await writeJSON(runId, '01_orchestrator.json', o);
 
-    // 3) 计划
+    // 3) 计划（合并 anchorsHint 到 plan）
     step = 'build-plan';
-    const plan = buildPlan(o);
+    const plan0 = buildPlan(o) || {};
+    const plan = {
+      ...plan0,
+      run_id: runId,
+      template_key: o.template_key ?? o.template ?? rawTemplate,
+      anchors:   { ...(plan0?.anchors    ?? {} as any) },
+      conditions:{ ...(plan0?.conditions ?? {} as any) },
+      lists:     { ...(plan0?.lists      ?? {} as any) },
+      blocks:    { ...(plan0?.blocks     ?? {} as any) },
+    } as any;
+
+    // 前端 anchorsHint（包含 IF: 与 NDJC:）→ 覆盖到 plan
+    if (o.anchorsHint && typeof o.anchorsHint === 'object') {
+      for (const [k, v] of Object.entries(o.anchorsHint)) {
+        if (k.startsWith('IF:')) {
+          plan.conditions[k] = Boolean(v);
+        } else if (k.startsWith('LIST:')) {
+          // 简单合并列表（去重）
+          const arr = Array.isArray(v) ? v as any[] : [v];
+          plan.lists[k] = Array.from(new Set([...(plan.lists[k] || []), ...arr]));
+        } else if (k.startsWith('BLOCK:')) {
+          plan.blocks[k] = v;
+        } else {
+          plan.anchors[k] = v;
+        }
+      }
+    }
+
     await writeJSON(runId, '02_plan.json', plan);
 
     // 4) 物化+应用+清理（使用临时 appRoot）
     step = 'materialize';
-    const material = await materializeToWorkspace(o.template);
+    // 重要：这里把 template 设为“目录名”（新/旧均可），以便 materialize 能找到
+    const material = await materializeToWorkspace(plan.template_key || o.template || rawTemplate);
     const appRoot = material.dstApp;
     await writeText(runId, '04_materialize.txt', `app copied to: ${appRoot}`);
 
@@ -357,7 +439,7 @@ export async function POST(req: NextRequest) {
     await writeJSON(runId, '03_apply_result.json', applyResult);
 
     // 保险丝：关键锚点替换必须 > 0（否则直接中止，阻断空包）
-    const replacedTotal = countCriticalReplacements(applyResult);
+    const replacedTotal = countCriticalReplacements(applyResult as any[]);
     if (replacedTotal === 0) {
       await writeText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
       throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
@@ -390,9 +472,9 @@ export async function POST(req: NextRequest) {
 
 - mode: **${o.mode ?? 'A'}**
 - allowCompanions: **${!!o.allowCompanions}**
-- template: **${o.template}**
-- appName: **${o.appName}**
-- packageId: **${o.packageId}**
+- template: **${plan.template_key || o.template}**
+- appName: **${o.appName ?? plan.anchors?.['NDJC:APP_LABEL']}**
+- packageId: **${o.packageId ?? plan.anchors?.['NDJC:PACKAGE_NAME']}**
 - repo: \`${getRepoPath()}\`
 - templates: **${tplFetch.mode}** @ \`${process.env.TEMPLATES_DIR}\`
 
@@ -418,7 +500,7 @@ ${anchors}
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
-      commitInfo = await gitCommitPush(`[NDJC run ${runId}] template=${o.template} app=${o.appName}`);
+      commitInfo = await gitCommitPush(`[NDJC run ${runId}] template=${plan.template_key || o.template} app=${o.appName}`);
     } else {
       await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
@@ -457,7 +539,12 @@ ${anchors}
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
       await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
-      const inputs = { runId, template: o.template, appTitle: o.appName, packageName: o.packageId };
+      const inputs = {
+        runId,
+        template: plan.template_key || o.template,
+        appTitle: o.appName,
+        packageName: o.packageId,
+      };
       dispatch = await dispatchWorkflow({ inputs }, runBranch);
 
       const owner = process.env.GH_OWNER!;
@@ -470,7 +557,7 @@ ${anchors}
     return NextResponse.json({
       ok: true,
       runId,
-      replaced: replacedTotal,
+      replaced: countCriticalReplacements(await (applyPlanDetailed(plan) as any)), // 再保障一次
       committed: !!commitInfo?.committed,
       commit: commitInfo ?? null,
       actionsUrl,
