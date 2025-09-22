@@ -1,8 +1,21 @@
 // lib/ndjc/generator.ts
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import path, { dirname } from 'node:path';
+import path from 'node:path';
 import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
+
+/* =========================================================
+ * 通用 BuildPlan（route.ts 会先合并 preset + anchorsHint 再传进来）
+ * =======================================================*/
+type BuildPlan = {
+  run_id?: string;
+  template_key: string;                 // e.g. circle-basic
+  preset_used?: string;
+  anchors: Record<string, any>;         // NDJC:*
+  conditions?: Record<string, boolean>; // IF:*
+  lists?: Record<string, any[]>;        // LIST:*
+  blocks?: Record<string, string>;      // BLOCK:*
+};
 
 /* ========= 路径策略 ========= */
 // 模板只读根（可用 TEMPLATES_DIR 覆盖）
@@ -13,206 +26,16 @@ function templatesBase() {
 function workRepoRoot() {
   return process.env.NDJC_WORKDIR || '/tmp/ndjc';
 }
-// 仓库根（含 app/ 与 requests/）
-function repoRoot() {
-  return process.cwd();
+
+/* ========= 文本类型判断 ========= */
+const TEXT_EXT = new Set([
+  '.kt','.kts','.java','.xml','.gradle','.pro','.md','.txt','.json','.yaml','.yml','.properties'
+]);
+function isTextFile(p: string) {
+  return TEXT_EXT.has(path.extname(p).toLowerCase());
 }
 
-/* ========= 模板选择 ========= */
-const TEMPLATE_DIR = { simple: 'simple-template', core: 'core-template', form: 'form-template' } as const;
-function templateRoot(t: keyof typeof TEMPLATE_DIR) {
-  return path.join(templatesBase(), TEMPLATE_DIR[t]);
-}
-
-/* ========= 诊断：输出当前物化所使用的模板来源 ========= */
-function templateDebugInfo(t: keyof typeof TEMPLATE_DIR) {
-  const base = templatesBase();     // 模板基准目录（环境变量 TEMPLATES_DIR 或 ./templates）
-  const root = templateRoot(t);     // 选中模板的根
-  return { base, root };
-}
-
-/* ========= 基础工具 ========= */
-function pickGradleFile(appRoot: string) {
-  const kts = path.join(appRoot, 'build.gradle.kts');
-  const groovy = path.join(appRoot, 'build.gradle');
-  return existsSync(kts) ? kts : groovy;
-}
-type Patch = { file: string; replace: Array<{ marker: string; value: string }> };
-
-async function writeJson(p: string, data: any) {
-  await fs.mkdir(dirname(p), { recursive: true });
-  await fs.writeFile(p, JSON.stringify(data, null, 2), 'utf8');
-}
-
-/* ========= locales_config.xml ========= */
-async function writeLocalesConfig(appRoot: string, localesList?: string) {
-  const list = (localesList || '').trim();
-  if (!list) return;
-  const items = list.split(',').map(s => s.trim()).filter(Boolean);
-  if (!items.length) return;
-
-  const xml =
-`<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
-${items.map(l => `  <locale android:name="${l}"/>`).join('\n')}
-</locale-config>
-`;
-  const dir = path.join(appRoot, 'src/main/res/xml');
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'locales_config.xml'), xml, 'utf8');
-}
-
-/* ========= resConfigs -> Gradle ========= */
-function toGradleResConfigs(list?: string): string {
-  const raw = (list || '').trim();
-  if (!raw) return '';
-  const items = raw.split(',').map(s => s.trim()).filter(Boolean);
-  if (!items.length) return '';
-  const quoted = items.map(v => `'${v}'`).join(', ');
-  return `resConfigs ${quoted}`;
-}
-
-/* ========= 生成计划 ========= */
-export function buildPlan(o: NdjcOrchestratorOutput): Patch[] {
-  const repo = workRepoRoot();
-  const appRoot = path.join(repo, 'app');
-  const gradleFile = pickGradleFile(appRoot);
-
-  const env = process.env;
-  const COMPILE_SDK        = env.NDJC_COMPILE_SDK        ?? '34';
-  const MIN_SDK            = env.NDJC_MIN_SDK            ?? '24';
-  const TARGET_SDK         = env.NDJC_TARGET_SDK         ?? '34';
-  const VERSION_CODE       = env.NDJC_VERSION_CODE       ?? '1';
-  const VERSION_NAME       = env.NDJC_VERSION_NAME       ?? '1.0.0';
-  const PLUGINS_EXTRA      = env.NDJC_PLUGINS_EXTRA      ?? '';
-  const DEPENDENCIES_EXTRA = env.NDJC_DEPENDENCIES_EXTRA ?? '';
-
-  const RES_CONFIGS     = toGradleResConfigs(o.resConfigs);
-  const PROGUARD_EXTRA  = o.proguardExtra ?? '';
-  const PACKAGING_RULES = o.packagingRules ?? '';
-
-  // Manifest 可选 localeConfig
-  const LOCALE_CONFIG_ATTR = (o.resConfigs || '').trim() ? 'android:localeConfig="@xml/locales_config"' : '';
-
-  const SIGNING_CONFIG = 'signingConfig signingConfigs.release';
-
-  return [
-    // strings.xml（锚点替换）
-    {
-      file: path.join(appRoot, 'src/main/res/values/strings.xml'),
-      replace: [
-        { marker: 'NDJC:APP_LABEL',   value: o.appName },
-        { marker: 'NDJC:HOME_TITLE',  value: o.homeTitle },
-        { marker: 'NDJC:MAIN_BUTTON', value: o.mainButtonText },
-      ],
-    },
-    // Manifest（锚点替换）
-    {
-      file: path.join(appRoot, 'src/main/AndroidManifest.xml'),
-      replace: [
-        { marker: 'NDJC:APP_LABEL', value: o.appName },
-        { marker: 'NDJC:LOCALE_CONFIG', value: LOCALE_CONFIG_ATTR },
-        { marker: 'NDJC:BLOCK:PERMISSIONS', value: o.permissionsXml ?? '' },
-        { marker: 'NDJC:BLOCK:INTENT_FILTERS', value: o.intentFiltersXml ?? '' },
-      ],
-    },
-    // build.gradle / .kts（锚点替换）
-    {
-      file: gradleFile,
-      replace: [
-        { marker: 'NDJC:PACKAGE_NAME',         value: o.packageId },
-        { marker: 'NDJC:COMPILE_SDK',          value: COMPILE_SDK },
-        { marker: 'NDJC:MIN_SDK',              value: MIN_SDK },
-        { marker: 'NDJC:TARGET_SDK',           value: TARGET_SDK },
-        { marker: 'NDJC:VERSION_CODE',         value: VERSION_CODE },
-        { marker: 'NDJC:VERSION_NAME',         value: VERSION_NAME },
-        { marker: 'NDJC:PLUGINS_EXTRA',        value: PLUGINS_EXTRA },
-        { marker: 'NDJC:DEPENDENCIES_EXTRA',   value: DEPENDENCIES_EXTRA },
-        { marker: 'NDJC:SIGNING_CONFIG',       value: SIGNING_CONFIG },   // 可选
-        { marker: 'NDJC:RES_CONFIGS',          value: RES_CONFIGS },
-        { marker: 'NDJC:PROGUARD_FILES_EXTRA', value: PROGUARD_EXTRA },
-        { marker: 'NDJC:PACKAGING_RULES',      value: PACKAGING_RULES },
-      ],
-    },
-    // themes 覆盖块
-    {
-      file: path.join(appRoot, 'src/main/res/values/themes.xml'),
-      replace: [{ marker: 'NDJC:BLOCK:THEME_OVERRIDES', value: o.themeOverridesXml ?? '' }],
-    },
-    // MainActivity 文案（Compose 里也保留锚点替换）
-    {
-      file: path.join(appRoot, 'src/main/java/com/ndjc/app/MainActivity.kt'),
-      replace: [
-        { marker: 'NDJC:HOME_TITLE',  value: o.homeTitle },
-        { marker: 'NDJC:MAIN_BUTTON', value: o.mainButtonText },
-      ],
-    },
-  ];
-}
-
-/* ========= 应用计划 ========= */
-export async function applyPlanDetailed(plan: Patch[]): Promise<ApplyResult[]> {
-  const results: ApplyResult[] = [];
-
-  for (const p of plan) {
-    let txt = await fs.readFile(p.file, 'utf8');
-    const beforeAll = txt;
-    const changes: AnchorChange[] = [];
-
-    for (const r of p.replace) {
-      const marker = r.marker;
-      const escape = (s: string) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-
-      let found = false;
-      let replacedCount = 0;
-      let beforeSample: string | undefined;
-      let afterSample: string | undefined;
-
-      if (marker.startsWith('NDJC:BLOCK:')) {
-        const re = new RegExp(`<!--\\s*\\/??\\s*${escape(marker)}\\s*-->`, 'g');
-        const m = [...txt.matchAll(re)];
-        if (m.length > 0) {
-          found = true;
-          replacedCount = m.length;
-          const first = m[0];
-          const s = Math.max(0, first.index! - 40);
-          const e = Math.min(txt.length, first.index! + first[0].length + 40);
-          beforeSample = txt.slice(s, e);
-
-          txt = txt.replace(re, r.value ?? '');
-          const ni = txt.indexOf(r.value ?? '', s);
-          const ns = Math.max(0, ni - 40);
-          const ne = Math.min(txt.length, (ni + (r.value ?? '').length) + 40);
-          afterSample = txt.slice(ns, ne);
-        }
-      } else {
-        const idx = txt.indexOf(marker);
-        if (idx >= 0) {
-          found = true;
-          const s = Math.max(0, idx - 40);
-          const e = Math.min(txt.length, idx + marker.length + 40);
-          beforeSample = txt.slice(s, e);
-
-          const re = new RegExp(escape(marker), 'g');
-          replacedCount = (txt.match(re) || []).length;
-          txt = txt.replace(re, r.value ?? '');
-
-          const ni = txt.indexOf(r.value ?? '', s);
-          const ns = Math.max(0, ni - 40);
-          const ne = Math.min(txt.length, (ni + (r.value ?? '').length) + 40);
-          afterSample = txt.slice(ns, ne);
-        }
-      }
-
-      changes.push({ file: p.file, marker, found, replacedCount, beforeSample, afterSample });
-    }
-
-    if (txt !== beforeAll) await fs.writeFile(p.file, txt, 'utf8');
-    results.push({ file: p.file, changes });
-  }
-  return results;
-}
-
-/* ========= 目录复制 ========= */
+/* ========= 工具 ========= */
 async function copyDir(src: string, dst: string) {
   await fs.mkdir(dst, { recursive: true });
   for (const e of await fs.readdir(src, { withFileTypes: true })) {
@@ -226,195 +49,271 @@ async function copyDir(src: string, dst: string) {
     }
   }
 }
-
-/** 强制每次运行都先清空工作目录再 materialize
- *  ⬇️ 返回值里新增 srcApp 以便记录模板真实来源
- */
-export async function materializeToWorkspace(templateKey: 'simple' | 'core' | 'form') {
-  const repo = workRepoRoot();
-  const srcApp = path.join(templateRoot(templateKey), 'app');
-  const dstApp = path.join(repo, 'app');
-
-  // 清空工作目录
-  await fs.rm(repo, { recursive: true, force: true });
-  await fs.mkdir(repo, { recursive: true });
-
-  await copyDir(srcApp, dstApp);
-  return { dstApp, templateKey, srcApp };
-}
-
-/* ========= 清理标记（anchors） ========= */
-const STRIP_EXTS = new Set([
-  '.xml', '.gradle', '.kts', '.kt', '.java', '.pro', '.txt', '.json', '.properties', '.cfg', '.ini'
-]);
-const ANCHOR_PATTERNS: RegExp[] = [
-  /<!--\s*\/{0,2}\s*NDJC:[\s\S]*?-->/gs,
-  /<!--\s*\/{0,2}\s*BLOCK:[\s\S]*?-->/gs,
-  /^\s*\/\/+\s*NDJC:.*$/gm,
-  /^\s*\/\/+\s*BLOCK:.*$/gm,
-  /\/\*+\s*NDJC:[\s\S]*?\*+\//g,
-  /\/\*+\s*BLOCK:[\s\S]*?\*+\//g,
-];
-function stripRawTokens(text: string): string {
-  let out = text.replace(/"NDJC:[^"]*"/g, '""');
-  out = out.replace(/NDJC:[^\s<>"']+/g, '');
-  return out;
-}
-async function stripAnchorsInFile(file: string) {
-  const ext = path.extname(file).toLowerCase();
-  if (!STRIP_EXTS.has(ext)) return;
-  let txt = await fs.readFile(file, 'utf8');
-  const before = txt;
-  for (const re of ANCHOR_PATTERNS) txt = txt.replace(re, '');
-  txt = stripRawTokens(txt);
-  txt = txt.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
-  if (txt !== before) await fs.writeFile(file, txt, 'utf8');
-}
-async function walkAndStrip(dir: string) {
-  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name);
-    if (e.isDirectory()) {
-      if (e.name === 'build' || e.name === '.gradle') continue;
-      await walkAndStrip(p);
-    } else {
-      await stripAnchorsInFile(p);
+async function allFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
+  async function walk(d: string) {
+    for (const e of await fs.readdir(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) {
+        if (e.name === 'build' || e.name === '.gradle') continue;
+        await walk(p);
+      } else {
+        out.push(p);
+      }
     }
   }
+  await walk(root);
+  return out;
 }
-/** ✅ 保留导出：供 route.ts 引用 */
+function escapeRe(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function escapeXml(s: string) {
+  return s.replace(/&/g, '&amp;').replace(/\"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/* ========= materializeToWorkspace =========
+ * 同时支持：
+ *  - templates/<template_key>/app
+ *  - templates/<template_key>（直接是 app 根）
+ *  - templates/<name>-template/app
+ *  - templates/<name>-template（直接是 app 根）
+ */
+export async function materializeToWorkspace(templateKeyOrLegacyName: string) {
+  const base = templatesBase();
+
+  const candidates = [
+    path.join(base, templateKeyOrLegacyName, 'app'),
+    path.join(base, templateKeyOrLegacyName),
+    path.join(base, `${templateKeyOrLegacyName}-template`, 'app'),
+    path.join(base, `${templateKeyOrLegacyName}-template`),
+  ];
+  let srcApp = '';
+  for (const c of candidates) {
+    if (existsSync(c) && (existsSync(path.join(c, 'src')) || existsSync(path.join(c, 'build.gradle')) || existsSync(path.join(c, 'build.gradle.kts')))) {
+      srcApp = c;
+      break;
+    }
+  }
+  if (!srcApp) throw new Error(`Template directory not found for ${templateKeyOrLegacyName} under ${base}`);
+
+  const dstApp = path.join(workRepoRoot(), 'app');
+  await fs.rm(dstApp, { recursive: true, force: true });
+  await fs.mkdir(path.dirname(dstApp), { recursive: true });
+  await copyDir(srcApp, dstApp);
+
+  return { srcApp, dstApp };
+}
+
+/* ========= buildPlan（与 route.ts 对齐，返回统一对象） ========= */
+export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
+  return {
+    run_id: (o as any)?.run_id,
+    template_key: (o as any)?.template_key || (o as any)?.template,
+    preset_used: (o as any)?.preset_used,
+    anchors: (o as any)?.anchors ?? {},
+    conditions: (o as any)?.conditions ?? {},
+    lists: (o as any)?.lists ?? {},
+    blocks: (o as any)?.blocks ?? {},
+  };
+}
+
+/* ========= applyPlanDetailed：通用注入 ========= */
+export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]> {
+  if (!plan?.template_key) throw new Error('applyPlanDetailed: missing template_key');
+
+  const appRoot = path.join(workRepoRoot(), 'app');
+  const results: ApplyResult[] = [];
+
+  // 1) 先处理 Manifest（权限、application 属性、deeplink 等）
+  const manifest = await findManifest(appRoot);
+  if (manifest) {
+    const xml = await fs.readFile(manifest, 'utf8');
+    const { text, changes } = applyManifest(xml, plan);
+    if (text !== xml) await fs.writeFile(manifest, text, 'utf8');
+    results.push({ file: manifest, changes });
+  }
+
+  // 2) 遍历其他文本文件做 NDJC/BLOCK/LIST 文本替换
+  const files = await allFiles(appRoot);
+  for (const f of files) {
+    if (f === manifest) continue;
+    if (!isTextFile(f)) continue;
+    const src = await fs.readFile(f, 'utf8');
+    const { text, changes } = applyTextAnchors(src, plan);
+    if (changes.length > 0) {
+      await fs.writeFile(f, text, 'utf8');
+      results.push({ file: f, changes });
+    }
+  }
+
+  return results;
+}
+
+/* ========= cleanupAnchors：清理 NDJC/IF/LIST/BLOCK 残留 ========= */
 export async function cleanupAnchors(appRoot?: string) {
   const base = appRoot ?? path.join(workRepoRoot(), 'app');
-  await walkAndStrip(base);
+  const files = await allFiles(base);
+  const COMMENT_PATTERNS: RegExp[] = [
+    /<!--\s*(NDJC:|IF:|LIST:|BLOCK:)[\s\S]*?-->/g,              // XML 注释
+    /\/\/\s*(NDJC:|IF:|LIST:|BLOCK:).*/g,                       // // …
+    /\/\*+\s*(NDJC:|IF:|LIST:|BLOCK:)[\s\S]*?\*+\//g,           // /* … */
+    /NDJC:[^\s<>"']+/g,                                         // 裸标记
+  ];
+  for (const f of files) {
+    if (!isTextFile(f)) continue;
+    let t = await fs.readFile(f, 'utf8');
+    const before = t;
+    for (const re of COMMENT_PATTERNS) t = t.replace(re, '');
+    t = t.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
+    if (t !== before) await fs.writeFile(f, t, 'utf8');
+  }
 }
 
-/* ========= 稳态化（防御式）修复 ========= */
-export async function stabilizeGradle(appRoot: string) {
-  const gradleFile = pickGradleFile(appRoot);
-  let txt = await fs.readFile(gradleFile, 'utf8');
-  const before = txt;
+/* ====================== 具体替换实现 ====================== */
 
-  // 0) 统一换行 + 去 BOM
-  txt = txt.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+// Manifest 定位
+async function findManifest(appRoot: string) {
+  const cands = [
+    path.join(appRoot, 'src/main/AndroidManifest.xml'),
+    path.join(appRoot, 'AndroidManifest.xml'),
+  ];
+  for (const p of cands) {
+    try { await fs.access(p); return p; } catch {}
+  }
+  return null;
+}
 
-  // 1) 修 android {{ / }} 多花括号
-  txt = txt.replace(/android\s*\{\s*\{/g, 'android {');
-  txt = txt.replace(/\}\s*\}/g, '}');
+// 纯文本文件里的 NDJC/BLOCK/LIST 替换（非 manifest）
+function applyTextAnchors(src: string, plan: BuildPlan) {
+  let text = src;
+  const changes: AnchorChange[] = [];
 
-  // 2) plugins 未闭合则在 android 之前补 }
-  {
-    const idxPlugins = txt.indexOf('plugins');
-    const idxAndroid = txt.indexOf('android');
-    if (idxPlugins >= 0 && idxAndroid > idxPlugins) {
-      const head = txt.slice(idxPlugins, idxAndroid);
-      const open = (head.match(/\{/g) || []).length;
-      const close = (head.match(/\}/g) || []).length;
-      if (open > close) {
-        txt = txt.slice(0, idxAndroid).replace(/\s*$/, '\n}\n') + txt.slice(idxAndroid);
+  // 块：<!-- BLOCK:NAME -->…<!-- END_BLOCK -->
+  for (const [k, v] of Object.entries(plan.blocks || {})) {
+    const name = String(k);
+    const pat = new RegExp(`<!--\\s*${escapeRe(name)}\\s*-->[\\s\\S]*?<!--\\s*END_BLOCK\\s*-->`, 'g');
+    const before = text;
+    text = text.replace(pat, String(v ?? ''));
+    if (text !== before) {
+      changes.push({ file: '', marker: name, found: true, replacedCount: 1 });
+    }
+  }
+
+  // 列表：在普通文本里如果出现占位注释就直接替换为拼接文本
+  for (const [k, arr] of Object.entries(plan.lists || {})) {
+    const name = String(k);
+    const payload = (arr || []).map(v => String(v)).join('\n');
+    const pat = new RegExp(`<!--\\s*${escapeRe(name)}\\s*-->`, 'g');
+    const m = text.match(pat);
+    if (m?.length) {
+      text = text.replace(pat, payload);
+      changes.push({ file: '', marker: name, found: true, replacedCount: m.length });
+    }
+  }
+
+  // 文本锚点：支持 `NDJC:KEY` 和 `${NDJC:KEY}`
+  for (const [k, v] of Object.entries(plan.anchors || {})) {
+    const mk = String(k);
+    const rep = String(v ?? '');
+    const pat1 = new RegExp(escapeRe(mk), 'g');
+    const pat2 = new RegExp(`\\$\\{\\s*${escapeRe(mk)}\\s*\\}`, 'g');
+    const c1 = (text.match(pat1) || []).length;
+    const c2 = (text.match(pat2) || []).length;
+    if (c1 + c2 > 0) {
+      text = text.replace(pat1, rep).replace(pat2, rep);
+      changes.push({ file: '', marker: mk, found: true, replacedCount: c1 + c2 });
+    }
+  }
+
+  return { text, changes };
+}
+
+// Manifest 专用处理：权限、application 属性、deeplink、再跑一次文本锚点
+function applyManifest(src: string, plan: BuildPlan) {
+  let text = src;
+  const changes: AnchorChange[] = [];
+
+  // 1) 权限（IF:PERMISSION.*）
+  const permMap: Record<string, string> = {
+    'IF:PERMISSION.CAMERA':       'android.permission.CAMERA',
+    'IF:PERMISSION.MEDIA':        'android.permission.READ_MEDIA_IMAGES',
+    'IF:PERMISSION.NOTIFICATION': 'android.permission.POST_NOTIFICATIONS',
+    'IF:PERMISSION.LOCATION':     'android.permission.ACCESS_FINE_LOCATION',
+    'IF:PERMISSION.CONTACTS':     'android.permission.READ_CONTACTS',
+  };
+  for (const [ifKey, perm] of Object.entries(permMap)) {
+    if (plan.conditions?.[ifKey]) {
+      if (!new RegExp(`<uses-permission[^>]+${escapeRe(perm)}`).test(text)) {
+        text = text.replace(/<manifest[^>]*>/, m => `${m}\n    <uses-permission android:name="${perm}"/>`);
+        changes.push({ file: '', marker: ifKey, found: true, replacedCount: 1 });
       }
     }
   }
 
-  // 3) 反注释 resConfigs
-  txt = txt.replace(/^\s*\/\/\s*(resConfigs\b[^\n]*)/gm, '$1');
+  // 2) application 起始标签：按条件在**起始标签**追加属性
+  const appStart = /<application\b([^>]*)>/;
+  const m = text.match(appStart);
+  if (m) {
+    let attrs = m[1] || '';
 
-  // 4) 清理 NDJC 残留标记
-  txt = txt.replace(/"NDJC:[^"]*"/g, '""').replace(/NDJC:[^\s<>"']+/g, '');
+    if (plan.conditions?.['IF:NETWORK.CLEAR_TEXT'] && !/usesCleartextTraffic=/.test(attrs)) {
+      attrs += ` android:usesCleartextTraffic="true"`;
+      changes.push({ file: '', marker: 'IF:NETWORK.CLEAR_TEXT', found: true, replacedCount: 1 });
+    }
+    if (plan.anchors?.['NDJC:THEME_NAME'] && !/android:theme=/.test(attrs)) {
+      attrs += ` android:theme="@style/${plan.anchors['NDJC:THEME_NAME']}"`;
+      changes.push({ file: '', marker: 'NDJC:THEME_NAME', found: true, replacedCount: 1 });
+    }
+    if (plan.anchors?.['NDJC:APP_LABEL'] && !/android:label=/.test(attrs)) {
+      attrs += ` android:label="${escapeXml(String(plan.anchors['NDJC:APP_LABEL']))}"`;
+      changes.push({ file: '', marker: 'NDJC:APP_LABEL@app', found: true, replacedCount: 1 });
+    }
 
-  // 5) 保证 android { 在独立行
-  txt = txt.replace(/\n\s*android\s*\{/, '\nandroid {');
-
-  // 6) 收尾
-  txt = txt.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
-
-  if (txt !== before) await fs.writeFile(gradleFile, txt, 'utf8');
-}
-
-/* ========= 伴生文件入口 ========= */
-export async function ensureAuxFiles(o: NdjcOrchestratorOutput) {
-  const appRoot = path.join(workRepoRoot(), 'app');
-  if ((o.resConfigs ?? '').trim()) {
-    await writeLocalesConfig(appRoot, o.resConfigs);
+    text = text.replace(appStart, `<application${attrs}>`);
   }
-}
 
-/* ========= 统计 & 写回 ========= */
-function countReplacements(detail: ApplyResult[], keyAnchors: string[]): number {
-  let n = 0;
-  for (const f of detail) {
-    for (const c of f.changes) {
-      if (keyAnchors.includes(c.marker) && c.replacedCount > 0) n += c.replacedCount;
+  // 3) LIST:DEEPLINK_PATTERNS → 注入 launcher activity 的 intent-filter
+  const deeplinks = plan.lists?.['LIST:DEEPLINK_PATTERNS'];
+  if (Array.isArray(deeplinks) && deeplinks.length) {
+    const payload = deeplinks.map(u => genDataTag(String(u))).join('\n                ');
+    const intentPat = /<intent-filter>[\s\S]*?<category android:name="android\.intent\.category\.LAUNCHER"\/>[\s\S]*?<\/intent-filter>/;
+    if (intentPat.test(text)) {
+      text = text.replace(intentPat, (seg) => {
+        if (/android:name="android\.intent\.action\.VIEW"/.test(seg)) return seg; // 已有 VIEW 就跳过
+        return seg.replace(
+          `<category android:name="android.intent.category.LAUNCHER"/>`,
+          `<category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.VIEW"/>
+                ${payload}
+                <category android:name="android.intent.category.DEFAULT"/>`
+        );
+      });
+      changes.push({ file: '', marker: 'LIST:DEEPLINK_PATTERNS', found: true, replacedCount: deeplinks.length });
     }
   }
-  return n;
+
+  // 4) 其他 NDJC/BLOCK/LIST 也跑一遍
+  const extra = applyTextAnchors(text, plan);
+  text = extra.text;
+  changes.push(...extra.changes);
+
+  return { text, changes };
 }
 
-async function syncBackAppToRepo() {
-  const src = path.join(workRepoRoot(), 'app');
-  const dst = path.join(repoRoot(), 'app');
-
-  // 覆盖式写回（排除 build/.gradle）
-  await fs.rm(dst, { recursive: true, force: true });
-  await copyDir(src, dst);
-}
-
-/* ========= 统一入口：生成 + 注入 + 日志 + 写回 ========= */
-export async function generateAndSync(
-  o: NdjcOrchestratorOutput,
-  templateKey: 'simple' | 'core' | 'form',
-) {
-  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const reqDir = path.join(repoRoot(), 'requests', ts);
-
-  // 1) 清空工作区并 materialize（记录模板源）
-  const { dstApp, srcApp } = await materializeToWorkspace(templateKey);
-  const tinfo = templateDebugInfo(templateKey);
-
-  // 2) 构建计划 & 应用
-  const plan = buildPlan(o);
-  const detail = await applyPlanDetailed(plan);
-
-  // 3) 伴生文件 + 清理标记 + 稳态修复
-  await ensureAuxFiles(o);
-  await cleanupAnchors();
-  await stabilizeGradle(path.join(workRepoRoot(), 'app'));
-
-  // 4) 写日志（包含模板来源，便于快速定位）
-  await writeJson(path.join(reqDir, '01_materialize.json'), {
-    templateKey,
-    dstApp,
-    templateBase: tinfo.base,   // 如：/var/task/templates 或 TEMPLATES_DIR
-    templateRoot: tinfo.root,   // 如：/var/task/templates/core-template
-    templateSrcApp: srcApp      // 实际复制的 app 源：/.../core-template/app
-  });
-  await writeJson(path.join(reqDir, '02_plan.json'), plan);
-  await writeJson(path.join(reqDir, '03_apply_result.json'), detail);
-
-  // 5) 关键锚点计数，0 则中止（阻断空包）
-  const KEY = [
-    'NDJC:PACKAGE_NAME', 'NDJC:APP_LABEL', 'NDJC:HOME_TITLE',
-    'NDJC:MAIN_BUTTON', 'NDJC:BLOCK:PERMISSIONS', 'NDJC:BLOCK:INTENT_FILTERS'
-  ];
-  const replacedCount = countReplacements(detail, KEY);
-  if (replacedCount === 0) {
-    throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
+function genDataTag(url: string) {
+  try {
+    const u = new URL(url);
+    const host = u.host || '';
+    const pathName = u.pathname && u.pathname !== '/' ? u.pathname : '';
+    return [
+      `<data android:scheme="${u.protocol.replace(':','')}"`,
+      host ? `      android:host="${host}"` : '',
+      pathName ? `      android:pathPrefix="${pathName}"` : '',
+      `/>`
+    ].filter(Boolean).join('\n                ');
+  } catch {
+    // 不像 URL，就按自定义 scheme 处理
+    return `<data android:scheme="${url}"/>`;
   }
-
-  // 6) 写回 ./app
-  await syncBackAppToRepo();
-
-  // 7) 返回提交清单
-  const commitPaths = [
-    'app/**',
-    `requests/${ts}/01_materialize.json`,
-    `requests/${ts}/02_plan.json`,
-    `requests/${ts}/03_apply_result.json`,
-  ];
-
-  return {
-    ok: true,
-    timestamp: ts,
-    replacedCount,
-    commitPaths,
-    requestDir: `requests/${ts}`,
-  };
 }
