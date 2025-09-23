@@ -64,12 +64,6 @@ async function emitCompanions(
 }
 
 /* -------------------- 在线获取最新模板（可选） -------------------- */
-/**
- * 支持的环境变量：
- * - TEMPLATES_REPO: "owner/repo@ref"   例：why459097630/Packaging-warehouse@main
- * - TEMPLATES_PATH: 模板所在目录       默认 "templates"
- * - GH_PAT:          GitHub 访问令牌（需要至少 repo read）
- */
 async function fetchJson(url: string, headers: Record<string, string>) {
   const r = await fetch(url, { headers });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} :: ${url} :: ${await r.text()}`);
@@ -78,7 +72,6 @@ async function fetchJson(url: string, headers: Record<string, string>) {
 async function fetchFileB64(url: string, headers: Record<string, string>) {
   const j = await fetchJson(url, headers); // contents API 单文件返回 { content, encoding }
   if (!j?.content || j.encoding !== 'base64') {
-    // 有些场景不会带 content，改用 download_url 拉 raw
     if (j?.download_url) {
       const rr = await fetch(j.download_url, { headers });
       if (!rr.ok) throw new Error(`${rr.status} ${rr.statusText} :: ${j.download_url}`);
@@ -89,7 +82,6 @@ async function fetchFileB64(url: string, headers: Record<string, string>) {
   }
   return Buffer.from(j.content, 'base64');
 }
-/** 递归拉取 repo/path 到 dstRoot */
 async function mirrorRepoPathToDir(
   owner: string, repo: string, ref: string, repoPath: string, dstRoot: string, headers: Record<string, string>
 ) {
@@ -120,7 +112,6 @@ async function mirrorRepoPathToDir(
     await fs.writeFile(out, buf);
   }
 }
-/** 如果配置了 TEMPLATES_REPO，则把模板拉到 /tmp 并设置 process.env.TEMPLATES_DIR */
 async function ensureLatestTemplates(runId: string) {
   const spec = process.env.TEMPLATES_REPO; // owner/repo@ref
   if (!spec) {
@@ -158,10 +149,6 @@ function normalizeWorkflowId(wf: string) {
   if (wf.endsWith('.yml')) return wf;
   return `${wf}.yml`;
 }
-/**
- * 首选 workflow_dispatch 触发指定分支上的工作流；
- * 若返回 422，再尝试 inputs 精简/或 repository_dispatch。
- */
 async function dispatchWorkflow(
   payload: any,
   refBranch?: string
@@ -188,7 +175,6 @@ async function dispatchWorkflow(
   const text1 = await r1.text();
 
   if (r1.status === 422) {
-    // 最小 inputs 再试一次（常见于没有定义全部 inputs）
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
@@ -196,7 +182,6 @@ async function dispatchWorkflow(
     });
     if (r2.ok) return { ok: true, degraded: true };
 
-    // repository_dispatch 兜底
     const repoUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
     const r3 = await fetch(repoUrl, {
       method: 'POST',
@@ -220,7 +205,6 @@ async function dispatchWorkflow(
 async function pathExists(p: string) {
   try { await fs.access(p); return true; } catch { return false; }
 }
-// 预检查：若 build.gradle 出现被转义的引号，提前失败
 async function assertNoEscapedQuotes(appRoot: string) {
   for (const f of ['build.gradle', 'build.gradle.kts']) {
     const p = path.join(appRoot, f);
@@ -232,7 +216,6 @@ async function assertNoEscapedQuotes(appRoot: string) {
     } catch { /* ignore missing */ }
   }
 }
-// 统计关键锚点替换次数（保险丝：=0 时直接中止）
 function countCriticalReplacements(applyResult: any[]): number {
   const KEY = new Set([
     'NDJC:PACKAGE_NAME',
@@ -272,11 +255,16 @@ export async function POST(req: NextRequest) {
     const repoRoot = getRepoPath();
     const tplRoot = process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
     const templateName = String(input?.template || 'core');
+
     const tplDirCandidates = [
       path.join(tplRoot, `${templateName}`),
       path.join(tplRoot, `${templateName}-template`),
     ];
-    const tplDirExists = await Promise.any(tplDirCandidates.map(p => pathExists(p))).catch(() => false);
+    // ✅ 替换 Promise.any：逐个判断（兼容性更好）
+    let tplDirExists = false;
+    for (const cand of tplDirCandidates) {
+      if (await pathExists(cand)) { tplDirExists = true; break; }
+    }
 
     const checks = {
       repoRoot,
@@ -429,7 +417,7 @@ ${anchors}
 
     await assertNoEscapedQuotes(appRoot);
 
-    // ★ 关键修改：先清空远端 app/ 再镜像推送，防止旧模板残留
+    // 先清空远端 app/ 再镜像推送，防止旧模板残留
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
 
     const reqCandidates = [
@@ -456,7 +444,7 @@ ${anchors}
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
       await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
-      // ★ 关键修改：把运行分支传到 workflow inputs，供 checkout 使用
+      // 把运行分支传给 workflow inputs，供 actions/checkout 使用
       const inputs = {
         runId,
         branch: runBranch,
