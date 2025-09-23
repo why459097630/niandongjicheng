@@ -18,11 +18,9 @@ type BuildPlan = {
 };
 
 /* ========= 路径策略 ========= */
-// 模板只读根（可用 TEMPLATES_DIR 覆盖）
 function templatesBase() {
   return process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
 }
-// 工作区（可写），Vercel 上默认 /tmp（可用 NDJC_WORKDIR 覆盖）
 function workRepoRoot() {
   return process.env.NDJC_WORKDIR || '/tmp/ndjc';
 }
@@ -73,11 +71,7 @@ function escapeXml(s: string) {
 }
 
 /* ========= materializeToWorkspace =========
- * 同时支持：
- *  - templates/<template_key>/app
- *  - templates/<template_key>（直接是 app 根）
- *  - templates/<name>-template/app
- *  - templates/<name>-template（直接是 app 根）
+ * 兼容 circle-basic / circle-template / circle 等多命名
  */
 export async function materializeToWorkspace(templateKeyOrLegacyName: string) {
   const base = templatesBase();
@@ -105,27 +99,43 @@ export async function materializeToWorkspace(templateKeyOrLegacyName: string) {
   return { srcApp, dstApp };
 }
 
-/* ========= buildPlan（与 route.ts 对齐，返回统一对象） ========= */
+/* ========= buildPlan（增强：从 o 字段兜底 anchors） ========= */
 export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
+  const anchors = { ...(o as any)?.anchors };
+
+  // ★ 兜底映射：即使 orchestrator 没给 anchors，也能替换关键锚点
+  if (!anchors['NDJC:APP_LABEL'] && (o as any)?.appName) {
+    anchors['NDJC:APP_LABEL'] = (o as any).appName;
+  }
+  if (!anchors['NDJC:HOME_TITLE']) {
+    anchors['NDJC:HOME_TITLE'] = (o as any)?.homeTitle || (o as any)?.appName || 'Home';
+  }
+  const btn = (o as any)?.mainButtonText || (o as any)?.primaryButtonText || 'Start';
+  if (!anchors['NDJC:PRIMARY_BUTTON_TEXT']) anchors['NDJC:PRIMARY_BUTTON_TEXT'] = btn;
+  if (!anchors['NDJC:MAIN_BUTTON']) anchors['NDJC:MAIN_BUTTON'] = btn; // 兼容保险丝统计
+  if (!anchors['NDJC:PACKAGE_NAME'] && (o as any)?.packageId) {
+    anchors['NDJC:PACKAGE_NAME'] = (o as any).packageId;
+  }
+
   return {
-    run_id: (o as any)?.run_id,
+    run_id: (o as any)?.runId || (o as any)?.run_id,
     template_key: (o as any)?.template_key || (o as any)?.template,
     preset_used: (o as any)?.preset_used,
-    anchors: (o as any)?.anchors ?? {},
+    anchors,
     conditions: (o as any)?.conditions ?? {},
     lists: (o as any)?.lists ?? {},
     blocks: (o as any)?.blocks ?? {},
   };
 }
 
-/* ========= applyPlanDetailed：通用注入 ========= */
+/* ========= applyPlanDetailed：通用注入 + 结构化写入 ========= */
 export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]> {
   if (!plan?.template_key) throw new Error('applyPlanDetailed: missing template_key');
 
   const appRoot = path.join(workRepoRoot(), 'app');
   const results: ApplyResult[] = [];
 
-  // 1) 先处理 Manifest（权限、application 属性、deeplink 等）
+  // 1) Manifest（权限、application 属性、deeplink）
   const manifest = await findManifest(appRoot);
   if (manifest) {
     const xml = await fs.readFile(manifest, 'utf8');
@@ -134,10 +144,18 @@ export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]>
     results.push({ file: manifest, changes });
   }
 
-  // 2) 遍历其他文本文件做 NDJC/BLOCK/LIST 文本替换
+  // 2) ★ 结构化：strings.xml 资源覆盖（即使模板里只有注释锚点）
+  const stringsRes = await updateStringsXml(appRoot, plan);
+  if (stringsRes) results.push(stringsRes);
+
+  // 3) ★ 结构化：Gradle applicationId 覆盖
+  const gradleRes = await updateGradleAppId(appRoot, plan);
+  if (gradleRes) results.push(gradleRes);
+
+  // 4) 其他文本文件跑 NDJC/BLOCK/LIST 替换（注释/占位）
   const files = await allFiles(appRoot);
   for (const f of files) {
-    if (f === manifest) continue;
+    if (f === manifest || (stringsRes && f === stringsRes.file) || (gradleRes && f === gradleRes.file)) continue;
     if (!isTextFile(f)) continue;
     const src = await fs.readFile(f, 'utf8');
     const { text, changes } = applyTextAnchors(src, plan);
@@ -155,10 +173,10 @@ export async function cleanupAnchors(appRoot?: string) {
   const base = appRoot ?? path.join(workRepoRoot(), 'app');
   const files = await allFiles(base);
   const COMMENT_PATTERNS: RegExp[] = [
-    /<!--\s*(NDJC:|IF:|LIST:|BLOCK:)[\s\S]*?-->/g,              // XML 注释
-    /\/\/\s*(NDJC:|IF:|LIST:|BLOCK:).*/g,                       // // …
-    /\/\*+\s*(NDJC:|IF:|LIST:|BLOCK:)[\s\S]*?\*+\//g,           // /* … */
-    /NDJC:[^\s<>"']+/g,                                         // 裸标记
+    /<!--\s*(NDJC:|IF:|LIST:|BLOCK:)[\s\S]*?-->/g,
+    /\/\/\s*(NDJC:|IF:|LIST:|BLOCK:).*/g,
+    /\/\*+\s*(NDJC:|IF:|LIST:|BLOCK:)[\s\S]*?\*+\//g,
+    /NDJC:[^\s<>"']+/g,
   ];
   for (const f of files) {
     if (!isTextFile(f)) continue;
@@ -184,6 +202,65 @@ async function findManifest(appRoot: string) {
   return null;
 }
 
+// 结构化：覆盖 strings.xml 的常用键
+async function updateStringsXml(appRoot: string, plan: BuildPlan): Promise<ApplyResult | null> {
+  const file = path.join(appRoot, 'src/main/res/values/strings.xml');
+  try { await fs.access(file); } catch { return null; }
+
+  let txt = await fs.readFile(file, 'utf8');
+  const before = txt;
+  const changes: AnchorChange[] = [];
+
+  const map: Array<{ key: string; anchor: string }> = [
+    { key: 'app_name',     anchor: 'NDJC:APP_LABEL' },
+    { key: 'home_title',   anchor: 'NDJC:HOME_TITLE' },
+    { key: 'primary_button', anchor: 'NDJC:PRIMARY_BUTTON_TEXT' }, // circle 模板中的命名
+  ];
+
+  for (const { key, anchor } of map) {
+    const val = plan.anchors?.[anchor];
+    if (val == null) continue;
+    const re = new RegExp(`<string\\s+name="${escapeRe(key)}">[\\s\\S]*?<\\/string>`);
+    if (re.test(txt)) {
+      txt = txt.replace(re, `<string name="${key}">${escapeXml(String(val))}</string>`);
+      changes.push({ file, marker: anchor, found: true, replacedCount: 1 });
+    }
+  }
+
+  if (txt !== before) {
+    await fs.writeFile(file, txt, 'utf8');
+    return { file, changes };
+  }
+  return null;
+}
+
+// 结构化：覆盖 Gradle 的 applicationId
+async function updateGradleAppId(appRoot: string, plan: BuildPlan): Promise<ApplyResult | null> {
+  const fileKts = path.join(appRoot, 'build.gradle.kts');
+  const fileGroovy = path.join(appRoot, 'build.gradle');
+  const file = existsSync(fileKts) ? fileKts : fileGroovy;
+  try { await fs.access(file); } catch { return null; }
+
+  const appId = plan.anchors?.['NDJC:PACKAGE_NAME'];
+  if (!appId) return null;
+
+  let txt = await fs.readFile(file, 'utf8');
+  const before = txt;
+  const changes: AnchorChange[] = [];
+
+  // kts: applicationId("xxx") / groovy: applicationId 'xxx'
+  txt = txt
+    .replace(/applicationId\("([^"]*)"\)/, `applicationId("${appId}")`)
+    .replace(/applicationId\s+'([^']*)'/, `applicationId '${appId}'`);
+
+  if (txt !== before) {
+    await fs.writeFile(file, txt, 'utf8');
+    changes.push({ file, marker: 'NDJC:PACKAGE_NAME', found: true, replacedCount: 1 });
+    return { file, changes };
+  }
+  return null;
+}
+
 // 纯文本文件里的 NDJC/BLOCK/LIST 替换（非 manifest）
 function applyTextAnchors(src: string, plan: BuildPlan) {
   let text = src;
@@ -200,7 +277,7 @@ function applyTextAnchors(src: string, plan: BuildPlan) {
     }
   }
 
-  // 列表：在普通文本里如果出现占位注释就直接替换为拼接文本
+  // 列表：占位注释直接替换
   for (const [k, arr] of Object.entries(plan.lists || {})) {
     const name = String(k);
     const payload = (arr || []).map(v => String(v)).join('\n');
@@ -313,7 +390,6 @@ function genDataTag(url: string) {
       `/>`
     ].filter(Boolean).join('\n                ');
   } catch {
-    // 不像 URL，就按自定义 scheme 处理
     return `<data android:scheme="${url}"/>`;
   }
 }
