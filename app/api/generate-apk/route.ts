@@ -9,6 +9,7 @@ import {
   materializeToWorkspace,
   cleanupAnchors,
 } from '@/lib/ndjc/generator';
+
 import * as JournalMod from '@/lib/ndjc/journal';
 const Journal: any = (JournalMod as any).default ?? JournalMod;
 const newRunId      = Journal.newRunId;
@@ -24,7 +25,7 @@ import * as path from 'node:path';
 
 export const runtime = 'nodejs';
 
-/* -------------------- 伴生文件（方案B） -------------------- */
+/* -------------------- 伴生文件（方案B）安全落地 -------------------- */
 const COMPANION_ROOT = 'companions';
 const COMPANION_WHITELIST = new Set([
   '.kt', '.kts', '.java', '.xml', '.json', '.txt', '.pro', '.md', '.gradle', '.properties',
@@ -62,7 +63,13 @@ async function emitCompanions(
   return { written: written.length, files: written };
 }
 
-/* -------------------- 在线获取最新模板 -------------------- */
+/* -------------------- 在线获取最新模板（可选） -------------------- */
+/**
+ * 支持的环境变量：
+ * - TEMPLATES_REPO: "owner/repo@ref"   例：why459097630/Packaging-warehouse@main
+ * - TEMPLATES_PATH: 模板所在目录       默认 "templates"
+ * - GH_PAT:          GitHub 访问令牌（需要至少 repo read）
+ */
 async function fetchJson(url: string, headers: Record<string, string>) {
   const r = await fetch(url, { headers });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} :: ${url} :: ${await r.text()}`);
@@ -82,20 +89,16 @@ async function fetchFileB64(url: string, headers: Record<string, string>) {
   }
   return Buffer.from(j.content, 'base64');
 }
-
 /** 递归拉取 repo/path 到 dstRoot */
 async function mirrorRepoPathToDir(
   owner: string, repo: string, ref: string, repoPath: string, dstRoot: string, headers: Record<string, string>
 ) {
   const api = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(repoPath)}?ref=${encodeURIComponent(ref)}`;
   const resp = await fetch(api, { headers });
-  if (!resp.ok) {
-    throw new Error(`${resp.status} ${resp.statusText} :: ${api} :: ${await resp.text()}`);
-  }
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText} :: ${api} :: ${await resp.text()}`);
   const list = await resp.json();
 
   if (Array.isArray(list)) {
-    // 目录
     await fs.mkdir(path.join(dstRoot, repoPath), { recursive: true });
     for (const item of list) {
       if (item.type === 'dir') {
@@ -111,18 +114,18 @@ async function mirrorRepoPathToDir(
       }
     }
   } else {
-    // 单文件（一般不走到这里，保留兜底）
     const buf = await fetchFileB64(api, headers);
     const out = path.join(dstRoot, repoPath);
     await fs.mkdir(path.dirname(out), { recursive: true });
     await fs.writeFile(out, buf);
   }
 }
-
 /** 如果配置了 TEMPLATES_REPO，则把模板拉到 /tmp 并设置 process.env.TEMPLATES_DIR */
 async function ensureLatestTemplates(runId: string) {
   const spec = process.env.TEMPLATES_REPO; // owner/repo@ref
-  if (!spec) return { mode: 'local', tplDir: process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates') };
+  if (!spec) {
+    return { mode: 'local', tplDir: process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates') };
+  }
 
   const m = spec.match(/^([^/]+)\/([^@]+)@(.+)$/);
   if (!m) throw new Error(`Invalid TEMPLATES_REPO: ${spec} (expected owner/repo@ref)`);
@@ -150,16 +153,14 @@ function ensureEnv() {
   const miss = NEED_ENV.filter((k) => !process.env[k]);
   if (miss.length) throw new Error('Missing env: ' + miss.join(', '));
 }
-
 function normalizeWorkflowId(wf: string) {
   if (/^\d+$/.test(wf)) return wf;
   if (wf.endsWith('.yml')) return wf;
   return `${wf}.yml`;
 }
-
 /**
  * 首选 workflow_dispatch 触发指定分支上的工作流；
- * 若返回 422，退化为 repository_dispatch（工作流在默认分支上跑，使用 client_payload.ref 指向代码分支）。
+ * 若返回 422，再尝试 inputs 精简/或 repository_dispatch。
  */
 async function dispatchWorkflow(
   payload: any,
@@ -187,13 +188,15 @@ async function dispatchWorkflow(
   const text1 = await r1.text();
 
   if (r1.status === 422) {
+    // 最小 inputs 再试一次（常见于没有定义全部 inputs）
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ ref: branch, inputs: { runId: payload?.inputs?.runId } }),
+      body: JSON.stringify({ ref: branch, inputs: { runId: payload?.inputs?.runId, branch: payload?.inputs?.branch } }),
     });
     if (r2.ok) return { ok: true, degraded: true };
 
+    // repository_dispatch 兜底
     const repoUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
     const r3 = await fetch(repoUrl, {
       method: 'POST',
@@ -217,7 +220,6 @@ async function dispatchWorkflow(
 async function pathExists(p: string) {
   try { await fs.access(p); return true; } catch { return false; }
 }
-
 // 预检查：若 build.gradle 出现被转义的引号，提前失败
 async function assertNoEscapedQuotes(appRoot: string) {
   for (const f of ['build.gradle', 'build.gradle.kts']) {
@@ -230,17 +232,13 @@ async function assertNoEscapedQuotes(appRoot: string) {
     } catch { /* ignore missing */ }
   }
 }
-
-/** 关键锚点替换计数（保险丝：=0 中止） */
-// ★ 方式A：兼容两种命名：BLOCK:* 与 NDJC:BLOCK:*
+// 统计关键锚点替换次数（保险丝：=0 时直接中止）
 function countCriticalReplacements(applyResult: any[]): number {
   const KEY = new Set([
     'NDJC:PACKAGE_NAME',
     'NDJC:APP_LABEL',
     'NDJC:HOME_TITLE',
     'NDJC:MAIN_BUTTON',
-    'BLOCK:PERMISSIONS',
-    'BLOCK:INTENT_FILTERS',
     'NDJC:BLOCK:PERMISSIONS',
     'NDJC:BLOCK:INTENT_FILTERS',
   ]);
@@ -273,24 +271,18 @@ export async function POST(req: NextRequest) {
     step = 'check-paths';
     const repoRoot = getRepoPath();
     const tplRoot = process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
-    const templateName = String(input?.template || input?.template_key || 'core');
-    // 兼容两种目录：<key>-template / <key>
+    const templateName = String(input?.template || 'core');
     const tplDirCandidates = [
+      path.join(tplRoot, `${templateName}`),
       path.join(tplRoot, `${templateName}-template`),
-      path.join(tplRoot, templateName),
     ];
-    let tplDir = tplDirCandidates.find(Boolean) as string;
-    for (const cand of tplDirCandidates) {
-      if (await pathExists(cand)) { tplDir = cand; break; }
-    }
+    const tplDirExists = await Promise.any(tplDirCandidates.map(p => pathExists(p))).catch(() => false);
 
     const checks = {
       repoRoot,
       tplRoot,
-      tplDir,
-      repoRootExists: await pathExists(repoRoot),
-      tplRootExists: await pathExists(tplRoot),
-      tplDirExists: await pathExists(tplDir),
+      templateName,
+      tplDirExists,
       env: {
         GH_OWNER: !!process.env.GH_OWNER,
         GH_REPO: !!process.env.GH_REPO,
@@ -307,9 +299,9 @@ export async function POST(req: NextRequest) {
     };
     await writeJSON(runId, '00_checks.json', checks);
 
-    if (!checks.repoRootExists) throw new Error(`RepoNotFound: ${repoRoot}`);
-    if (!checks.tplRootExists) throw new Error(`TemplatesDirNotFound: ${tplRoot}`);
-    if (!checks.tplDirExists) throw new Error(`TemplateMissing: ${tplDir}`);
+    if (!await pathExists(repoRoot)) throw new Error(`RepoNotFound: ${repoRoot}`);
+    if (!await pathExists(tplRoot)) throw new Error(`TemplatesDirNotFound: ${tplRoot}`);
+    if (!tplDirExists) throw new Error(`TemplateMissing: ${templateName} (under ${tplRoot})`);
 
     // 2) 编排：在线优先，离线兜底
     step = 'orchestrate';
@@ -335,38 +327,35 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (err: any) {
-      // 离线兜底
+      // 离线兜底（方案A）
       o = {
         mode: 'A',
         allowCompanions: false,
-        template: input.template ?? input.template_key ?? 'core',
-        appName: input.appName ?? input.appTitle ?? 'NDJC core',
-        packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.core',
+        template: input.template ?? 'core',
+        appName: input.appName ?? input.appTitle ?? 'NDJC App',
+        packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.app',
       };
       await writeText(runId, '01_orchestrator_mode.txt', `offline (${String(err?.message ?? err)})`);
     }
     await writeJSON(runId, '01_orchestrator.json', o);
 
-    // 3) 计划
+    // 3) 计划（统一 BuildPlan）
     step = 'build-plan';
-    const plan = buildPlan({
-      ...o,
-      template_key: o.template ?? templateName,
-    } as any);
+    const plan = buildPlan(o);
     await writeJSON(runId, '02_plan.json', plan);
 
     // 4) 物化+应用+清理（使用临时 appRoot）
     step = 'materialize';
-    const material = await materializeToWorkspace(o.template ?? templateName);
+    const material = await materializeToWorkspace(o.template);
     const appRoot = material.dstApp;
     await writeText(runId, '04_materialize.txt', `app copied to: ${appRoot}`);
 
     step = 'apply';
-    const applyResult = await applyPlanDetailed(plan as any);
+    const applyResult = await applyPlanDetailed(plan);
     await writeJSON(runId, '03_apply_result.json', applyResult);
 
     // 保险丝：关键锚点替换必须 > 0（否则直接中止，阻断空包）
-    const replacedTotal = countCriticalReplacements(applyResult as any);
+    const replacedTotal = countCriticalReplacements(applyResult);
     if (replacedTotal === 0) {
       await writeText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
       throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
@@ -391,7 +380,7 @@ export async function POST(req: NextRequest) {
         .flatMap((r: any) =>
           (r?.changes || []).map(
             (c: any) =>
-              `- \`${c.marker}\` @ \`${path.relative(appRoot, r.file)}\` → replaced=${c.replacedCount}, found=${c.found}`
+              `- \`${c.marker}\` @ \`${r.file}\` → replaced=${c.replacedCount}, found=${c.found}`
           )
         )
         .join('\n') || '- (no markers found)';
@@ -440,7 +429,8 @@ ${anchors}
 
     await assertNoEscapedQuotes(appRoot);
 
-    await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`);
+    // ★ 关键修改：先清空远端 app/ 再镜像推送，防止旧模板残留
+    await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
 
     const reqCandidates = [
       path.join(getRepoPath(), 'requests', runId),
@@ -466,13 +456,14 @@ ${anchors}
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
       await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
+      // ★ 关键修改：把运行分支传到 workflow inputs，供 checkout 使用
       const inputs = {
         runId,
-        branch: runBranch,                          // 供 workflow checkout
-        template: (plan as any)?.template_key || o.template,
+        branch: runBranch,
+        template: o.template,
         appTitle: o.appName,
         packageName: o.packageId,
-        preflight_mode: 'warn',
+        preflight_mode: input?.preflight_mode || 'warn',
       };
       dispatch = await dispatchWorkflow({ inputs }, runBranch);
 
