@@ -21,7 +21,6 @@ import { ensureBranch, pushDirByContentsApi } from '@/lib/ndjc/git-contents';
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as yaml from 'js-yaml';
 
 export const runtime = 'nodejs';
 
@@ -172,7 +171,6 @@ async function dispatchWorkflow(
   const text1 = await r1.text();
 
   if (r1.status === 422) {
-    // 有些仓库限定了 inputs/字段，尝试最小入参；再不行走 repository_dispatch
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
@@ -257,7 +255,6 @@ export async function POST(req: NextRequest) {
     const repoRoot = getRepoPath();
     const tplRoot = process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
     const templateName = String(input?.template || input?.template_key || 'core');
-    // 兼容两种目录：<key>-template / <key>
     const tplDirCandidates = [
       path.join(tplRoot, `${templateName}-template`),
       path.join(tplRoot, templateName),
@@ -309,6 +306,7 @@ export async function POST(req: NextRequest) {
         await writeJSON(runId, '01a_llm_trace.json', o._trace);
         if (o._trace.request)  await writeJSON(runId, '01a_llm_request.json',  o._trace.request);
         if (o._trace.response) await writeJSON(runId, '01b_llm_response.json', o._trace.response);
+
         const rawText =
           o._trace.rawText ?? o._trace.text ??
           o._trace.response?.text ?? o._trace.response?.body ?? '';
@@ -317,7 +315,6 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (err: any) {
-      // 离线兜底
       o = {
         mode: 'A',
         allowCompanions: false,
@@ -329,7 +326,7 @@ export async function POST(req: NextRequest) {
     }
     await writeJSON(runId, '01_orchestrator.json', o);
 
-    // 3) 计划（与生成器对齐）
+    // 3) 计划
     step = 'build-plan';
     const plan = buildPlan({
       ...o,
@@ -337,7 +334,7 @@ export async function POST(req: NextRequest) {
     } as any);
     await writeJSON(runId, '02_plan.json', plan);
 
-    // 4) 物化+应用+清理（使用临时 appRoot）
+    // 4) 物化+应用+清理
     step = 'materialize';
     const material = await materializeToWorkspace(o.template ?? templateName);
     const appRoot = material.dstApp;
@@ -347,7 +344,6 @@ export async function POST(req: NextRequest) {
     const applyResult = await applyPlanDetailed(plan as any);
     await writeJSON(runId, '03_apply_result.json', applyResult);
 
-    // 保险丝：关键锚点替换必须 > 0（否则直接中止）
     const replacedTotal = countCriticalReplacements(applyResult as any);
     if (replacedTotal === 0) {
       await writeText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
@@ -358,7 +354,6 @@ export async function POST(req: NextRequest) {
     await cleanupAnchors(appRoot);
     await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
-    // 伴生文件（方案B）
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
       const emitted = await emitCompanions(appRoot, o.companions);
       await writeJSON(runId, '03a_companions_emitted.json', emitted);
@@ -414,7 +409,7 @@ ${anchors}
       await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
-    // 6.5) 推送“构建分支”：app/ 与 requests/<runId>/ 同步到同一分支
+    // 6.5) 推送“构建分支”
     step = 'push-app-branch';
     ensureEnv();
     const runBranch = `ndjc-run/${runId}`;
@@ -448,11 +443,10 @@ ${anchors}
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
       await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
-      // ★ 关键：把分支一起传给 workflow_dispatch
       const inputs = {
         runId,
-        branch: runBranch,                          // 供 workflow checkout
-        template: plan.template_key || o.template,
+        branch: runBranch,
+        template: (plan as any)?.template_key || o.template,
         appTitle: o.appName,
         packageName: o.packageId,
         preflight_mode: 'warn',
