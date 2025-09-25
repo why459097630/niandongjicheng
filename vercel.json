@@ -1,7 +1,8 @@
 {
   "functions": {
-    "api/**": {
-      "excludeFiles": "{.pnpm-store/**,android/**,build-logs/**,**/build/**,**/outputs/**}"
+    "app/api/**": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   }
 }
