@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/**": {
+      "excludeFiles": "{.pnpm-store/**,android/**,build-logs/**,**/build/**,**/outputs/**}"
+    }
+  }
+}
