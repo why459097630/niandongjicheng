@@ -1,0 +1,5 @@
+.pnpm-store/
+build-logs/
+android/
+**/build/
+**/outputs/
