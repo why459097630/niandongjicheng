@@ -446,20 +446,24 @@ ${anchors}
     // 先清空远端 app/ 再镜像推送，防止旧模板残留
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
 
-    // —— 只从一个确定目录读取日志：优先仓库根，其次 /tmp/ndjc —— //
-    const repoReqDir = path.join(getRepoPath(), 'requests', runId);
-    const tmpReqDir  = path.join('/tmp', 'ndjc', 'requests', runId);
-
+    // —— 新增：requests 本地目录的全量候选 + 必要文件校验 —— //
+    const candidates = [
+      path.join(getRepoPath(), 'requests', runId),
+      path.join(process.cwd(), 'requests', runId),
+      path.join('/tmp', 'ndjc', 'requests', runId),
+      path.join('/tmp', 'requests', runId),
+    ];
     let reqLocalDir: string | null = null;
-    if (await pathExists(repoReqDir)) reqLocalDir = repoReqDir;
-    else if (await pathExists(tmpReqDir)) reqLocalDir = tmpReqDir;
+    for (const p of candidates) {
+      if (await pathExists(p)) { reqLocalDir = p; break; }
+    }
+    await writeJSON(runId, '05d_req_candidates.json', { tried: candidates, picked: reqLocalDir });
 
     if (!reqLocalDir) {
-      await writeText(runId, '05c_logs_push_skipped.txt', 'requests/<runId> not found locally');
-      throw new Error(`requests/${runId} not found locally`);
+      await writeText(runId, '05c_logs_push_skipped.txt', `no local requests dir, tried: ${candidates.join(' | ')}`);
+      throw new Error(`requests/${runId} not found locally (tried ${candidates.join(', ')})`);
     }
 
-    // 必须含有 03_apply_result.json（否则停止，防止 CI 构建空包）
     const must = path.join(reqLocalDir, '03_apply_result.json');
     try { await fs.access(must); }
     catch {
@@ -467,7 +471,6 @@ ${anchors}
       throw new Error(`[NDJC] 03_apply_result.json missing under ${reqLocalDir} — abort to prevent empty APK.`);
     }
 
-    // 日志齐全再推送
     await pushDirByContentsApi(reqLocalDir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`);
 
     // 7) 触发 Actions（ref 指向 runBranch）
