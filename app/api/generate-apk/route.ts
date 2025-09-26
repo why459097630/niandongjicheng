@@ -19,7 +19,6 @@ const gitCommitPush = Journal.gitCommitPush;
 const getRepoPath   = Journal.getRepoPath;
 
 import { ensureBranch, pushDirByContentsApi } from '@/lib/ndjc/git-contents';
-import { upsertRunBranchFromDirs } from '@/server/github/trees';
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -71,7 +70,7 @@ async function fetchJson(url: string, headers: Record<string, string>) {
   return r.json();
 }
 async function fetchFileB64(url: string, headers: Record<string, string>) {
-  const j = await fetchJson(url, headers); // contents API 单文件返回 { content, encoding } 或 {download_url}
+  const j = await fetchJson(url, headers); // contents API 单文件返回 { content, encoding }
   if (j?.content && j.encoding === 'base64') {
     return Buffer.from(j.content, 'base64');
   }
@@ -150,14 +149,18 @@ function normalizeWorkflowId(wf: string) {
   if (wf.endsWith('.yml')) return wf;
   return `${wf}.yml`;
 }
+
+/**
+ * 关键改动：无论构建代码所在的“运行分支”是什么，工作流文件一律从 GH_BRANCH（通常是 main）取。
+ * 构建目标分支通过 inputs.branch 传入，由 actions/checkout 使用。
+ */
 async function dispatchWorkflow(
-  payload: any,
-  refBranch?: string
+  payload: any
 ): Promise<{ ok: true; degraded: boolean }> {
   const owner  = process.env.GH_OWNER!;
   const repo   = process.env.GH_REPO!;
-  const branch = refBranch || process.env.GH_BRANCH || 'main';
   const wf     = normalizeWorkflowId(process.env.WORKFLOW_ID!);
+  const wfRef  = process.env.GH_BRANCH || 'main'; // 工作流文件所在分支（固定用 main）
 
   const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
   const headers: Record<string, string> = {
@@ -169,7 +172,7 @@ async function dispatchWorkflow(
   const r1 = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ ref: branch, ...payload }),
+    body: JSON.stringify({ ref: wfRef, ...payload }),
   });
   if (r1.ok) return { ok: true, degraded: false };
 
@@ -179,7 +182,7 @@ async function dispatchWorkflow(
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ ref: branch, inputs: { runId: payload?.inputs?.runId, branch: payload?.inputs?.branch } }),
+      body: JSON.stringify({ ref: wfRef, inputs: { runId: payload?.inputs?.runId, branch: payload?.inputs?.branch } }),
     });
     if (r2.ok) return { ok: true, degraded: true };
 
@@ -189,7 +192,7 @@ async function dispatchWorkflow(
       headers,
       body: JSON.stringify({
         event_type: 'generate-apk',
-        client_payload: { ...payload, ref: branch },
+        client_payload: { ...payload, ref: wfRef },
       }),
     });
     if (r3.ok) return { ok: true, degraded: true };
@@ -256,27 +259,6 @@ async function maybeEmitSeedJson(appRoot: string, plan: any, runId: string) {
     await writeText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (no lists.posts in plan)');
     return { wrote: false, items: 0 };
   }
-}
-
-/* ---- 远端分支内容校验（用于 Contents API 推送后的自愈回退判定） ---- */
-async function checkRemoteAppSkeleton(branch: string) {
-  const owner = process.env.GH_OWNER!;
-  const repo  = process.env.GH_REPO!;
-  const headers: Record<string, string> = {
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  };
-  if (process.env.GH_PAT) headers.Authorization = `Bearer ${process.env.GH_PAT}`;
-
-  async function exists(remotePath: string) {
-    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(remotePath)}?ref=${encodeURIComponent(branch)}`;
-    const r = await fetch(url, { headers });
-    return r.ok;
-  }
-
-  const okManifest = await exists('app/src/main/AndroidManifest.xml');
-  const okGradle   = (await exists('app/build.gradle')) || (await exists('app/build.gradle.kts'));
-  return { ok: okManifest && okGradle, okManifest, okGradle };
 }
 
 /* -------------------- 路由 -------------------- */
@@ -457,7 +439,7 @@ ${anchors}
       await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
-    // 6.5) 推送“构建分支”：app/ 与 requests/<runId>/ 同步到同一分支（带远端校验与回退）
+    // 6.5) 推送“构建分支”：app/ 与 requests/<runId>/ 同步到同一分支
     step = 'push-app-branch';
     ensureEnv();
     const runBranch = `ndjc-run/${runId}`;
@@ -465,7 +447,9 @@ ${anchors}
 
     await assertNoEscapedQuotes(appRoot);
 
-    // 找到本地 requests/<runId>
+    // 先清空远端 app/ 再镜像推送，防止旧模板残留
+    await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
+
     const reqCandidates = [
       path.join(getRepoPath(), 'requests', runId),
       path.join(process.cwd(), 'requests', runId),
@@ -476,23 +460,13 @@ ${anchors}
     for (const p of reqCandidates) {
       try { await fs.access(p); reqLocalDir = p; break; } catch {}
     }
-
-    // ① 用 Contents API 推送（快）
-    await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
     if (reqLocalDir) {
       await pushDirByContentsApi(reqLocalDir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`);
-    }
-
-    // ② 远端校验：必须存在 Manifest 与 Gradle 文件，否则用 tree 推送回退
-    const remote = await checkRemoteAppSkeleton(runBranch);
-    if (!remote.ok) {
-      const fb = await upsertRunBranchFromDirs(runId, appRoot, reqLocalDir, runBranch);
-      await writeJSON(runId, '05d_push_fallback.json', { reason: 'contents-api-missing-app', remote, fallback: fb });
     } else {
-      await writeText(runId, '05d_push_ok.txt', `contents-api push ok (manifest=${remote.okManifest}, gradle=${remote.okGradle})`);
+      await writeText(runId, '05c_logs_push_skipped.txt', 'skip pushing logs: local requests/<runId> not found');
     }
 
-    // 7) 触发 Actions（ref 指向 runBranch）
+    // 7) 触发 Actions（工作流文件从 main 取，构建代码分支传入 inputs.branch）
     step = 'dispatch';
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
@@ -502,13 +476,13 @@ ${anchors}
     } else {
       const inputs = {
         runId,
-        branch: runBranch,
+        branch: runBranch,            // <- 构建代码分支
         template: o.template,
         appTitle: o.appName,
         packageName: o.packageId,
         preflight_mode: input?.preflight_mode || 'warn',
       };
-      dispatch = await dispatchWorkflow({ inputs }, runBranch);
+      dispatch = await dispatchWorkflow({ inputs }); // <- 只传 inputs，工作流文件固定用 main
 
       const owner = process.env.GH_OWNER!;
       const repo  = process.env.GH_REPO!;
