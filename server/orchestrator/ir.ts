@@ -1,24 +1,31 @@
-// server/orchestrator/ir.ts
-export type Strategy = "write" | "append" | "replace_file" | "replace_range";
-
-export interface Companion {
-  path_template: string;           // 例如: app/src/main/assets/ndjc/seed.json 或 app/src/main/java/{{PKG_PATH}}/data/SeedRepository.kt
-  kind?: "json" | "kotlin" | "java" | "text";
-  strategy: Strategy;
-  markers?: { begin: string; end: string }; // 仅 replace_range 需要
-  content: string;                  // 直接提供最终要落盘的内容（已渲染变量）
-}
-
-export interface PlanVars {
-  packageId: string;                // com.niutao.canteen
-  PKG_PATH: string;                 // com/niutao/canteen
-  APP_DIR: string;                  // app
-}
-
-export interface Plan {
+import { Plan } from "../types";
+export interface GenerateInput {
+  template_key: string;
   mode: "A" | "B";
-  template: string;                 // circle-basic 等
-  anchors: Record<string, string>;  // 锚点键值
-  vars: PlanVars;
-  companions: Companion[];          // B 模式下的伴生写入清单
+  fields: { appName?: string; homeTitle?: string; mainButtonText?: string; packageId?: string };
+  lists?: Record<string, unknown>;
+  blocks?: Record<string, unknown>;
+  companions?: { path: string; kind: string; content: string; overwrite?: boolean }[];
+}
+
+export function toPlan(input: GenerateInput, runId: string): Plan {
+  return {
+    runId,
+    template_key: input.template_key,
+    mode: input.mode,
+    anchors: {
+      "NDJC:APP_LABEL": input.fields.appName,
+      "NDJC:HOME_TITLE": input.fields.homeTitle,
+      "NDJC:PRIMARY_BUTTON_TEXT": input.fields.mainButtonText,
+      "NDJC:PACKAGE_NAME": input.fields.packageId,
+    },
+    lists: input.lists ?? {},
+    blocks: input.blocks ?? {},
+    companions: input.companions?.map(c => ({
+      path: c.path,
+      kind: (c.kind as any) ?? "kotlin",
+      content: c.content,
+      overwrite: c.overwrite ?? false
+    })) ?? [],
+  };
 }
