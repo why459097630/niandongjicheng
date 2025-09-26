@@ -149,18 +149,14 @@ function normalizeWorkflowId(wf: string) {
   if (wf.endsWith('.yml')) return wf;
   return `${wf}.yml`;
 }
-
-/**
- * 关键改动：无论构建代码所在的“运行分支”是什么，工作流文件一律从 GH_BRANCH（通常是 main）取。
- * 构建目标分支通过 inputs.branch 传入，由 actions/checkout 使用。
- */
 async function dispatchWorkflow(
-  payload: any
+  payload: any,
+  refBranch?: string
 ): Promise<{ ok: true; degraded: boolean }> {
   const owner  = process.env.GH_OWNER!;
   const repo   = process.env.GH_REPO!;
+  const branch = refBranch || process.env.GH_BRANCH || 'main'; // 工作流文件所在分支
   const wf     = normalizeWorkflowId(process.env.WORKFLOW_ID!);
-  const wfRef  = process.env.GH_BRANCH || 'main'; // 工作流文件所在分支（固定用 main）
 
   const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
   const headers: Record<string, string> = {
@@ -172,7 +168,7 @@ async function dispatchWorkflow(
   const r1 = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ ref: wfRef, ...payload }),
+    body: JSON.stringify({ ref: branch, ...payload }),
   });
   if (r1.ok) return { ok: true, degraded: false };
 
@@ -182,7 +178,7 @@ async function dispatchWorkflow(
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ ref: wfRef, inputs: { runId: payload?.inputs?.runId, branch: payload?.inputs?.branch } }),
+      body: JSON.stringify({ ref: branch, inputs: { runId: payload?.inputs?.runId, branch: payload?.inputs?.branch } }),
     });
     if (r2.ok) return { ok: true, degraded: true };
 
@@ -192,7 +188,7 @@ async function dispatchWorkflow(
       headers,
       body: JSON.stringify({
         event_type: 'generate-apk',
-        client_payload: { ...payload, ref: wfRef },
+        client_payload: { ...payload, ref: branch },
       }),
     });
     if (r3.ok) return { ok: true, degraded: true };
@@ -466,7 +462,7 @@ ${anchors}
       await writeText(runId, '05c_logs_push_skipped.txt', 'skip pushing logs: local requests/<runId> not found');
     }
 
-    // 7) 触发 Actions（工作流文件从 main 取，构建代码分支传入 inputs.branch）
+    // 7) 触发 Actions（**工作流文件来自 main / GH_BRANCH；构建代码来自 runBranch**）
     step = 'dispatch';
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
@@ -476,13 +472,15 @@ ${anchors}
     } else {
       const inputs = {
         runId,
-        branch: runBranch,            // <- 构建代码分支
+        branch: runBranch,               // ← 让 actions/checkout 拉这条分支编译
         template: o.template,
         appTitle: o.appName,
         packageName: o.packageId,
         preflight_mode: input?.preflight_mode || 'warn',
       };
-      dispatch = await dispatchWorkflow({ inputs }); // <- 只传 inputs，工作流文件固定用 main
+
+      const workflowRef = process.env.GH_BRANCH || 'main'; // ← 工作流文件所在分支（固定 main / GH_BRANCH）
+      dispatch = await dispatchWorkflow({ inputs }, workflowRef);
 
       const owner = process.env.GH_OWNER!;
       const repo  = process.env.GH_REPO!;
@@ -490,6 +488,7 @@ ${anchors}
       actionsUrl  = `https://github.com/${owner}/${repo}/actions/workflows/${wf}`;
     }
 
+    // 8) OK
     return NextResponse.json({
       ok: true,
       runId,
