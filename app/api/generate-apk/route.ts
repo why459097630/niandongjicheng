@@ -47,14 +47,11 @@ async function emitCompanions(
     const ext = path.extname(dst).toLowerCase();
 
     if (!COMPANION_WHITELIST.has(ext)) continue;
-    if (!dst.startsWith(dstRoot)) continue; // 防目录穿越
+    if (!dst.startsWith(dstRoot)) continue;
     await fs.mkdir(path.dirname(dst), { recursive: true });
 
     try {
-      if (!file.overwrite) {
-        await fs.access(dst); // 已存在且不允许覆盖 → 跳过
-        continue;
-      }
+      if (!file.overwrite) { await fs.access(dst); continue; }
     } catch { /* not exists */ }
 
     await fs.writeFile(dst, file.content ?? '', 'utf8');
@@ -63,22 +60,19 @@ async function emitCompanions(
   return { written: written.length, files: written };
 }
 
-/* -------------------- 在线获取最新模板（可选） -------------------- */
+/* -------------------- 模板拉取（可选） -------------------- */
 async function fetchJson(url: string, headers: Record<string, string>) {
   const r = await fetch(url, { headers });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} :: ${url} :: ${await r.text()}`);
   return r.json();
 }
 async function fetchFileB64(url: string, headers: Record<string, string>) {
-  const j = await fetchJson(url, headers); // contents API 单文件返回 { content, encoding }
-  if (j?.content && j.encoding === 'base64') {
-    return Buffer.from(j.content, 'base64');
-  }
+  const j = await fetchJson(url, headers);
+  if (j?.content && j.encoding === 'base64') return Buffer.from(j.content, 'base64');
   if (j?.download_url) {
     const rr = await fetch(j.download_url, { headers });
     if (!rr.ok) throw new Error(`${rr.status} ${rr.statusText} :: ${j.download_url}`);
-    const buf = Buffer.from(await rr.arrayBuffer());
-    return buf;
+    return Buffer.from(await rr.arrayBuffer());
   }
   throw new Error('unexpected file payload from contents API');
 }
@@ -113,14 +107,12 @@ async function mirrorRepoPathToDir(
   }
 }
 async function ensureLatestTemplates(runId: string) {
-  const spec = process.env.TEMPLATES_REPO; // owner/repo@ref
+  const spec = process.env.TEMPLATES_REPO;
   if (!spec) {
     return { mode: 'local', tplDir: process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates') };
   }
-
   const m = spec.match(/^([^/]+)\/([^@]+)@(.+)$/);
   if (!m) throw new Error(`Invalid TEMPLATES_REPO: ${spec} (expected owner/repo@ref)`);
-
   const owner = m[1], repo = m[2], ref = m[3];
   const subPath = (process.env.TEMPLATES_PATH || 'templates').replace(/^\/+/, '').replace(/\/+$/, '');
   const dstRoot = path.join('/tmp', 'ndjc-templates', runId);
@@ -129,17 +121,14 @@ async function ensureLatestTemplates(runId: string) {
     'X-GitHub-Api-Version': '2022-11-28',
   };
   if (process.env.GH_PAT) headers.Authorization = `Bearer ${process.env.GH_PAT}`;
-
   await mirrorRepoPathToDir(owner, repo, ref, subPath, dstRoot, headers);
-
   const finalDir = path.join(dstRoot, subPath);
-  process.env.TEMPLATES_DIR = finalDir;               // 让 generator.ts 走这个目录
+  process.env.TEMPLATES_DIR = finalDir;
   return { mode: 'remote', repo: `${owner}/${repo}`, ref, subPath, tplDir: finalDir };
 }
 
-/* -------------------- GitHub Actions 触发工具 -------------------- */
+/* -------------------- GitHub Actions -------------------- */
 const NEED_ENV = ['GH_OWNER', 'GH_REPO', 'GH_BRANCH', 'WORKFLOW_ID', 'GH_PAT'] as const;
-
 function ensureEnv() {
   const miss = NEED_ENV.filter((k) => !process.env[k]);
   if (miss.length) throw new Error('Missing env: ' + miss.join(', '));
@@ -149,10 +138,7 @@ function normalizeWorkflowId(wf: string) {
   if (wf.endsWith('.yml')) return wf;
   return `${wf}.yml`;
 }
-async function dispatchWorkflow(
-  payload: any,
-  refBranch?: string
-): Promise<{ ok: true; degraded: boolean }> {
+async function dispatchWorkflow(payload: any, refBranch?: string): Promise<{ ok: true; degraded: boolean }> {
   const owner  = process.env.GH_OWNER!;
   const repo   = process.env.GH_REPO!;
   const branch = refBranch || process.env.GH_BRANCH || 'main';
@@ -165,39 +151,26 @@ async function dispatchWorkflow(
     Accept: 'application/vnd.github+json',
   };
 
-  const r1 = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ref: branch, ...payload }),
-  });
+  const r1 = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ref: branch, ...payload }) });
   if (r1.ok) return { ok: true, degraded: false };
 
   const text1 = await r1.text();
-
   if (r1.status === 422) {
     const r2 = await fetch(url, {
-      method: 'POST',
-      headers,
+      method: 'POST', headers,
       body: JSON.stringify({ ref: branch, inputs: { runId: payload?.inputs?.runId, branch: payload?.inputs?.branch } }),
     });
     if (r2.ok) return { ok: true, degraded: true };
 
     const repoUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
     const r3 = await fetch(repoUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        event_type: 'generate-apk',
-        client_payload: { ...payload, ref: branch },
-      }),
+      method: 'POST', headers,
+      body: JSON.stringify({ event_type: 'generate-apk', client_payload: { ...payload, ref: branch } }),
     });
     if (r3.ok) return { ok: true, degraded: true };
 
-    const text2 = await r2.text();
-    const text3 = await r3.text();
-    throw new Error(`GitHub 422 (fallback failed) :: ${url} :: ${text1} :: ${text2} :: ${text3}`);
+    throw new Error(`GitHub 422 (fallback failed) :: ${url} :: ${text1} :: ${await r2.text()} :: ${await r3.text()}`);
   }
-
   throw new Error(`GitHub ${r1.status} ${r1.statusText} :: ${url} :: ${text1}`);
 }
 
@@ -213,33 +186,37 @@ async function assertNoEscapedQuotes(appRoot: string) {
       if (/\bid\s+\\'/.test(s) || /\\'com\.android\.application\\'/.test(s)) {
         throw new Error(`${f} contains escaped quotes (\\') — check git-contents uploader`);
       }
-    } catch { /* ignore missing */ }
+    } catch {}
   }
 }
 function countCriticalReplacements(applyResult: any[]): number {
-  const KEY = new Set([
-    'NDJC:PACKAGE_NAME',
-    'NDJC:APP_LABEL',
-    'NDJC:HOME_TITLE',
-    'NDJC:MAIN_BUTTON',
-    'NDJC:BLOCK:PERMISSIONS',
-    'NDJC:BLOCK:INTENT_FILTERS',
-  ]);
+  const KEY = new Set(['NDJC:PACKAGE_NAME','NDJC:APP_LABEL','NDJC:HOME_TITLE','NDJC:MAIN_BUTTON','NDJC:BLOCK:PERMISSIONS','NDJC:BLOCK:INTENT_FILTERS']);
   let n = 0;
-  for (const f of applyResult || []) {
-    for (const c of f?.changes || []) {
-      if (KEY.has(c.marker) && (c.replacedCount || 0) > 0) n += c.replacedCount;
-    }
-  }
+  for (const f of applyResult || []) for (const c of f?.changes || []) if (KEY.has(c.marker) && (c.replacedCount || 0) > 0) n += c.replacedCount;
   return n;
 }
 
-/** 若计划里有 lists.posts（或 lists.feed），把它物化为 raw/seed_posts.json */
+/** 把关键产物强制落地到 /tmp/requests/<runId>，保证 Actions 前一定可推送 */
+async function ensureRunDirWithEssentials(
+  runId: string,
+  essentials: { plan?: any; apply?: any; summaryMd?: string; input?: any; checks?: any; orchestrator?: any }
+) {
+  const dir = path.join('/tmp', 'requests', runId);
+  await fs.mkdir(dir, { recursive: true });
+  if (essentials.input)       await fs.writeFile(path.join(dir, '00_input.json'), JSON.stringify(essentials.input, null, 2));
+  if (essentials.checks)      await fs.writeFile(path.join(dir, '00_checks.json'), JSON.stringify(essentials.checks, null, 2));
+  if (essentials.orchestrator)await fs.writeFile(path.join(dir, '01_orchestrator.json'), JSON.stringify(essentials.orchestrator, null, 2));
+  if (essentials.plan)        await fs.writeFile(path.join(dir, '02_plan.json'), JSON.stringify(essentials.plan, null, 2));
+  if (essentials.apply)       await fs.writeFile(path.join(dir, '03_apply_result.json'), JSON.stringify(essentials.apply, null, 2));
+  if (essentials.summaryMd)   await fs.writeFile(path.join(dir, '05_summary.md'), essentials.summaryMd);
+  return dir;
+}
+
+/* 若计划里有 lists.posts（或 lists.feed），把它物化为 raw/seed_posts.json */
 async function maybeEmitSeedJson(appRoot: string, plan: any, runId: string) {
   const posts = plan?.lists?.posts ?? plan?.lists?.feed ?? null;
   const rawDir = path.join(appRoot, 'src', 'main', 'res', 'raw');
   const out    = path.join(rawDir, 'seed_posts.json');
-
   await fs.mkdir(rawDir, { recursive: true });
 
   if (Array.isArray(posts) && posts.length) {
@@ -262,18 +239,15 @@ export async function POST(req: NextRequest) {
   let step = 'start';
   let runId = '';
   try {
-    // 0) 入参 & runId
     step = 'parse-input';
     const input = await req.json().catch(() => ({}));
     runId = newRunId();
     await writeJSON(runId, '00_input.json', input);
 
-    // 0.5) 在线拉取模板（如配置了 TEMPLATES_REPO）
     step = 'fetch-templates';
     const tplFetch = await ensureLatestTemplates(runId);
     await writeJSON(runId, '00_templates_source.json', tplFetch);
 
-    // 1) 路径体检
     step = 'check-paths';
     const repoRoot = getRepoPath();
     const tplRoot = process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
@@ -284,27 +258,16 @@ export async function POST(req: NextRequest) {
       path.join(tplRoot, `${templateName}-template`),
     ];
     let tplDirExists = false;
-    for (const cand of tplDirCandidates) {
-      if (await pathExists(cand)) { tplDirExists = true; break; }
-    }
+    for (const cand of tplDirCandidates) { if (await pathExists(cand)) { tplDirExists = true; break; } }
 
     const checks = {
-      repoRoot,
-      tplRoot,
-      templateName,
-      tplDirExists,
+      repoRoot, tplRoot, templateName, tplDirExists,
       env: {
-        GH_OWNER: !!process.env.GH_OWNER,
-        GH_REPO: !!process.env.GH_REPO,
-        GH_BRANCH: !!process.env.GH_BRANCH,
-        WORKFLOW_ID: !!process.env.WORKFLOW_ID,
-        GH_PAT: !!process.env.GH_PAT,
-        TEMPLATES_REPO: process.env.TEMPLATES_REPO || null,
-        TEMPLATES_PATH: process.env.TEMPLATES_PATH || 'templates',
-        NDJC_OFFLINE: process.env.NDJC_OFFLINE === '1',
-        NDJC_SKIP_ACTIONS: process.env.NDJC_SKIP_ACTIONS === '1',
-        GROQ_API_KEY: !!process.env.GROQ_API_KEY,
-        GROQ_MODEL: process.env.GROQ_MODEL || null,
+        GH_OWNER: !!process.env.GH_OWNER, GH_REPO: !!process.env.GH_REPO, GH_BRANCH: !!process.env.GH_BRANCH,
+        WORKFLOW_ID: !!process.env.WORKFLOW_ID, GH_PAT: !!process.env.GH_PAT,
+        TEMPLATES_REPO: process.env.TEMPLATES_REPO || null, TEMPLATES_PATH: process.env.TEMPLATES_PATH || 'templates',
+        NDJC_OFFLINE: process.env.NDJC_OFFLINE === '1', NDJC_SKIP_ACTIONS: process.env.NDJC_SKIP_ACTIONS === '1',
+        GROQ_API_KEY: !!process.env.GROQ_API_KEY, GROQ_MODEL: process.env.GROQ_MODEL || null,
       },
     };
     await writeJSON(runId, '00_checks.json', checks);
@@ -313,48 +276,33 @@ export async function POST(req: NextRequest) {
     if (!await pathExists(tplRoot)) throw new Error(`TemplatesDirNotFound: ${tplRoot}`);
     if (!tplDirExists) throw new Error(`TemplateMissing: ${templateName} (under ${tplRoot})`);
 
-    // 2) 编排：在线优先，离线兜底
     step = 'orchestrate';
     let o: any;
     try {
       if (process.env.NDJC_OFFLINE === '1' || input?.offline === true) throw new Error('force-offline');
       if (!process.env.GROQ_API_KEY) throw new Error('groq-key-missing');
-
       const groqModel = process.env.GROQ_MODEL || input?.model || 'llama-3.1-8b-instant';
       o = await orchestrate({ ...input, provider: 'groq', model: groqModel, forceProvider: 'groq' });
       await writeText(runId, '01_orchestrator_mode.txt', `online(groq:${groqModel})`);
-
       if (o && o._trace) {
         await writeJSON(runId, '01a_llm_trace.json', o._trace);
         if (o._trace.request)  await writeJSON(runId, '01a_llm_request.json',  o._trace.request);
         if (o._trace.response) await writeJSON(runId, '01b_llm_response.json', o._trace.response);
-
-        const rawText =
-          o._trace.rawText ?? o._trace.text ??
-          o._trace.response?.text ?? o._trace.response?.body ?? '';
-        if (typeof rawText === 'string' && rawText.trim()) {
-          await writeText(runId, '01c_llm_raw.txt', rawText);
-        }
+        const rawText = o._trace.rawText ?? o._trace.text ?? o._trace.response?.text ?? o._trace.response?.body ?? '';
+        if (typeof rawText === 'string' && rawText.trim()) await writeText(runId, '01c_llm_raw.txt', rawText);
       }
     } catch (err: any) {
-      // 离线兜底（方案A）
-      o = {
-        mode: 'A',
-        allowCompanions: false,
-        template: input.template ?? 'circle-basic',
-        appName: input.appName ?? input.appTitle ?? 'NDJC App',
-        packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.app',
-      };
+      o = { mode: 'A', allowCompanions: false, template: input.template ?? 'circle-basic',
+            appName: input.appName ?? input.appTitle ?? 'NDJC App',
+            packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.app' };
       await writeText(runId, '01_orchestrator_mode.txt', `offline (${String(err?.message ?? err)})`);
     }
     await writeJSON(runId, '01_orchestrator.json', o);
 
-    // 3) 计划（统一 BuildPlan）
     step = 'build-plan';
     const plan = buildPlan(o);
     await writeJSON(runId, '02_plan.json', plan);
 
-    // 4) 物化+应用+清理（使用临时 appRoot）
     step = 'materialize';
     const material = await materializeToWorkspace(o.template);
     const appRoot = material.dstApp;
@@ -364,21 +312,18 @@ export async function POST(req: NextRequest) {
     const applyResult = await applyPlanDetailed(plan);
     await writeJSON(runId, '03_apply_result.json', applyResult);
 
-    // 保险丝：关键锚点替换必须 > 0（否则直接中止，阻断空包）
     const replacedTotal = countCriticalReplacements(applyResult);
     if (replacedTotal === 0) {
       await writeText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
       throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
     }
 
-    // 若计划里有 lists.posts，则物化 seed_posts.json（与模板契约一致）
     await maybeEmitSeedJson(appRoot, plan, runId);
 
     step = 'cleanup';
     await cleanupAnchors(appRoot);
     await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
-    // 伴生文件（方案B）
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
       const emitted = await emitCompanions(appRoot, o.companions);
       await writeJSON(runId, '03a_companions_emitted.json', emitted);
@@ -386,16 +331,12 @@ export async function POST(req: NextRequest) {
       await writeText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
     }
 
-    // 5) 摘要
     step = 'summary';
     const anchors =
       (applyResult || [])
-        .flatMap((r: any) =>
-          (r?.changes || []).map(
-            (c: any) =>
-              `- \`${c.marker}\` @ \`${r.file}\` → replaced=${c.replacedCount}, found=${c.found}`
-          )
-        )
+        .flatMap((r: any) => (r?.changes || []).map(
+          (c: any) => `- \`${c.marker}\` @ \`${r.file}\` → replaced=${c.replacedCount}, found=${c.found}`
+        ))
         .join('\n') || '- (no markers found)';
     const summary = `# NDJC Run ${runId}
 
@@ -426,7 +367,11 @@ ${anchors}
 `;
     await writeText(runId, '05_summary.md', summary);
 
-    // 6) 可选提交
+    /* 把关键产物强制写到 /tmp/requests/<runId>，保证后续一定可推 */
+    const assuredRunDir = await ensureRunDirWithEssentials(runId, {
+      input, checks, orchestrator: o, plan, apply: applyResult, summaryMd: summary,
+    });
+
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
@@ -435,28 +380,23 @@ ${anchors}
       await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
-    // 6.5) 推送“构建分支”：app/ 与 requests/<runId>/ 同步到同一分支
     step = 'push-app-branch';
     ensureEnv();
     const runBranch = `ndjc-run/${runId}`;
     await ensureBranch(runBranch);
 
     await assertNoEscapedQuotes(appRoot);
-
-    // 先清空远端 app/ 再镜像推送，防止旧模板残留
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
 
-    // —— 新增：requests 本地目录的全量候选 + 必要文件校验 —— //
     const candidates = [
+      assuredRunDir,                                        // 优先：我们保证写入的目录
       path.join(getRepoPath(), 'requests', runId),
       path.join(process.cwd(), 'requests', runId),
       path.join('/tmp', 'ndjc', 'requests', runId),
       path.join('/tmp', 'requests', runId),
     ];
     let reqLocalDir: string | null = null;
-    for (const p of candidates) {
-      if (await pathExists(p)) { reqLocalDir = p; break; }
-    }
+    for (const p of candidates) { if (await pathExists(p)) { reqLocalDir = p; break; } }
     await writeJSON(runId, '05d_req_candidates.json', { tried: candidates, picked: reqLocalDir });
 
     if (!reqLocalDir) {
@@ -473,27 +413,19 @@ ${anchors}
 
     await pushDirByContentsApi(reqLocalDir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`);
 
-    // 7) 触发 Actions（ref 指向 runBranch）
     step = 'dispatch';
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
-
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
       await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
       const inputs = {
-        runId,
-        branch: runBranch,
-        template: o.template,
-        appTitle: o.appName,
-        packageName: o.packageId,
+        runId, branch: runBranch, template: o.template,
+        appTitle: o.appName, packageName: o.packageId,
         preflight_mode: input?.preflight_mode || 'warn',
       };
       dispatch = await dispatchWorkflow({ inputs }, runBranch);
-
-      const owner = process.env.GH_OWNER!;
-      const repo  = process.env.GH_REPO!;
-      const wf    = normalizeWorkflowId(process.env.WORKFLOW_ID!);
+      const owner = process.env.GH_OWNER!, repo  = process.env.GH_REPO!, wf = normalizeWorkflowId(process.env.WORKFLOW_ID!);
       actionsUrl  = `https://github.com/${owner}/${repo}/actions/workflows/${wf}`;
     }
 
@@ -509,9 +441,6 @@ ${anchors}
       templates: tplFetch,
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, step, runId, error: String(e?.message ?? e), stack: e?.stack },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, step, runId, error: String(e?.message ?? e), stack: e?.stack }, { status: 500 });
   }
 }
