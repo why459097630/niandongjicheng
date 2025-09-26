@@ -71,16 +71,16 @@ async function fetchJson(url: string, headers: Record<string, string>) {
 }
 async function fetchFileB64(url: string, headers: Record<string, string>) {
   const j = await fetchJson(url, headers); // contents API 单文件返回 { content, encoding }
-  if (!j?.content || j.encoding !== 'base64') {
-    if (j?.download_url) {
-      const rr = await fetch(j.download_url, { headers });
-      if (!rr.ok) throw new Error(`${rr.status} ${rr.statusText} :: ${j.download_url}`);
-      const buf = Buffer.from(await rr.arrayBuffer());
-      return buf;
-    }
-    throw new Error('unexpected file payload from contents API');
+  if (j?.content && j.encoding === 'base64') {
+    return Buffer.from(j.content, 'base64');
   }
-  return Buffer.from(j.content, 'base64');
+  if (j?.download_url) {
+    const rr = await fetch(j.download_url, { headers });
+    if (!rr.ok) throw new Error(`${rr.status} ${rr.statusText} :: ${j.download_url}`);
+    const buf = Buffer.from(await rr.arrayBuffer());
+    return buf;
+  }
+  throw new Error('unexpected file payload from contents API');
 }
 async function mirrorRepoPathToDir(
   owner: string, repo: string, ref: string, repoPath: string, dstRoot: string, headers: Record<string, string>
@@ -202,9 +202,9 @@ async function dispatchWorkflow(
 }
 
 /* -------------------- 小工具 -------------------- */
-async function pathExists(p: string) {
-  try { await fs.access(p); return true; } catch { return false; }
-}
+async function pathExists(p: string) { try { await fs.access(p); return true; } catch { return false; } }
+async function fileExists(p: string) { try { await fs.access(p); return true; } catch { return false; } }
+
 async function assertNoEscapedQuotes(appRoot: string) {
   for (const f of ['build.gradle', 'build.gradle.kts']) {
     const p = path.join(appRoot, f);
@@ -234,6 +234,29 @@ function countCriticalReplacements(applyResult: any[]): number {
   return n;
 }
 
+/** 若计划里有 lists.posts（或 lists.feed），把它物化为 raw/seed_posts.json */
+async function maybeEmitSeedJson(appRoot: string, plan: any, runId: string) {
+  const posts = plan?.lists?.posts ?? plan?.lists?.feed ?? null;
+  const rawDir = path.join(appRoot, 'src', 'main', 'res', 'raw');
+  const out    = path.join(rawDir, 'seed_posts.json');
+
+  await fs.mkdir(rawDir, { recursive: true });
+
+  if (Array.isArray(posts) && posts.length) {
+    if (!(await fileExists(out))) {
+      await fs.writeFile(out, JSON.stringify(posts, null, 2), 'utf8');
+      await writeText(runId, '03a2_seed_json.txt', `emit seed_posts.json (items=${posts.length})`);
+      return { wrote: true, items: posts.length };
+    } else {
+      await writeText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (already exists)');
+      return { wrote: false, items: 0 };
+    }
+  } else {
+    await writeText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (no lists.posts in plan)');
+    return { wrote: false, items: 0 };
+  }
+}
+
 /* -------------------- 路由 -------------------- */
 export async function POST(req: NextRequest) {
   let step = 'start';
@@ -254,13 +277,12 @@ export async function POST(req: NextRequest) {
     step = 'check-paths';
     const repoRoot = getRepoPath();
     const tplRoot = process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
-    const templateName = String(input?.template || 'core');
+    const templateName = String(input?.template || 'circle-basic');
 
     const tplDirCandidates = [
       path.join(tplRoot, `${templateName}`),
       path.join(tplRoot, `${templateName}-template`),
     ];
-    // ✅ 替换 Promise.any：逐个判断（兼容性更好）
     let tplDirExists = false;
     for (const cand of tplDirCandidates) {
       if (await pathExists(cand)) { tplDirExists = true; break; }
@@ -319,7 +341,7 @@ export async function POST(req: NextRequest) {
       o = {
         mode: 'A',
         allowCompanions: false,
-        template: input.template ?? 'core',
+        template: input.template ?? 'circle-basic',
         appName: input.appName ?? input.appTitle ?? 'NDJC App',
         packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.app',
       };
@@ -348,6 +370,9 @@ export async function POST(req: NextRequest) {
       await writeText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
       throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
     }
+
+    // 若计划里有 lists.posts，则物化 seed_posts.json（与模板契约一致）
+    await maybeEmitSeedJson(appRoot, plan, runId);
 
     step = 'cleanup';
     await cleanupAnchors(appRoot);
@@ -392,6 +417,7 @@ export async function POST(req: NextRequest) {
 - 02_plan.json
 - 03_apply_result.json
 - 03a_companions_emitted.json / .txt
+- 03a2_seed_json.txt
 - 03b_cleanup.txt
 - 04_materialize.txt
 
@@ -444,7 +470,6 @@ ${anchors}
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
       await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
-      // 把运行分支传给 workflow inputs，供 actions/checkout 使用
       const inputs = {
         runId,
         branch: runBranch,
@@ -461,7 +486,6 @@ ${anchors}
       actionsUrl  = `https://github.com/${owner}/${repo}/actions/workflows/${wf}`;
     }
 
-    // 8) OK
     return NextResponse.json({
       ok: true,
       runId,
