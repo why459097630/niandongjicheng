@@ -99,7 +99,7 @@ export async function materializeToWorkspace(templateKeyOrLegacyName: string) {
   return { srcApp, dstApp };
 }
 
-/* ========= buildPlan（增强：从 o 字段兜底 anchors） ========= */
+/* ========= buildPlan（增强：从 orchestrator 字段兜底 anchors/blocks） ========= */
 export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
   const anchors = { ...(o as any)?.anchors };
 
@@ -117,6 +117,22 @@ export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
     anchors['NDJC:PACKAGE_NAME'] = (o as any).packageId;
   }
 
+  // ★ 把 orchestrator 的 XML 片段物化为 NDJC:BLOCK:* （计数保险丝依赖这些键）
+  const blocks: Record<string, string> = { ...(o as any)?.blocks };
+  const permXml = (o as any)?.permissionsXml as string | undefined;
+  const ifXml   = (o as any)?.intentFiltersXml as string | undefined;
+  const themeOv = (o as any)?.themeOverridesXml as string | undefined;
+
+  if (permXml && !blocks['NDJC:BLOCK:PERMISSIONS']) {
+    blocks['NDJC:BLOCK:PERMISSIONS'] = String(permXml);
+  }
+  if (ifXml && !blocks['NDJC:BLOCK:INTENT_FILTERS']) {
+    blocks['NDJC:BLOCK:INTENT_FILTERS'] = String(ifXml);
+  }
+  if (themeOv && !blocks['NDJC:BLOCK:THEME_OVERRIDES']) {
+    blocks['NDJC:BLOCK:THEME_OVERRIDES'] = String(themeOv);
+  }
+
   return {
     run_id: (o as any)?.runId || (o as any)?.run_id,
     template_key: (o as any)?.template_key || (o as any)?.template,
@@ -124,7 +140,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
     anchors,
     conditions: (o as any)?.conditions ?? {},
     lists: (o as any)?.lists ?? {},
-    blocks: (o as any)?.blocks ?? {},
+    blocks,
   };
 }
 
@@ -212,8 +228,8 @@ async function updateStringsXml(appRoot: string, plan: BuildPlan): Promise<Apply
   const changes: AnchorChange[] = [];
 
   const map: Array<{ key: string; anchor: string }> = [
-    { key: 'app_name',     anchor: 'NDJC:APP_LABEL' },
-    { key: 'home_title',   anchor: 'NDJC:HOME_TITLE' },
+    { key: 'app_name',       anchor: 'NDJC:APP_LABEL' },
+    { key: 'home_title',     anchor: 'NDJC:HOME_TITLE' },
     { key: 'primary_button', anchor: 'NDJC:PRIMARY_BUTTON_TEXT' }, // circle 模板中的命名
   ];
 
@@ -311,7 +327,17 @@ function applyManifest(src: string, plan: BuildPlan) {
   let text = src;
   const changes: AnchorChange[] = [];
 
-  // 1) 权限（IF:PERMISSION.*）
+  // 0) 若模板在 Manifest 内部使用了 NDJC:BLOCK:* 占位，允许直接替换
+  for (const [blkKey, blkVal] of Object.entries(plan.blocks || {})) {
+    const pat = new RegExp(`<!--\\s*${escapeRe(blkKey)}\\s*-->[\\s\\S]*?<!--\\s*END_BLOCK\\s*-->`, 'g');
+    const before = text;
+    text = text.replace(pat, String(blkVal ?? ''));
+    if (text !== before) {
+      changes.push({ file: '', marker: blkKey, found: true, replacedCount: 1 });
+    }
+  }
+
+  // 1) 条件权限（IF:PERMISSION.*）
   const permMap: Record<string, string> = {
     'IF:PERMISSION.CAMERA':       'android.permission.CAMERA',
     'IF:PERMISSION.MEDIA':        'android.permission.READ_MEDIA_IMAGES',
@@ -370,7 +396,7 @@ function applyManifest(src: string, plan: BuildPlan) {
     }
   }
 
-  // 4) 其他 NDJC/BLOCK/LIST 也跑一遍
+  // 4) 其他 NDJC/BLOCK/LIST 也跑一遍（保证非标准占位也能替换）
   const extra = applyTextAnchors(text, plan);
   text = extra.text;
   changes.push(...extra.changes);
