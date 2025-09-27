@@ -22,92 +22,59 @@ import * as path from 'node:path';
 
 export const runtime = 'nodejs';
 
-/* -------------------- 伴生文件（方案B）安全落地：直接写入 appRoot -------------------- */
-/** 允许写入的后缀 */
-const COMPANION_EXT = new Set([
-  '.kt', '.kts', '.java', '.xml', '.json', '.txt', '.pro', '.md', '.gradle', '.properties'
+// -------------------- 伴生文件（方案B）安全落地 --------------------
+const COMPANION_ROOT = 'companions';
+const COMPANION_WHITELIST = new Set([
+  '.kt', '.kts', '.java', '.xml', '.json', '.txt', '.pro', '.md', '.gradle', '.properties',
 ]);
 
-/** 允许写入的相对前缀（相对 appRoot），或允许的“精确文件名” */
-const ALLOWED_PREFIXES = [
-  'src/main/java/',
-  'src/main/kotlin/',
-  'src/main/res/',
-  'src/main/AndroidManifest.xml', // 精确文件
-  'build.gradle',
-  'build.gradle.kts',
-  'proguard-rules.pro',
-  'gradle.properties',
-];
-
-function toUnix(p: string) {
-  return (p || '').replace(/\\/+/g, '/');
+// 统一把路径里的 \ 或 // 折叠成 /，并去掉开头的 /
+function toUnix(p: string): string {
+  return (p ?? '').replace(/[\\\/]+/g, '/').replace(/^\//, '');
 }
 
-/** 规范化 LLM 给的路径：去前导 `app/`，折叠 `.`/`..`，去掉前导斜杠 */
-function normalizeRelPath(raw: string): string | null {
-  let s = toUnix(String(raw || '').trim());
-  s = s.replace(/^(\.\/)+/, '');   // ./ 开头
-  s = s.replace(/^\/+/, '');       // / 开头
-  s = s.replace(/^app\//, '');     // 去掉 app/ 前缀，因为 appRoot 已经是 app/
-  // 使用 posix normalize 折叠 .. 等，但保持相对
-  s = path.posix.normalize(s);
-  if (s === '.' || s === '') return null;
-  // 禁止目录穿越
-  if (s.startsWith('..')) return null;
-  return s;
-}
-
-/** 路径是否允许写入到 appRoot */
-function isAllowedRel(rel: string): boolean {
-  const u = toUnix(rel);
-  for (const allow of ALLOWED_PREFIXES) {
-    // 精确文件名
-    if (!allow.endsWith('/') && u === allow) return true;
-    // 目录前缀
-    if (allow.endsWith('/') && u.startsWith(allow)) return true;
-  }
-  return false;
+// 仅允许写入 app/ 或 src/ 之下；去掉 ../ 上跳
+function sanitizeCompanionPath(rel: string): string | null {
+  const norm = toUnix(rel).replace(/\.\.(\/|$)/g, '');
+  if (!norm) return null;
+  if (!/^app\/|^src\//.test(norm)) return null;
+  return norm;
 }
 
 async function emitCompanions(
   appRoot: string,
   companions: Array<{ path: string; content: string; overwrite?: boolean }>
 ) {
-  if (!companions?.length) return { written: 0, files: [] as string[], skipped: [] as string[] };
+  if (!companions?.length) return { written: 0, files: [] as string[] };
+
+  const dstRoot = path.join(appRoot, COMPANION_ROOT);
+  await fs.mkdir(dstRoot, { recursive: true });
 
   const written: string[] = [];
-  const skipped: string[] = [];
-
   for (const file of companions) {
-    const rel0 = normalizeRelPath(file.path || '');
-    if (!rel0) { skipped.push(String(file.path || '')); continue; }
+    const rel = sanitizeCompanionPath(file.path || '');
+    if (!rel) continue;
 
-    const dstRel = rel0; // 现在就是相对于 appRoot 的路径
-    if (!isAllowedRel(dstRel)) { skipped.push(dstRel); continue; }
+    const dst = path.join(dstRoot, rel);
+    const ext = path.extname(dst).toLowerCase();
+    if (!COMPANION_WHITELIST.has(ext)) continue;
+    if (!dst.startsWith(dstRoot)) continue;
 
-    const ext = path.extname(dstRel).toLowerCase();
-    if (!COMPANION_EXT.has(ext)) { skipped.push(dstRel); continue; }
+    await fs.mkdir(path.dirname(dst), { recursive: true });
+    try {
+      if (!file.overwrite) {
+        await fs.access(dst);
+        continue;
+      }
+    } catch {}
 
-    const dstAbs = path.join(appRoot, dstRel);
-    if (!dstAbs.startsWith(appRoot)) { skipped.push(dstRel); continue; } // 双保险
-
-    await fs.mkdir(path.dirname(dstAbs), { recursive: true });
-
-    // 默认允许覆盖（首次落地更顺滑）；只有显式 false 才不覆盖
-    const allowOverwrite = file.overwrite !== false;
-    if (!allowOverwrite) {
-      try { await fs.access(dstAbs); skipped.push(dstRel); continue; }
-      catch { /* not exists -> ok to write */ }
-    }
-
-    await fs.writeFile(dstAbs, file.content ?? '', 'utf8');
-    written.push(dstRel);
+    await fs.writeFile(dst, file.content ?? '', 'utf8');
+    written.push(path.relative(appRoot, dst));
   }
-  return { written: written.length, files: written, skipped };
+  return { written: written.length, files: written };
 }
 
-/* -------------------- 在线获取最新模板（可选） -------------------- */
+// -------------------- 在线获取最新模板（可选） --------------------
 async function fetchJson(url: string, headers: Record<string, string>) {
   const r = await fetch(url, { headers });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} :: ${url} :: ${await r.text()}`);
@@ -121,8 +88,7 @@ async function fetchFileB64(url: string, headers: Record<string, string>) {
   if (j?.download_url) {
     const rr = await fetch(j.download_url, { headers });
     if (!rr.ok) throw new Error(`${rr.status} ${rr.statusText} :: ${j.download_url}`);
-    const buf = Buffer.from(await rr.arrayBuffer());
-    return buf;
+    return Buffer.from(await rr.arrayBuffer());
   }
   throw new Error('unexpected file payload from contents API');
 }
@@ -157,7 +123,7 @@ async function mirrorRepoPathToDir(
   }
 }
 async function ensureLatestTemplates(runId: string) {
-  const spec = process.env.TEMPLATES_REPO; // owner/repo@ref
+  const spec = process.env.TEMPLATES_REPO;
   if (!spec) {
     return { mode: 'local', tplDir: process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates') };
   }
@@ -181,7 +147,7 @@ async function ensureLatestTemplates(runId: string) {
   return { mode: 'remote', repo: `${owner}/${repo}`, ref, subPath, tplDir: finalDir };
 }
 
-/* -------------------- GitHub Actions 触发工具 -------------------- */
+// -------------------- GitHub Actions 触发工具 --------------------
 const NEED_ENV = ['GH_OWNER', 'GH_REPO', 'GH_BRANCH', 'WORKFLOW_ID', 'GH_PAT'] as const;
 
 function ensureEnv() {
@@ -245,7 +211,7 @@ async function dispatchWorkflow(
   throw new Error(`GitHub ${r1.status} ${r1.statusText} :: ${url} :: ${text1}`);
 }
 
-/* -------------------- 小工具 -------------------- */
+// -------------------- 小工具 --------------------
 async function pathExists(p: string) { try { await fs.access(p); return true; } catch { return false; } }
 async function fileExists(p: string) { try { await fs.access(p); return true; } catch { return false; } }
 
@@ -257,7 +223,7 @@ async function assertNoEscapedQuotes(appRoot: string) {
       if (/\bid\s+\\'/.test(s) || /\\'com\.android\.application\\'/.test(s)) {
         throw new Error(`${f} contains escaped quotes (\\') — check git-contents uploader`);
       }
-    } catch { /* ignore missing */ }
+    } catch {}
   }
 }
 function countCriticalReplacements(applyResult: any[]): number {
@@ -278,7 +244,7 @@ function countCriticalReplacements(applyResult: any[]): number {
   return n;
 }
 
-/* ---------- 本地请求目录（/tmp 可写）与写入封装 ---------- */
+// -------------------- 本地请求目录与写入封装 --------------------
 function runLocalRoot(runId: string) {
   const base = process.env.NDJC_REQ_DIR || '/tmp/ndjc/requests';
   return path.join(base, runId);
@@ -323,23 +289,20 @@ async function assertCoreArtifactsOrExplain(runId: string) {
   return false;
 }
 
-/* -------------------- 路由 -------------------- */
+// -------------------- 路由 --------------------
 export async function POST(req: NextRequest) {
   let step = 'start';
   let runId = '';
   try {
-    // 0) 入参 & runId
     step = 'parse-input';
     const input = await req.json().catch(() => ({}));
     runId = (Journal.newRunId?.() ?? `ndjc-${Date.now()}`);
     await jWriteJSON(runId, '00_input.json', input);
 
-    // 0.5) 在线拉取模板（如配置了 TEMPLATES_REPO）
     step = 'fetch-templates';
     const tplFetch = await ensureLatestTemplates(runId);
     await jWriteJSON(runId, '00_templates_source.json', tplFetch);
 
-    // 1) 路径体检
     step = 'check-paths';
     const repoRoot = getRepoPath();
     const tplRoot = process.env.TEMPLATES_DIR || path.join(process.cwd(), 'templates');
@@ -379,7 +342,7 @@ export async function POST(req: NextRequest) {
     if (!await pathExists(tplRoot)) throw new Error(`TemplatesDirNotFound: ${tplRoot}`);
     if (!tplDirExists) throw new Error(`TemplateMissing: ${templateName} (under ${tplRoot})`);
 
-    // 2) 编排：在线优先，离线兜底
+    // 2) 编排
     step = 'orchestrate';
     let o: any;
     try {
@@ -403,7 +366,6 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (err: any) {
-      // 离线兜底（方案A）
       o = {
         mode: 'A',
         allowCompanions: false,
@@ -415,12 +377,12 @@ export async function POST(req: NextRequest) {
     }
     await jWriteJSON(runId, '01_orchestrator.json', o);
 
-    // 3) 计划（统一 BuildPlan）
+    // 3) 计划
     step = 'build-plan';
     const plan = buildPlan(o);
     await jWriteJSON(runId, '02_plan.json', plan);
 
-    // 4) 物化+应用+清理（使用临时 appRoot）
+    // 4) 物化 + 应用 + 清理
     step = 'materialize';
     const material = await materializeToWorkspace(o.template);
     const appRoot = material.dstApp;
@@ -430,14 +392,12 @@ export async function POST(req: NextRequest) {
     const applyResult = await applyPlanDetailed(plan);
     await jWriteJSON(runId, '03_apply_result.json', applyResult);
 
-    // 保险丝：关键锚点替换必须 > 0
     const replacedTotal = countCriticalReplacements(applyResult);
     if (replacedTotal === 0) {
       await jWriteText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
       throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
     }
 
-    // 若计划里有 lists.posts，则物化 seed_posts.json（与模板契约一致）
     const rawDir = path.join(appRoot, 'src', 'main', 'res', 'raw');
     await fs.mkdir(rawDir, { recursive: true });
     const posts = plan?.lists?.posts ?? plan?.lists?.feed ?? null;
@@ -458,7 +418,7 @@ export async function POST(req: NextRequest) {
     await cleanupAnchors(appRoot);
     await jWriteText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
-    // 伴生文件（方案B）：**直接写入 appRoot**
+    // 伴生文件（方案B）
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
       const emitted = await emitCompanions(appRoot, o.companions);
       await jWriteJSON(runId, '03a_companions_emitted.json', emitted);
@@ -506,7 +466,7 @@ ${anchors}
 `;
     await jWriteText(runId, '05_summary.md', summary);
 
-    // 6) 可选提交（默认关闭）
+    // 6) 可选提交
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
@@ -515,7 +475,7 @@ ${anchors}
       await jWriteText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
-    // 6.5) 推送“构建分支”：app/ 与 requests/<runId>/ 同步到同一分支
+    // 6.5) 推送构建分支
     step = 'push-app-branch';
     ensureEnv();
     const runBranch = `ndjc-run/${runId}`;
@@ -523,10 +483,8 @@ ${anchors}
 
     await assertNoEscapedQuotes(appRoot);
 
-    // 先清空远端 app/ 再镜像推送，防止旧模板残留
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
 
-    // 推送本地 /tmp 工单目录
     const reqLocalDir = runLocalRoot(runId);
     const okCore = await assertCoreArtifactsOrExplain(runId);
     if (!okCore) {
