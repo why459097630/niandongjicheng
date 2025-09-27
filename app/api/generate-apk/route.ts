@@ -155,8 +155,7 @@ async function dispatchWorkflow(
 ): Promise<{ ok: true; degraded: boolean }> {
   const owner  = process.env.GH_OWNER!;
   const repo   = process.env.GH_REPO!;
-  // 重要：这里的 ref 决定 Actions UI 里显示的 Branch
-  const branch = refBranch || process.env.GH_BRANCH || 'main';
+  const branch = refBranch || process.env.GH_BRANCH || 'main'; // 工作流文件所在分支
   const wf     = normalizeWorkflowId(process.env.WORKFLOW_ID!);
 
   const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
@@ -176,7 +175,6 @@ async function dispatchWorkflow(
   const text1 = await r1.text();
 
   if (r1.status === 422) {
-    // 再试一次普通 inputs（有些权限/保护分支场景下能成功）
     const r2 = await fetch(url, {
       method: 'POST',
       headers,
@@ -184,7 +182,6 @@ async function dispatchWorkflow(
     });
     if (r2.ok) return { ok: true, degraded: true };
 
-    // 再降级为 repository_dispatch（UI 分支不固定，但能触发）
     const repoUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
     const r3 = await fetch(repoUrl, {
       method: 'POST',
@@ -258,6 +255,54 @@ async function maybeEmitSeedJson(appRoot: string, plan: any, runId: string) {
     await writeText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (no lists.posts in plan)');
     return { wrote: false, items: 0 };
   }
+}
+
+/* ---------- 选定唯一 requests 目录 + 发射前强校验 ---------- */
+function hasCoreArtifacts(dir: string) {
+  return Promise.all([
+    fileExists(path.join(dir, '02_plan.json')),
+    fileExists(path.join(dir, '03_apply_result.json')),
+  ]).then(([h2, h3]) => ({ h2, h3 }));
+}
+
+async function pickRequestsDir(runId: string) {
+  const repoRoot = getRepoPath();
+  const candidates = [
+    path.join(repoRoot, 'requests', runId),
+    path.join(process.cwd(), 'requests', runId),
+    path.join('/tmp/ndjc', 'requests', runId),
+    path.join('/tmp', 'requests', runId),
+  ];
+
+  let chosen: string | null = null;
+  let reason = '';
+
+  for (const c of candidates) {
+    if (!(await pathExists(c))) continue;
+    const { h2, h3 } = await hasCoreArtifacts(c);
+    if (h2 && h3) { chosen = c; reason = `both(02,03) under ${c}`; break; }
+  }
+
+  if (!chosen) {
+    // 兜底：优先 repo 目录，不存在就创建，但仍要求 02/03 齐全，否则后续会抛错
+    chosen = path.join(getRepoPath(), 'requests', runId);
+    await fs.mkdir(chosen, { recursive: true });
+    reason = 'fallback to repo/requests (will validate files exist)';
+  }
+
+  return { dir: chosen, reason };
+}
+
+async function assertCoreArtifacts(dir: string, runId: string) {
+  const p2 = path.join(dir, '02_plan.json');
+  const p3 = path.join(dir, '03_apply_result.json');
+  const ok2 = await fileExists(p2);
+  const ok3 = await fileExists(p3);
+  if (ok2 && ok3) return;
+
+  const msg = `Core artifacts missing before dispatch: ${ok2 ? '' : '02_plan.json '} ${ok3 ? '' : '03_apply_result.json '}under ${dir}`;
+  await writeText(runId, '05e_pre_dispatch_error.txt', msg);
+  throw new Error(msg);
 }
 
 /* -------------------- 路由 -------------------- */
@@ -449,53 +494,17 @@ ${anchors}
     // 先清空远端 app/ 再镜像推送，防止旧模板残留
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
 
-    // ---- 根本修复：合并多个候选 logs 目录，再统一上传 ----
-    const candidates = [
-      path.join(getRepoPath(), 'requests', runId),
-      path.join(process.cwd(), 'requests', runId),
-      path.join('/tmp/ndjc', 'requests', runId),
-      path.join('/tmp', 'requests', runId),
-    ];
+    // 统一选择一个 requests 目录，并把选择写入日志
+    const picked = await pickRequestsDir(runId);
+    await writeJSON(runId, '05d_requests_dir.json', picked);
 
-    const mergedRoot = path.join('/tmp', 'ndjc-logs-merge', runId);
-    await fs.rm(mergedRoot, { recursive: true, force: true });
-    await fs.mkdir(mergedRoot, { recursive: true });
+    // 发射前硬校验（这里会生成 05e_pre_dispatch_error.txt 并抛错，避免触发失败的 Actions）
+    await assertCoreArtifacts(picked.dir, runId);
 
-    const chosen: string[] = [];
-    for (const base of candidates) {
-      try {
-        await fs.access(base);
-        chosen.push(base);
-        // 递归复制
-        const stack = [base];
-        while (stack.length) {
-          const cur = stack.pop()!;
-          const rel = path.relative(base, cur);
-          const out = path.join(mergedRoot, rel);
-          const items = await fs.readdir(cur, { withFileTypes: true });
-          await fs.mkdir(out, { recursive: true });
-          for (const it of items) {
-            const src = path.join(cur, it.name);
-            const dst = path.join(out, it.name);
-            if (it.isDirectory()) stack.push(src);
-            else {
-              await fs.mkdir(path.dirname(dst), { recursive: true });
-              await fs.copyFile(src, dst);
-            }
-          }
-        }
-      } catch { /* not exist */ }
-    }
+    // 推送 requests/<runId>
+    await pushDirByContentsApi(picked.dir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`, { wipeFirst: true });
 
-    if (chosen.length > 0) {
-      await writeText(runId, '05c_logs_push_sources.txt', `merge & push from:\n${chosen.map(s => `- ${s}`).join('\n')}`);
-      await pushDirByContentsApi(mergedRoot, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`);
-    } else {
-      await writeText(runId, '05c_logs_push_skipped.txt', 'skip pushing logs: none of candidates exist');
-    }
-    // ----------------------------------------------------
-
-    // 7) 触发 Actions：**以运行分支 runBranch 为 ref**，Actions UI 的 Branch 会显示这条分支（含 runId）
+    // 7) 触发 Actions（**工作流文件来自 main / GH_BRANCH；构建代码来自 runBranch**）
     step = 'dispatch';
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
@@ -505,16 +514,15 @@ ${anchors}
     } else {
       const inputs = {
         runId,
-        branch: runBranch,               // checkout 用这个分支构建
+        branch: runBranch,               // 让 actions/checkout 拉这条分支编译
         template: o.template,
         appTitle: o.appName,
         packageName: o.packageId,
         preflight_mode: input?.preflight_mode || 'warn',
       };
 
-      // 关键：把 workflow 的 ref 指向 runBranch
-      // 若该分支包含工作流文件，Actions UI 的 “Branch” 将显示 ndjc-run/<runId>
-      dispatch = await dispatchWorkflow({ inputs }, runBranch);
+      const workflowRef = process.env.GH_BRANCH || 'main'; // 工作流文件所在分支
+      dispatch = await dispatchWorkflow({ inputs }, workflowRef);
 
       const owner = process.env.GH_OWNER!;
       const repo  = process.env.GH_REPO!;
