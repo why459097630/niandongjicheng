@@ -23,17 +23,15 @@ import * as path from 'node:path';
 
 export const runtime = 'nodejs';
 
-/* -------------------- 伴生文件（方案B）安全落地 + 晋升 -------------------- */
+/* -------------------- 伴生文件（方案B）安全落地 -------------------- */
 const COMPANION_ROOT = 'companions';
 const COMPANION_WHITELIST = new Set([
   '.kt', '.kts', '.java', '.xml', '.json', '.txt', '.pro', '.md', '.gradle', '.properties',
 ]);
 
-type Companion = { path: string; content: string; overwrite?: boolean };
-
 async function emitCompanions(
   appRoot: string,
-  companions: Companion[]
+  companions: Array<{ path: string; content: string; overwrite?: boolean }>
 ) {
   if (!companions?.length) return { written: 0, files: [] as string[] };
 
@@ -42,8 +40,10 @@ async function emitCompanions(
 
   const written: string[] = [];
   for (const file of companions) {
-    const rel = (file.path || '').replace(/^[/\\]+/, '').replaceAll('\\', '/');
-    if (!rel) continue;
+    // ⚠ 兼容低目标：用正则替换反斜杠，不用 replaceAll
+    const rel = (file.path || '')
+      .replace(/^[\\/]+/, '')
+      .replace(/\\/g, '/');
     const dst = path.join(dstRoot, rel);
     const ext = path.extname(dst).toLowerCase();
 
@@ -62,101 +62,6 @@ async function emitCompanions(
     written.push(path.relative(appRoot, dst));
   }
   return { written: written.length, files: written };
-}
-
-function normalizeRel(p: string) {
-  return p.replaceAll('\\', '/').replace(/^\/+/, '');
-}
-
-function classifyPromotion(relUnderCompanions: string) {
-  // 将 companions/<rel> 映射到 app/src/main/** 或 companions/src|res|raw 兜底
-  const rel = normalizeRel(relUnderCompanions);
-
-  // 直接带 app/src/main/** 的，剪掉前缀后使用
-  if (rel.startsWith('app/src/main/')) {
-    const tail = rel.slice('app/src/main/'.length);
-    if (tail.startsWith('java/'))   return { kind: 'java',  destRel: `app/src/main/${tail}` };
-    if (tail.startsWith('kotlin/')) return { kind: 'java',  destRel: `app/src/main/${tail}` };
-    if (tail.startsWith('res/'))    return { kind: 'res',   destRel: `app/src/main/${tail}` };
-    if (tail.startsWith('raw/'))    return { kind: 'raw',   destRel: `app/src/main/${tail}` };
-    // 其他也照抄到 src/main
-    return { kind: 'other', destRel: `app/src/main/${tail}` };
-  }
-
-  // 常见相对路径
-  const ext = path.extname(rel).toLowerCase();
-  if (ext === '.kt' || ext === '.kts' || ext === '.java') {
-    // 尝试推断包路径：如果路径含有 com/xxx/... 直接落 java/
-    const idx = rel.indexOf('com/');
-    const pkgRel = idx >= 0 ? rel.slice(idx) : rel;
-    return { kind: 'java', destRel: `app/src/main/java/${pkgRel}` };
-  }
-  if (ext === '.xml') {
-    // 如果自带 layout/values/... 则落到对应 res/ 子目录，否则落 res/raw-ish 不合适 → 默认落 res/layout
-    if (/^res\/(layout|values|xml|drawable|mipmap)\//.test(rel)) {
-      return { kind: 'res', destRel: `app/src/main/${rel}` };
-    }
-    return { kind: 'res', destRel: `app/src/main/res/${rel}` };
-  }
-  if (ext === '.json') {
-    return { kind: 'raw', destRel: `app/src/main/res/raw/${path.basename(rel)}` };
-  }
-
-  // 兜底：塞到 companions/src|res 等（Gradle 兜底 sourceSets 可见，仍建议尽量上面几类）
-  return { kind: 'fallback', destRel: `companions/${rel}` };
-}
-
-async function promoteCompanions(appRoot: string, runId: string) {
-  const base = path.join(appRoot, COMPANION_ROOT);
-  let promoted = 0;
-  let skipped = 0;
-  const conflicts: string[] = [];
-  const kept: string[] = [];
-
-  async function walk(dir: string, root = base) {
-    const ents = await fs.readdir(dir, { withFileTypes: true });
-    for (const e of ents) {
-      const abs = path.join(dir, e.name);
-      const rel = normalizeRel(path.relative(root, abs));
-      if (e.isDirectory()) { await walk(abs, root); continue; }
-      // 读出文件，决定目标
-      const { destRel } = classifyPromotion(rel);
-      const destAbs = path.join(appRoot, destRel);
-
-      await fs.mkdir(path.dirname(destAbs), { recursive: true });
-      try {
-        // 冲突策略：若目的地已存在，保留现有，记录 skipped_conflict
-        await fs.access(destAbs);
-        skipped += 1;
-        conflicts.push(destRel);
-        kept.push(rel);
-      } catch {
-        // 写入并加 runId 标记（文本文件）
-        const buf = await fs.readFile(abs);
-        const ext = path.extname(destAbs).toLowerCase();
-        const textLike = ['.kt', '.kts', '.java', '.xml', '.gradle', '.md', '.txt', '.json', '.properties', '.pro'].includes(ext);
-        if (textLike) {
-          const header =
-            ext === '.xml'
-              ? `<!-- NDJC run ${runId} (promoted from companions/${rel}) -->\n`
-              : `// NDJC run ${runId} (promoted from companions/${rel})\n`;
-          const body = Buffer.concat([Buffer.from(header, 'utf8'), buf]);
-          await fs.writeFile(destAbs, body);
-        } else {
-          await fs.writeFile(destAbs, buf);
-        }
-        promoted += 1;
-      }
-    }
-  }
-
-  try {
-    await fs.access(base);
-  } catch {
-    return { promoted, skipped, conflicts, kept };
-  }
-  await walk(base);
-  return { promoted, skipped, conflicts, kept };
 }
 
 /* -------------------- 在线获取最新模板（可选） -------------------- */
@@ -506,25 +411,17 @@ export async function POST(req: NextRequest) {
       await jWriteText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (no lists.posts in plan)');
     }
 
-    // 伴生文件（方案B）— 先落地到 companions/*，再“晋升”到 src/main/**
-    const companionsExpected = !!(o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length);
-    if (companionsExpected) {
-      const emitted = await emitCompanions(appRoot, o.companions);
-      const promoted = await promoteCompanions(appRoot, runId);
-      await jWriteJSON(runId, '03a_companions_emitted.json', { ...emitted, ...promoted, companionsExpected: true });
-
-      // 若期望有伴生文件，但一个也没晋升，直接阻断（避免“默认模板”假成功）
-      if (promoted.promoted === 0) {
-        await jWriteText(runId, '03a_companions_abort.txt', 'companions expected but none promoted');
-        throw new Error('[NDJC] Companions expected but none promoted — abort to prevent default-template APK.');
-      }
-    } else {
-      await jWriteText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
-    }
-
     step = 'cleanup';
     await cleanupAnchors(appRoot);
     await jWriteText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
+
+    // 伴生文件（方案B）
+    if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
+      const emitted = await emitCompanions(appRoot, o.companions);
+      await jWriteJSON(runId, '03a_companions_emitted.json', emitted);
+    } else {
+      await jWriteText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
+    }
 
     // 5) 摘要
     step = 'summary';
