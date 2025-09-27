@@ -12,9 +12,7 @@ import {
 
 import * as JournalMod from '@/lib/ndjc/journal';
 const Journal: any = (JournalMod as any).default ?? JournalMod;
-const newRunId      = Journal.newRunId;
-const writeJSON     = Journal.writeJSON;
-const writeText     = Journal.writeText;
+// 仅保留 repo/commit 等工具；日志写入改为本地 /tmp
 const gitCommitPush = Journal.gitCommitPush;
 const getRepoPath   = Journal.getRepoPath;
 
@@ -155,7 +153,7 @@ async function dispatchWorkflow(
 ): Promise<{ ok: true; degraded: boolean }> {
   const owner  = process.env.GH_OWNER!;
   const repo   = process.env.GH_REPO!;
-  const branch = refBranch || process.env.GH_BRANCH || 'main'; // 工作流文件所在分支
+  const branch = refBranch || process.env.GH_BRANCH || 'main';
   const wf     = normalizeWorkflowId(process.env.WORKFLOW_ID!);
 
   const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
@@ -234,75 +232,49 @@ function countCriticalReplacements(applyResult: any[]): number {
   return n;
 }
 
-/** 若计划里有 lists.posts（或 lists.feed），把它物化为 raw/seed_posts.json */
-async function maybeEmitSeedJson(appRoot: string, plan: any, runId: string) {
-  const posts = plan?.lists?.posts ?? plan?.lists?.feed ?? null;
-  const rawDir = path.join(appRoot, 'src', 'main', 'res', 'raw');
-  const out    = path.join(rawDir, 'seed_posts.json');
-
-  await fs.mkdir(rawDir, { recursive: true });
-
-  if (Array.isArray(posts) && posts.length) {
-    if (!(await fileExists(out))) {
-      await fs.writeFile(out, JSON.stringify(posts, null, 2), 'utf8');
-      await writeText(runId, '03a2_seed_json.txt', `emit seed_posts.json (items=${posts.length})`);
-      return { wrote: true, items: posts.length };
-    } else {
-      await writeText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (already exists)');
-      return { wrote: false, items: 0 };
-    }
-  } else {
-    await writeText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (no lists.posts in plan)');
-    return { wrote: false, items: 0 };
-  }
+/* ---------- 本地请求目录（/tmp 可写）与写入封装 ---------- */
+function runLocalRoot(runId: string) {
+  const base = process.env.NDJC_REQ_DIR || '/tmp/ndjc/requests';
+  return path.join(base, runId);
 }
-
-/* ---------- 选定唯一 requests 目录 + 发射前强校验 ---------- */
-function hasCoreArtifacts(dir: string) {
-  return Promise.all([
-    fileExists(path.join(dir, '02_plan.json')),
-    fileExists(path.join(dir, '03_apply_result.json')),
-  ]).then(([h2, h3]) => ({ h2, h3 }));
+async function ensureRunDir(runId: string) {
+  const dir = runLocalRoot(runId);
+  await fs.mkdir(dir, { recursive: true });
+  return dir;
 }
-
-async function pickRequestsDir(runId: string) {
-  const repoRoot = getRepoPath();
-  const candidates = [
-    path.join(repoRoot, 'requests', runId),
-    path.join(process.cwd(), 'requests', runId),
-    path.join('/tmp/ndjc', 'requests', runId),
-    path.join('/tmp', 'requests', runId),
-  ];
-
-  let chosen: string | null = null;
-  let reason = '';
-
-  for (const c of candidates) {
-    if (!(await pathExists(c))) continue;
-    const { h2, h3 } = await hasCoreArtifacts(c);
-    if (h2 && h3) { chosen = c; reason = `both(02,03) under ${c}`; break; }
-  }
-
-  if (!chosen) {
-    // 兜底：优先 repo 目录，不存在就创建，但仍要求 02/03 齐全，否则后续会抛错
-    chosen = path.join(getRepoPath(), 'requests', runId);
-    await fs.mkdir(chosen, { recursive: true });
-    reason = 'fallback to repo/requests (will validate files exist)';
-  }
-
-  return { dir: chosen, reason };
+async function jWriteJSON(runId: string, name: string, data: any) {
+  const dir = await ensureRunDir(runId);
+  const file = path.join(dir, name);
+  await fs.writeFile(file, JSON.stringify(data, null, 2), 'utf8');
 }
+async function jWriteText(runId: string, name: string, text: string) {
+  const dir = await ensureRunDir(runId);
+  const file = path.join(dir, name);
+  await fs.writeFile(file, text ?? '', 'utf8');
+}
+async function assertCoreArtifactsOrExplain(runId: string) {
+  const dir = runLocalRoot(runId);
+  const plan = path.join(dir, '02_plan.json');
+  const apply = path.join(dir, '03_apply_result.json');
 
-async function assertCoreArtifacts(dir: string, runId: string) {
-  const p2 = path.join(dir, '02_plan.json');
-  const p3 = path.join(dir, '03_apply_result.json');
-  const ok2 = await fileExists(p2);
-  const ok3 = await fileExists(p3);
-  if (ok2 && ok3) return;
+  const has02 = await fileExists(plan);
+  const has03 = await fileExists(apply);
 
-  const msg = `Core artifacts missing before dispatch: ${ok2 ? '' : '02_plan.json '} ${ok3 ? '' : '03_apply_result.json '}under ${dir}`;
-  await writeText(runId, '05e_pre_dispatch_error.txt', msg);
-  throw new Error(msg);
+  if (has02 && has03) return true;
+
+  const miss = [
+    !has02 ? '02_plan.json' : null,
+    !has03 ? '03_apply_result.json' : null,
+  ].filter(Boolean).join(', ');
+
+  await jWriteText(
+    runId,
+    '05e_pre_dispatch_error.txt',
+    `[NDJC] Pre-dispatch guard: missing core artifact(s): ${miss}\n` +
+    `runDir: ${dir}\n` +
+    `Hint: ensure applyPlanDetailed() executed and wrote 03_apply_result.json.`
+  );
+  return false;
 }
 
 /* -------------------- 路由 -------------------- */
@@ -313,13 +285,13 @@ export async function POST(req: NextRequest) {
     // 0) 入参 & runId
     step = 'parse-input';
     const input = await req.json().catch(() => ({}));
-    runId = newRunId();
-    await writeJSON(runId, '00_input.json', input);
+    runId = (Journal.newRunId?.() ?? `ndjc-${Date.now()}`);
+    await jWriteJSON(runId, '00_input.json', input);
 
     // 0.5) 在线拉取模板（如配置了 TEMPLATES_REPO）
     step = 'fetch-templates';
     const tplFetch = await ensureLatestTemplates(runId);
-    await writeJSON(runId, '00_templates_source.json', tplFetch);
+    await jWriteJSON(runId, '00_templates_source.json', tplFetch);
 
     // 1) 路径体检
     step = 'check-paths';
@@ -355,7 +327,7 @@ export async function POST(req: NextRequest) {
         GROQ_MODEL: process.env.GROQ_MODEL || null,
       },
     };
-    await writeJSON(runId, '00_checks.json', checks);
+    await jWriteJSON(runId, '00_checks.json', checks);
 
     if (!await pathExists(repoRoot)) throw new Error(`RepoNotFound: ${repoRoot}`);
     if (!await pathExists(tplRoot)) throw new Error(`TemplatesDirNotFound: ${tplRoot}`);
@@ -370,18 +342,18 @@ export async function POST(req: NextRequest) {
 
       const groqModel = process.env.GROQ_MODEL || input?.model || 'llama-3.1-8b-instant';
       o = await orchestrate({ ...input, provider: 'groq', model: groqModel, forceProvider: 'groq' });
-      await writeText(runId, '01_orchestrator_mode.txt', `online(groq:${groqModel})`);
+      await jWriteText(runId, '01_orchestrator_mode.txt', `online(groq:${groqModel})`);
 
       if (o && o._trace) {
-        await writeJSON(runId, '01a_llm_trace.json', o._trace);
-        if (o._trace.request)  await writeJSON(runId, '01a_llm_request.json',  o._trace.request);
-        if (o._trace.response) await writeJSON(runId, '01b_llm_response.json', o._trace.response);
+        await jWriteJSON(runId, '01a_llm_trace.json', o._trace);
+        if (o._trace.request)  await jWriteJSON(runId, '01a_llm_request.json',  o._trace.request);
+        if (o._trace.response) await jWriteJSON(runId, '01b_llm_response.json', o._trace.response);
 
         const rawText =
           o._trace.rawText ?? o._trace.text ??
           o._trace.response?.text ?? o._trace.response?.body ?? '';
         if (typeof rawText === 'string' && rawText.trim()) {
-          await writeText(runId, '01c_llm_raw.txt', rawText);
+          await jWriteText(runId, '01c_llm_raw.txt', rawText);
         }
       }
     } catch (err: any) {
@@ -393,45 +365,59 @@ export async function POST(req: NextRequest) {
         appName: input.appName ?? input.appTitle ?? 'NDJC App',
         packageId: input.packageId ?? input.packageName ?? 'com.ndjc.demo.app',
       };
-      await writeText(runId, '01_orchestrator_mode.txt', `offline (${String(err?.message ?? err)})`);
+      await jWriteText(runId, '01_orchestrator_mode.txt', `offline (${String(err?.message ?? err)})`);
     }
-    await writeJSON(runId, '01_orchestrator.json', o);
+    await jWriteJSON(runId, '01_orchestrator.json', o);
 
     // 3) 计划（统一 BuildPlan）
     step = 'build-plan';
     const plan = buildPlan(o);
-    await writeJSON(runId, '02_plan.json', plan);
+    await jWriteJSON(runId, '02_plan.json', plan);
 
     // 4) 物化+应用+清理（使用临时 appRoot）
     step = 'materialize';
     const material = await materializeToWorkspace(o.template);
     const appRoot = material.dstApp;
-    await writeText(runId, '04_materialize.txt', `app copied to: ${appRoot}`);
+    await jWriteText(runId, '04_materialize.txt', `app copied to: ${appRoot}`);
 
     step = 'apply';
     const applyResult = await applyPlanDetailed(plan);
-    await writeJSON(runId, '03_apply_result.json', applyResult);
+    await jWriteJSON(runId, '03_apply_result.json', applyResult);
 
     // 保险丝：关键锚点替换必须 > 0（否则直接中止，阻断空包）
     const replacedTotal = countCriticalReplacements(applyResult);
     if (replacedTotal === 0) {
-      await writeText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
+      await jWriteText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
       throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
     }
 
     // 若计划里有 lists.posts，则物化 seed_posts.json（与模板契约一致）
-    await maybeEmitSeedJson(appRoot, plan, runId);
+    const rawDir = path.join(appRoot, 'src', 'main', 'res', 'raw');
+    await fs.mkdir(rawDir, { recursive: true });
+    const posts = plan?.lists?.posts ?? plan?.lists?.feed ?? null;
+    if (Array.isArray(posts) && posts.length) {
+      const out = path.join(rawDir, 'seed_posts.json');
+      try {
+        await fs.access(out);
+        await jWriteText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (already exists)');
+      } catch {
+        await fs.writeFile(out, JSON.stringify(posts, null, 2), 'utf8');
+        await jWriteText(runId, '03a2_seed_json.txt', `emit seed_posts.json (items=${posts.length})`);
+      }
+    } else {
+      await jWriteText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (no lists.posts in plan)');
+    }
 
     step = 'cleanup';
     await cleanupAnchors(appRoot);
-    await writeText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
+    await jWriteText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
     // 伴生文件（方案B）
     if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
       const emitted = await emitCompanions(appRoot, o.companions);
-      await writeJSON(runId, '03a_companions_emitted.json', emitted);
+      await jWriteJSON(runId, '03a_companions_emitted.json', emitted);
     } else {
-      await writeText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
+      await jWriteText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
     }
 
     // 5) 摘要
@@ -472,15 +458,15 @@ export async function POST(req: NextRequest) {
 ## Anchor Changes
 ${anchors}
 `;
-    await writeText(runId, '05_summary.md', summary);
+    await jWriteText(runId, '05_summary.md', summary);
 
-    // 6) 可选提交
+    // 6) 可选提交（默认关闭）
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
       commitInfo = await gitCommitPush(`[NDJC run ${runId}] template=${o.template} app=${o.appName}`);
     } else {
-      await writeText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
+      await jWriteText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
 
     // 6.5) 推送“构建分支”：app/ 与 requests/<runId>/ 同步到同一分支
@@ -494,15 +480,15 @@ ${anchors}
     // 先清空远端 app/ 再镜像推送，防止旧模板残留
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
 
-    // 统一选择一个 requests 目录，并把选择写入日志
-    const picked = await pickRequestsDir(runId);
-    await writeJSON(runId, '05d_requests_dir.json', picked);
-
-    // 发射前硬校验（这里会生成 05e_pre_dispatch_error.txt 并抛错，避免触发失败的 Actions）
-    await assertCoreArtifacts(picked.dir, runId);
-
-    // 推送 requests/<runId>
-    await pushDirByContentsApi(picked.dir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`, { wipeFirst: true });
+    // 推送本地 /tmp 工单目录
+    const reqLocalDir = runLocalRoot(runId);
+    const okCore = await assertCoreArtifactsOrExplain(runId); // 缺核心工件则终止
+    if (!okCore) {
+      // 把错误说明也推上去，方便在分支里查看
+      await pushDirByContentsApi(reqLocalDir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs (pre-dispatch error)`);
+      throw new Error(`[NDJC] Missing core artifacts under requests/${runId} — abort before dispatch.`);
+    }
+    await pushDirByContentsApi(reqLocalDir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`);
 
     // 7) 触发 Actions（**工作流文件来自 main / GH_BRANCH；构建代码来自 runBranch**）
     step = 'dispatch';
@@ -510,18 +496,18 @@ ${anchors}
     let actionsUrl: string | null = null;
 
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
-      await writeText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
+      await jWriteText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
     } else {
       const inputs = {
         runId,
-        branch: runBranch,               // 让 actions/checkout 拉这条分支编译
+        branch: runBranch,               // ← 让 actions/checkout 拉这条分支编译
         template: o.template,
         appTitle: o.appName,
         packageName: o.packageId,
         preflight_mode: input?.preflight_mode || 'warn',
       };
 
-      const workflowRef = process.env.GH_BRANCH || 'main'; // 工作流文件所在分支
+      const workflowRef = process.env.GH_BRANCH || 'main'; // ← 工作流文件所在分支（固定 main / GH_BRANCH）
       dispatch = await dispatchWorkflow({ inputs }, workflowRef);
 
       const owner = process.env.GH_OWNER!;
@@ -539,7 +525,7 @@ ${anchors}
       commit: commitInfo ?? null,
       actionsUrl,
       degraded: dispatch?.degraded ?? null,
-      branch: runBranch,
+      branch: runBranch,                 // 前端可直接显示 run 分支
       templates: tplFetch,
     });
   } catch (e: any) {
