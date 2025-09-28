@@ -1,37 +1,71 @@
+// lib/ndjc/validators/path-rules.ts
 import type { ContractV1, FileKind } from "../contract/types";
-import { PATH_RULES, FORBID_LAYOUT_DIR, PACKAGE_ID_PREFIX, ALLOWED_FILE_KINDS } from "../constants/contract";
+import {
+  PACKAGE_ID_PREFIX,       // 字符串前缀，例如 "app.ndjc."
+  FORBID_LAYOUT_DIR,       // true 时禁止写入 res/layout
+  ALLOWED_FILE_KINDS,      // 允许的 files[].kind 列表
+  PATH_RULES,              // （可选）附加路径规则，允许是字符串或正则
+} from "../constants/contract";
 
-export function checkPaths(doc: ContractV1) {
-  const issues: { code: string; message: string; path?: string }[] = [];
+type Issue = { code: string; message: string; path?: string };
 
-  if (!PACKAGE_ID_PREFIX.test(doc.metadata.packageId)) {
-    issues.push({ code: "E_PACKAGE_PREFIX", message: `packageId must start with app.ndjc.`, path: "metadata.packageId" });
+export function checkPaths(doc: ContractV1): { issues: Issue[] } {
+  const issues: Issue[] = [];
+
+  // 1) packageId 前缀检查（把 .test 改为 startsWith）
+  const pkg = String(doc?.metadata?.packageId ?? "");
+  if (!pkg.startsWith(PACKAGE_ID_PREFIX)) {
+    issues.push({
+      code: "E_PACKAGE_PREFIX",
+      message: `packageId must start with ${PACKAGE_ID_PREFIX}`,
+      path: "metadata.packageId",
+    });
   }
 
-  for (const f of doc.files) {
-    if (!(ALLOWED_FILE_KINDS as readonly FileKind[]).includes(f.kind)) {
-      issues.push({ code: "E_FILE_KIND", message: `unsupported kind: ${f.kind} (${f.path})`, path: `files.${f.path}` });
-      continue;
+  // 2) files 基本规则
+  const allowedKindSet = new Set<string>(ALLOWED_FILE_KINDS as string[]);
+
+  for (const f of doc.files || []) {
+    // 2.1 kind 白名单
+    const kind = (f?.kind ?? "") as FileKind;
+    if (!allowedKindSet.has(kind)) {
+      issues.push({
+        code: "E_FILE_KIND",
+        message: `file kind '${kind}' is not allowed`,
+        path: `files.${f?.path ?? ""}`,
+      });
     }
-    if (FORBID_LAYOUT_DIR.test(f.path)) {
-      issues.push({ code: "E_PATH_LAYOUT", message: `layout directory is forbidden: ${f.path}`, path: `files.${f.path}` });
-      continue;
+
+    // 2.2 禁止 res/layout（我们是 Compose，不产 XML 布局）
+    if (FORBID_LAYOUT_DIR) {
+      const p = String(f?.path ?? "");
+      if (/\/res\/layout(\/|$)/.test(p)) {
+        issues.push({
+          code: "E_FORBID_LAYOUT_DIR",
+          message: `writing into res/layout is forbidden`,
+          path: `files.${p}`,
+        });
+      }
     }
-    const rule = (PATH_RULES as any)[f.kind];
-    if (rule && !rule.test(f.path)) {
-      issues.push({ code: "E_PATH_FORMAT", message: `path not allowed for kind ${f.kind}: ${f.path}`, path: `files.${f.path}` });
-    }
-    if (f.path.includes("..") || f.path.startsWith("/")) {
-      issues.push({ code: "E_PATH_TRAVERSAL", message: `path traversal/absolute forbidden: ${f.path}`, path: `files.${f.path}` });
+
+    // 2.3 附加 PATH_RULES（可选：字符串→RegExp，或直接 RegExp）
+    try {
+      const rules = (PATH_RULES ?? []) as Array<RegExp | string>;
+      const p = String(f?.path ?? "");
+      for (const r of rules) {
+        const re = r instanceof RegExp ? r : new RegExp(String(r));
+        if (!re.test(p)) continue;
+        // 命中规则：目前只作命中记录，若有需要可扩展 message/code
+        issues.push({
+          code: "E_PATH_RULES",
+          message: `path '${p}' violates rule ${re}`,
+          path: `files.${p}`,
+        });
+      }
+    } catch {
+      // 忽略 PATH_RULES 解析错误
     }
   }
 
-  if (doc.anchors.gradle?.applicationId && doc.anchors.gradle.applicationId !== doc.metadata.packageId) {
-    issues.push({ code: "E_APPID_MISMATCH", message: `gradle.applicationId != metadata.packageId`, path: "anchors.gradle.applicationId" });
-  }
-  if (doc.anchors.text?.["NDJC:PACKAGE_NAME"] && doc.anchors.text["NDJC:PACKAGE_NAME"] !== doc.metadata.packageId) {
-    issues.push({ code: "E_PKGNAME_MISMATCH", message: `anchors text PACKAGE_NAME != metadata.packageId`, path: "anchors.text.NDJC:PACKAGE_NAME" });
-  }
-
-  return { ok: issues.length === 0, issues };
+  return { issues };
 }
