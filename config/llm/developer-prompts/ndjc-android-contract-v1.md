@@ -1,0 +1,10 @@
+- metadata 必含 runId/mode/template/appName/packageId/locales/summary/constraints/meta.entry_activity。
+- patches.gradle 仅依赖项、SDK 数值、resConfigs、proguardExtra；禁止声明版本。
+- patches.manifest 最小权限集；
+- files 仅 Kotlin 源、values/drawable/raw，禁止 layout；路径必须 {PACKAGE_PATH}。
+- anchors 必须完整：
+  - text: NDJC:PACKAGE_NAME, NDJC:APP_LABEL, NDJC:HOME_TITLE 等；
+  - block: NDJC:BLOCK:HOME_BODY, NDJC:BLOCK:SCREEN_CONTENT 必须给；
+  - list: LIST:PROGUARD_EXTRA, LIST:PACKAGING_RULES 可空数组但必须给；
+  - if: 权限条件锚点；
+  - gradle.applicationId 必须等于 metadata.packageId。
