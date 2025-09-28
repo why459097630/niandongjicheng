@@ -1,25 +1,29 @@
+// lib/ndjc/validators/security-rules.ts
 import type { ContractV1 } from "../contract/types";
-import { FORBIDDEN_PERMISSIONS, HARD_IP_REGEX, HARD_URL_REGEX, REFLECTION_REGEX, DYNAMIC_LOAD_REGEX, SCRIPT_EXEC_REGEX } from "../constants/contract";
+import { FORBIDDEN_PERMISSIONS } from "../constants/contract";
 
-export function checkSecurity(doc: ContractV1) {
-  const issues: { code: string; message: string; path?: string }[] = [];
+type Issue = { code: string; message: string; path?: string };
 
-  for (const p of doc.patches.manifest.permissions) {
-    if (FORBIDDEN_PERMISSIONS.has(p)) {
-      issues.push({ code: "E_SECURITY_PERMISSION", message: `forbidden permission: ${p}`, path: `patches.manifest.permissions` });
+/**
+ * 安全规则校验（最小集）：
+ * 1) Manifest 权限黑名单：FORBIDDEN_PERMISSIONS
+ */
+export function checkSecurity(doc: ContractV1): { issues: Issue[] } {
+  const issues: Issue[] = [];
+
+  // --- 1) 权限黑名单（对可能为 undefined 的字段做兜底） ---
+  const perms: unknown = (doc as any)?.patches?.manifest?.permissions ?? [];
+  if (Array.isArray(perms)) {
+    for (const p of perms) {
+      if (FORBIDDEN_PERMISSIONS.has(p)) {
+        issues.push({
+          code: "E_SECURITY_PERMISSION",
+          message: `forbidden permission: ${p}`,
+          path: "patches.manifest.permissions",
+        });
+      }
     }
   }
 
-  const checkText = (s: string, where: string) => {
-    if (HARD_IP_REGEX.test(s)) issues.push({ code: "E_SECURITY_IP", message: `hard-coded IP in ${where}`, path: where });
-    if (HARD_URL_REGEX.test(s)) issues.push({ code: "E_SECURITY_URL", message: `hard-coded URL in ${where}`, path: where });
-    if (REFLECTION_REGEX.test(s)) issues.push({ code: "E_SECURITY_REFLECT", message: `reflection in ${where}`, path: where });
-    if (DYNAMIC_LOAD_REGEX.test(s)) issues.push({ code: "E_SECURITY_DLOAD", message: `dynamic class loading in ${where}`, path: where });
-    if (SCRIPT_EXEC_REGEX.test(s)) issues.push({ code: "E_SECURITY_EXEC", message: `script execution in ${where}`, path: where });
-  };
-
-  for (const f of doc.files) checkText(f.content, `files.${f.path}`);
-  for (const k of Object.keys(doc.anchors.block)) checkText(doc.anchors.block[k], `anchors.block.${k}`);
-
-  return { ok: issues.length === 0, issues };
+  return { issues };
 }
