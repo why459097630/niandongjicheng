@@ -346,7 +346,7 @@ export async function POST(req: NextRequest) {
     // 2) 编排
     step = 'orchestrate';
     let o: any;
-    let rawTextForContract: string | null = null; // 保存 LLM 原始文本用于 Contract v1 校验/映射
+    let rawTextForContract: string | null = null;
     try {
       if (process.env.NDJC_OFFLINE === '1' || input?.offline === true) throw new Error('force-offline');
       if (!process.env.GROQ_API_KEY) throw new Error('groq-key-missing');
@@ -402,19 +402,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, degrade: true, reason: issues, contract: 'v1' }, { status: 400 });
       }
 
-      // >>> 这里务必 await（修复“Property 'ok' does not exist on type 'Promise'”）
+      // 必须 await
       const validation = await validateContractV1(parsed.data);
       await jWriteJSON(runId, '00_contract_check.json', validation);
       if (!validation.ok) {
         return NextResponse.json({ ok: false, degrade: true, reason: validation.issues, contract: 'v1' }, { status: 400 });
       }
 
-      // 通过校验：直接把 Contract v1 JSON 映射为 plan
+      // 通过校验，用 Contract v1 直接生成 plan
       planFromContract = contractV1ToPlan(parsed.data);
       await jWriteJSON(runId, '02_plan_from_contract.json', planFromContract);
     }
 
-    // 3) 计划（优先使用 Contract v1 映射出的 plan）
+    // 3) 计划
     step = 'build-plan';
     const plan = planFromContract ?? buildPlan(o);
     await jWriteJSON(runId, '02_plan.json', plan);
@@ -437,7 +437,7 @@ export async function POST(req: NextRequest) {
 
     const rawDir = path.join(appRoot, 'src', 'main', 'res', 'raw');
     await fs.mkdir(rawDir, { recursive: true });
-    const posts = plan?.lists?.posts ?? plan?.lists?.feed ?? null;
+    const posts = (plan as any)?.lists?.posts ?? (plan as any)?.lists?.feed ?? null;
     if (Array.isArray(posts) && posts.length) {
       const out = path.join(rawDir, 'seed_posts.json');
       try {
@@ -530,7 +530,7 @@ ${anchors}
     }
     await pushDirByContentsApi(reqLocalDir, `requests/${runId}`, runBranch, `[NDJC ${runId}] logs`);
 
-    // 7) 触发 Actions（工作流文件来自 main / GH_BRANCH；构建代码来自 runBranch）
+    // 7) 触发 Actions
     step = 'dispatch';
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
@@ -574,3 +574,7 @@ ${anchors}
     );
   }
 }
+
+// 便于健康检查/排错：GET 返回提示
+export const GET = async () =>
+  NextResponse.json({ ok: true, endpoint: '/api/generate-apk', hint: 'use POST' });
