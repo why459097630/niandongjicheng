@@ -22,25 +22,26 @@ import * as path from 'node:path';
 
 export const runtime = 'nodejs';
 
+// ==== Contract v1: 严格 JSON 解析 + 校验 + 映射为 plan ====
+import { parseStrictJson } from '@/lib/ndjc/llm/strict-json';
+import { validateContractV1 } from '@/lib/ndjc/validators';
+import { contractV1ToPlan } from '@/lib/ndjc/contract/contractv1-to-plan';
+
 // -------------------- 伴生文件（方案B）安全落地 --------------------
 const COMPANION_ROOT = 'companions';
 const COMPANION_WHITELIST = new Set([
   '.kt', '.kts', '.java', '.xml', '.json', '.txt', '.pro', '.md', '.gradle', '.properties',
 ]);
 
-// 统一把路径里的 \ 或 // 折叠成 /，并去掉开头的 /
 function toUnix(p: string): string {
   return (p ?? '').replace(/[\\\/]+/g, '/').replace(/^\//, '');
 }
-
-// 仅允许写入 app/ 或 src/ 之下；去掉 ../ 上跳
 function sanitizeCompanionPath(rel: string): string | null {
   const norm = toUnix(rel).replace(/\.\.(\/|$)/g, '');
   if (!norm) return null;
   if (!/^app\/|^src\//.test(norm)) return null;
   return norm;
 }
-
 async function emitCompanions(
   appRoot: string,
   companions: Array<{ path: string; content: string; overwrite?: boolean }>
@@ -334,6 +335,7 @@ export async function POST(req: NextRequest) {
         NDJC_SKIP_ACTIONS: process.env.NDJC_SKIP_ACTIONS === '1',
         GROQ_API_KEY: !!process.env.GROQ_API_KEY,
         GROQ_MODEL: process.env.GROQ_MODEL || null,
+        NDJC_CONTRACT_V1: process.env.NDJC_CONTRACT_V1 || null,
       },
     };
     await jWriteJSON(runId, '00_checks.json', checks);
@@ -345,6 +347,7 @@ export async function POST(req: NextRequest) {
     // 2) 编排
     step = 'orchestrate';
     let o: any;
+    let rawTextForContract: string | null = null; // 保存 LLM 原始文本用于 Contract v1 校验/映射
     try {
       if (process.env.NDJC_OFFLINE === '1' || input?.offline === true) throw new Error('force-offline');
       if (!process.env.GROQ_API_KEY) throw new Error('groq-key-missing');
@@ -363,6 +366,7 @@ export async function POST(req: NextRequest) {
           o._trace.response?.text ?? o._trace.response?.body ?? '';
         if (typeof rawText === 'string' && rawText.trim()) {
           await jWriteText(runId, '01c_llm_raw.txt', rawText);
+          rawTextForContract = rawText;
         }
       }
     } catch (err: any) {
@@ -377,9 +381,42 @@ export async function POST(req: NextRequest) {
     }
     await jWriteJSON(runId, '01_orchestrator.json', o);
 
-    // 3) 计划
+    // 2.5) Contract v1 预校验 + 直接映射为 plan（按需开启）
+    const wantContractV1 =
+      input?.contract === 'v1' || input?.contractV1 === true || process.env.NDJC_CONTRACT_V1 === '1';
+
+    let planFromContract: any | null = null;
+    if (wantContractV1) {
+      const note = `contract-v1-precheck: ${rawTextForContract ? 'raw-present' : 'raw-missing'}`;
+      await jWriteText(runId, '00_contract_v1_note.txt', note);
+
+      if (!rawTextForContract) {
+        const issues = [{ code: 'E_NOT_JSON', message: 'No raw LLM text to validate', path: '<root>' }];
+        await jWriteJSON(runId, '00_contract_check.json', { ok: false, issues });
+        return NextResponse.json({ ok: false, degrade: true, reason: issues, contract: 'v1' }, { status: 400 });
+      }
+
+      const parsed = parseStrictJson(rawTextForContract);
+      if (!parsed.ok) {
+        const issues = [{ code: 'E_NOT_JSON', message: parsed.error, path: '<root>' }];
+        await jWriteJSON(runId, '00_contract_check.json', { ok: false, issues });
+        return NextResponse.json({ ok: false, degrade: true, reason: issues, contract: 'v1' }, { status: 400 });
+      }
+
+      const validation = validateContractV1(parsed.data);
+      await jWriteJSON(runId, '00_contract_check.json', validation);
+      if (!validation.ok) {
+        return NextResponse.json({ ok: false, degrade: true, reason: validation.issues, contract: 'v1' }, { status: 400 });
+      }
+
+      // 通过校验：直接把 Contract v1 JSON 映射为 plan
+      planFromContract = contractV1ToPlan(parsed.data);
+      await jWriteJSON(runId, '02_plan_from_contract.json', planFromContract);
+    }
+
+    // 3) 计划（优先使用 Contract v1 映射出的 plan）
     step = 'build-plan';
-    const plan = buildPlan(o);
+    const plan = planFromContract ?? buildPlan(o);
     await jWriteJSON(runId, '02_plan.json', plan);
 
     // 4) 物化 + 应用 + 清理
