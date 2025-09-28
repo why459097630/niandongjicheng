@@ -1,21 +1,30 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 仅服务器端函数需要；保持默认即可
   experimental: {
-    // 排除掉会被误追踪进 Serverless 的大目录
+    // 👉 不要排除 node_modules/.pnpm/**，否则 Next 跟踪时会把依赖裁掉
+    // 仅在确实需要时才排除项目外部的 pnpm store（一般不需要）
     outputFileTracingExcludes: {
-      '*': [
-        // PNPM 全局/本地 store
-        '.pnpm-store/**',
-        'node_modules/.pnpm/**',
-        // Next 的 webpack 缓存与产物
-        '.next/webpack/**',
-        '.next/cache/**',
-        // 常见无用大文件
-        '**/*.map',
-      ],
+      "**/*": [
+        // "../../.pnpm-store/**" // 如非必要可不加
+      ]
     },
+
+    // 👉 显式包含 styled-jsx 的 package.json，防止被裁剪
+    outputFileTracingIncludes: {
+      // 作用于所有路由（含 /api/generate-apk）
+      "**/*": ["node_modules/styled-jsx/package.json"]
+    }
   },
+
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // 让 styled-jsx 作为运行时依赖（不被内联进 bundle），
+      // 配合上面的 includes，它会被放进函数包的 node_modules 里。
+      config.externals = config.externals || [];
+      config.externals.push("styled-jsx");
+    }
+    return config;
+  }
 };
 
 module.exports = nextConfig;
