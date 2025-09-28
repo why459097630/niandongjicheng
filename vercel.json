@@ -1,8 +1,7 @@
 {
   "functions": {
-    "app/api/**": {
-      "maxDuration": 60,
-      "memory": 1024
+    "api/generate-apk/**": {
+      "excludeFiles": "{.pnpm-store/**,.next/webpack/**,.next/cache/**,**/*.map}"
     }
   }
 }
