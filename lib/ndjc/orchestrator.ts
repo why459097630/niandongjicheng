@@ -1,5 +1,7 @@
 // lib/ndjc/orchestrator.ts
 import { groqChat } from "@/lib/ndjc/groq";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { NdjcRequest } from "./types";
 
 /** 伴生文件（仅 B 模式可能返回/使用） */
@@ -10,11 +12,13 @@ type Companion = {
   kind?: "kotlin" | "xml" | "json" | "md" | "txt";
 };
 
-type OrchestrateInput = NdjcRequest & {
+export type OrchestrateInput = NdjcRequest & {
   /** 自然语言需求 */
   requirement?: string;
+
   /** 工作模式：A = 只抽字段；B = 允许伴生代码（实验） */
   mode?: "A" | "B";
+
   /** 仅 B 模式下有效：是否允许伴生文件 */
   allowCompanions?: boolean;
 
@@ -35,9 +39,22 @@ type OrchestrateInput = NdjcRequest & {
 
   /** B 模式下可能返回 */
   _companions?: Companion[];
+
+  /** —— 新增：Contract v1 开关与调用细节 —— */
+  contract?: "v1";
+  contractV1?: boolean;
+
+  /** 可选：强制选择 LLM 提供商与模型（route.ts 会传入） */
+  provider?: "groq";
+  forceProvider?: "groq";
+  model?: string;
+
+  /** 可选：覆盖默认的 system/dev 提示词路径 */
+  systemPath?: string;
+  developerPath?: string;
 };
 
-type OrchestrateOutput = {
+export type OrchestrateOutput = {
   template: "core" | "simple" | "form" | "circle-basic";
   mode: "A" | "B";
   allowCompanions: boolean;
@@ -61,7 +78,11 @@ type OrchestrateOutput = {
   // 方案 B 附件
   companions: Companion[];
 
-  /** 调试/审计：若在线调用 LLM，这里带回原始请求/响应轨迹（供 route.ts 落盘） */
+  /**
+   * 调试/审计：
+   * - 对于 A/B 模式：trace/请求/响应
+   * - 对于 Contract v1：system/dev 文本、user 文本、rawText
+   */
   _trace?: any | null;
 };
 
@@ -146,6 +167,33 @@ function sanitizeCompanions(list?: Companion[]): Companion[] {
   return out;
 }
 
+/* ----------------- Contract v1: 加载 system/dev 提示词（可覆盖路径） ----------------- */
+
+async function loadPromptText(p: string): Promise<string> {
+  try {
+    return await fs.readFile(p, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+async function loadContractV1Prompts(input: OrchestrateInput) {
+  const sysPath = input.systemPath || path.join(process.cwd(), "config/llm/system-prompts/ndjc-android-contract-v1.md");
+  const devPath = input.developerPath || path.join(process.cwd(), "config/llm/developer-prompts/ndjc-android-contract-v1.md");
+
+  const [system, developer] = await Promise.all([loadPromptText(sysPath), loadPromptText(devPath)]);
+
+  const fallbackSystem =
+`你是 Android 代码生成器。只输出符合 NDJC Android Contract v1 的 JSON。不得输出解释文字/代码块。仅 Kotlin + Jetpack Compose，权限最小化，applicationId==metadata.packageId。`;
+  const fallbackDeveloper =
+`请生成 Contract v1 JSON：包含 metadata、patches、files、anchors(text/block/list/if/gradle)。禁止 XML 布局，路径使用 {PACKAGE_PATH}。gradle.applicationId 必须等于 metadata.packageId。`;
+
+  return {
+    system: system?.trim() ? system : fallbackSystem,
+    developer: developer?.trim() ? developer : fallbackDeveloper,
+  };
+}
+
 /* ----------------- main orchestrate ----------------- */
 
 export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateOutput> {
@@ -167,6 +215,8 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   /** 调试轨迹（若在线调用 LLM 会被赋值） */
   let _trace: any | null = null;
 
+  const wantContractV1 = input.contract === "v1" || input.contractV1 === true || process.env.NDJC_CONTRACT_V1 === "1";
+
   // 2) 若给了自然语言，按模式走 LLM
   if (input.requirement?.trim()) {
     // 一个小工具：兼容 groqChat 可能返回 string 或 {text,trace}
@@ -175,7 +225,50 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       return { text: r?.text ?? "", trace: r?.trace ?? null };
     };
 
-    if (mode === "A") {
+    if (wantContractV1) {
+      // —— 新增：Contract v1 路线：让 LLM 直接产出契约 JSON，后续由 route.ts 做校验+映射为 plan ——
+      const { system, developer } = await loadContractV1Prompts(input);
+
+      // 将用户意图、默认值及已知上下文压缩为 User 消息，便于 LLM 生成更一致的 metadata
+      const userPayload = {
+        requirement: input.requirement,
+        template: (input.template as any) || "circle-basic",
+        // 这些只是提示，最终以 LLM 返回 JSON 为准
+        defaults: {
+          appName,
+          packageId,
+          locales,
+          entry_activity: "{PACKAGE_ID}.MainActivity"
+        }
+      };
+
+      try {
+        const r = await groqChat(
+          [
+            { role: "system", content: system },
+            { role: "developer", content: developer },
+            { role: "user", content: JSON.stringify(userPayload) }
+          ],
+          // 让底层尽量以 JSON 返回，但我们仍会把 text 原样透传给 route.ts 落盘与校验
+          { json: true, temperature: 0 }
+        );
+        const { text, trace } = unwrap(r);
+
+        _trace = {
+          provider: input.forceProvider || input.provider || "groq",
+          model: input.model || "llama-3.1-8b-instant",
+          request: { system, developer, user: userPayload },
+          response: trace ?? null,
+          rawText: text
+        };
+
+        // Contract v1 的字段不在 orchestrator 内部解析；维持原有输出字段占位即可（route.ts 会用 v1→plan 覆盖 plan）
+        // 这里不改变 appName/packageId 等占位，以保证旧链路也可用
+      } catch (err: any) {
+        _trace = { error: String(err?.message ?? err) };
+        // 降级：让后续仍可走旧链路（buildPlan(o)），并在 route.ts 里看到 01_orchestrator_mode.txt=offline(...)
+      }
+    } else if (mode === "A") {
       // —— 方案A：只让 LLM 抽结构化字段（严格 JSON）——
       const sys =
 `You are a JSON API. Reply ONLY JSON with keys:
