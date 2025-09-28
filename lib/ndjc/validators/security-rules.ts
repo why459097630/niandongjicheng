@@ -4,6 +4,17 @@ import { FORBIDDEN_PERMISSIONS } from "../constants/contract";
 
 type Issue = { code: string; message: string; path?: string };
 
+// 兼容常量既可能是 Set<string> 也可能是 string[] / readonly string[]
+function asSet(v: unknown): Set<string> {
+  if (v instanceof Set) return v as Set<string>;
+  try {
+    // v 可能是 readonly tuple；用展开转普通数组
+    return new Set<string>([...(v as readonly string[])]);
+  } catch {
+    return new Set<string>();
+  }
+}
+
 /**
  * 安全规则校验（最小集）：
  * 1) Manifest 权限黑名单：FORBIDDEN_PERMISSIONS
@@ -11,11 +22,12 @@ type Issue = { code: string; message: string; path?: string };
 export function checkSecurity(doc: ContractV1): { issues: Issue[] } {
   const issues: Issue[] = [];
 
-  // --- 1) 权限黑名单（对可能为 undefined 的字段做兜底） ---
-  const perms: unknown = (doc as any)?.patches?.manifest?.permissions ?? [];
-  if (Array.isArray(perms)) {
-    for (const p of perms) {
-      if (FORBIDDEN_PERMISSIONS.has(p)) {
+  const permsList: unknown = (doc as any)?.patches?.manifest?.permissions ?? [];
+  const forbidden = asSet(FORBIDDEN_PERMISSIONS);
+
+  if (Array.isArray(permsList)) {
+    for (const p of permsList) {
+      if (forbidden.has(p)) {
         issues.push({
           code: "E_SECURITY_PERMISSION",
           message: `forbidden permission: ${p}`,
