@@ -2,8 +2,7 @@
 import '@/lib/proxy';
 import { NextRequest, NextResponse } from 'next/server';
 
-// ⬇️ 新增：强制把 styled-jsx 打进 serverless 函数，避免 Vercel 运行时报找不到 package.json
-import 'styled-jsx';
+// ⛔️ 移除：import 'styled-jsx'  （该包为 client-only，服务端 Route 不能直接 import）
 
 import { orchestrate } from '@/lib/ndjc/orchestrator';
 import {
@@ -29,13 +28,12 @@ import { parseStrictJson } from '@/lib/ndjc/llm/strict-json';
 import { validateContractV1 } from '@/lib/ndjc/validators';
 import { contractV1ToPlan } from '@/lib/ndjc/contract/contractv1-to-plan';
 
-// -------------------- CORS（新增） --------------------
+// -------------------- CORS（保留） --------------------
 const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*', // 如需限制域名，改成具体域：'https://你的域名'
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST,OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
-// 处理浏览器预检，避免前端看到 405
 export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
@@ -151,7 +149,7 @@ async function ensureLatestTemplates(runId: string) {
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
   };
-  if (process.env.GH_PAT) headers.Authorization = `Bearer ${process.env.GH_PAT}`;
+    if (process.env.GH_PAT) headers.Authorization = `Bearer ${process.env.GH_PAT}`;
 
   await mirrorRepoPathToDir(owner, repo, ref, subPath, dstRoot, headers);
 
@@ -188,31 +186,21 @@ async function dispatchWorkflow(
     Accept: 'application/vnd.github+json',
   };
 
-  const r1 = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ref: branch, ...payload }),
-  });
+  const r1 = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ref: branch, ...payload }) });
   if (r1.ok) return { ok: true, degraded: false };
 
   const text1 = await r1.text();
-
   if (r1.status === 422) {
     const r2 = await fetch(url, {
-      method: 'POST',
-      headers,
+      method: 'POST', headers,
       body: JSON.stringify({ ref: branch, inputs: { runId: payload?.inputs?.runId, branch: payload?.inputs?.branch } }),
     });
     if (r2.ok) return { ok: true, degraded: true };
 
     const repoUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
     const r3 = await fetch(repoUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        event_type: 'generate-apk',
-        client_payload: { ...payload, ref: branch },
-      }),
+      method: 'POST', headers,
+      body: JSON.stringify({ event_type: 'generate-apk', client_payload: { ...payload, ref: branch } }),
     });
     if (r3.ok) return { ok: true, degraded: true };
 
@@ -435,7 +423,7 @@ export async function POST(req: NextRequest) {
       await jWriteJSON(runId, '02_plan_from_contract.json', planFromContract);
     }
 
-    // 3) 计划（优先使用 Contract v1 映射出的 plan）
+    // 3) 计划
     step = 'build-plan';
     const plan = planFromContract ?? buildPlan(o);
     await jWriteJSON(runId, '02_plan.json', plan);
@@ -588,7 +576,6 @@ ${anchors}
       branch: runBranch,
       templates: tplFetch,
     }, { headers: CORS_HEADERS });
-
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, step, runId, error: String(e?.message ?? e), stack: e?.stack },
