@@ -47,7 +47,6 @@ async function emitCompanions(
   companions: Array<{ path: string; content: string; overwrite?: boolean }>
 ) {
   if (!companions?.length) return { written: 0, files: [] as string[] };
-
   const dstRoot = path.join(appRoot, COMPANION_ROOT);
   await fs.mkdir(dstRoot, { recursive: true });
 
@@ -403,7 +402,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, degrade: true, reason: issues, contract: 'v1' }, { status: 400 });
       }
 
-      const validation = validateContractV1(parsed.data);
+      // >>> 这里务必 await（修复“Property 'ok' does not exist on type 'Promise'”）
+      const validation = await validateContractV1(parsed.data);
       await jWriteJSON(runId, '00_contract_check.json', validation);
       if (!validation.ok) {
         return NextResponse.json({ ok: false, degrade: true, reason: validation.issues, contract: 'v1' }, { status: 400 });
