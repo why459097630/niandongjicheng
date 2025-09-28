@@ -3,9 +3,12 @@
     "app/api/**": {
       "maxDuration": 60,
       "memory": 1024,
-      "includeFiles": [
-        "node_modules/styled-jsx/**"
-      ]
+
+      // 关键：按 schema 要求用 string
+      "includeFiles": "node_modules/styled-jsx/package.json",
+
+      // 建议：把模块声明为外部依赖，配合 includeFiles 更稳
+      "externalNodeModules": ["styled-jsx"]
     }
   }
 }
