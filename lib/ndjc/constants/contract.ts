@@ -1,50 +1,85 @@
-export const CONTRACT_VERSION = "1.0.0" as const;
-export const MAX_FILES_DEFAULT = 50;
-export const MAX_FILE_KB_DEFAULT = 300;
-export const MAX_ANCHORS_TEXT_BYTES = 50 * 1024;
+// lib/ndjc/constants/contract.ts
 
-export const ALLOWED_FILE_KINDS = ["source", "values", "drawable", "raw", "manifest_patch"] as const;
-export const ALLOWED_SCOPES = [
-  "implementation", "api", "kapt", "ksp", "testImplementation", "androidTestImplementation"
-] as const;
+/**
+ * 必备锚点清单（presence-only）：
+ * - 目的是避免 LLM 漏掉关键锚点导致注入/构建失败
+ * - 允许空字符串/空数组作为占位；内容质量由后续校验与生成器决策
+ */
 
-export const FORBIDDEN_PERMISSIONS = new Set<string>([
-  "android.permission.READ_SMS",
-  "android.permission.SEND_SMS",
-  "android.permission.RECEIVE_WAP_PUSH",
-  "android.permission.RECEIVE_MMS",
-  "android.permission.RECORD_AUDIO",
-  "android.permission.CAMERA",
-  "android.permission.WRITE_SETTINGS",
-  "android.permission.SYSTEM_ALERT_WINDOW",
-  "android.permission.REQUEST_INSTALL_PACKAGES"
-]);
-
-export const PATH_RULES = {
-  source: /^app\/src\/main\/java\/[A-Za-z0-9_\/]+\/[A-Za-z0-9_]+\.kt$/,
-  values: /^app\/src\/main\/res\/values\/[A-Za-z0-9_.-]+\.xml$/,
-  drawable: /^app\/src\/main\/res\/drawable\/[A-Za-z0-9_.-]+\.(xml|png|webp)$/,
-  raw: /^app\/src\/main\/res\/raw\/[A-Za-z0-9_.-]+$/
+export type RequiredAnchors = {
+  text: string[];
+  block: string[];
+  list: string[];
+  // 如需要求 if/gradle，可扩展此类型并在 lint 中接线
 };
 
-export const FORBID_LAYOUT_DIR = /app\/src\/main\/res\/layout\//;
-export const PACKAGE_ID_PREFIX = /^app\.ndjc\./;
-export const HARD_IP_REGEX = /\b((25[0-5]|2[0-4]\d|[0-1]?\d?\d)(\.(?=\d)|$)){4}\b/;
-export const HARD_URL_REGEX = /https?:\/\//i;
-export const REFLECTION_REGEX = /Class\s*\.forName|java\.lang\.reflect/;
-export const DYNAMIC_LOAD_REGEX = /DexClassLoader|PathClassLoader/;
-export const SCRIPT_EXEC_REGEX = /Runtime\.getRuntime\(\)\.exec|ProcessBuilder\(/;
+/** ============ circle-basic（社交流） ============ */
+export const REQUIRED_CIRCLE_BASIC: RequiredAnchors = {
+  text: [
+    "NDJC:PACKAGE_NAME",
+    "NDJC:APP_LABEL",
+    "NDJC:HOME_TITLE",
+    "NDJC:PRIMARY_BUTTON_TEXT",
+  ],
+  block: [
+    "NDJC:BLOCK:HOME_BODY",
+    "NDJC:BLOCK:SCREEN_CONTENT",
+  ],
+  list: [
+    "LIST:PROGUARD_EXTRA",
+    "LIST:PACKAGING_RULES",
+    "LIST:ROUTES",
+  ],
+};
 
-// —— 必备锚点（circle-basic 最小集，可扩展到其它模板）——
-export const REQUIRED_TEXT_ANCHORS = [
-  "NDJC:PACKAGE_NAME",
-  "NDJC:APP_LABEL"
-];
-export const REQUIRED_BLOCK_ANCHORS = [
-  "NDJC:BLOCK:HOME_BODY",
-  "NDJC:BLOCK:SCREEN_CONTENT"
-];
-export const REQUIRED_LIST_ANCHORS = [
-  "LIST:PROGUARD_EXTRA",
-  "LIST:PACKAGING_RULES"
-];
+/** ============ flow-basic（多页面向导） ============ */
+export const REQUIRED_FLOW_BASIC: RequiredAnchors = {
+  text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE"],
+  block: ["NDJC:BLOCK:SCREEN_CONTENT"],
+  list: ["LIST:PROGUARD_EXTRA", "LIST:PACKAGING_RULES", "LIST:ROUTES"],
+};
+
+/** ============ map-basic（地图） ============ */
+export const REQUIRED_MAP_BASIC: RequiredAnchors = {
+  text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE"],
+  block: ["NDJC:BLOCK:SCREEN_CONTENT"],
+  list: ["LIST:PROGUARD_EXTRA", "LIST:PACKAGING_RULES", "LIST:ROUTES"],
+};
+
+/** ============ shop-basic（商品/购物车） ============ */
+export const REQUIRED_SHOP_BASIC: RequiredAnchors = {
+  text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE"],
+  block: ["NDJC:BLOCK:SCREEN_CONTENT"],
+  list: ["LIST:PROGUARD_EXTRA", "LIST:PACKAGING_RULES", "LIST:ROUTES"],
+};
+
+/** ============ showcase-basic（展示页） ============ */
+export const REQUIRED_SHOWCASE_BASIC: RequiredAnchors = {
+  text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE"],
+  block: ["NDJC:BLOCK:SCREEN_CONTENT"],
+  list: ["LIST:PROGUARD_EXTRA", "LIST:PACKAGING_RULES"],
+};
+
+/** 模板名到必备锚点集合的映射（小写键） */
+export const TEMPLATE_REQUIRED: Record<string, RequiredAnchors> = {
+  "circle-basic": REQUIRED_CIRCLE_BASIC,
+  "flow-basic": REQUIRED_FLOW_BASIC,
+  "map-basic": REQUIRED_MAP_BASIC,
+  "shop-basic": REQUIRED_SHOP_BASIC,
+  "showcase-basic": REQUIRED_SHOWCASE_BASIC,
+};
+
+/** 便捷函数：按模板获取必备锚点，未知模板回落到 circle-basic */
+export function requiredForTemplate(template?: string): RequiredAnchors {
+  const key = String(template || "").toLowerCase();
+  return TEMPLATE_REQUIRED[key] || REQUIRED_CIRCLE_BASIC;
+}
+
+/**
+ * 兼容旧引用：
+ * - 现阶段默认使用 circle-basic 的必备集
+ * - 若要按模板动态切换，请在使用处改为 requiredForTemplate(doc.metadata.template)
+ */
+export const REQUIRED_TEXT_ANCHORS  = REQUIRED_CIRCLE_BASIC.text;
+export const REQUIRED_BLOCK_ANCHORS = REQUIRED_CIRCLE_BASIC.block;
+export const REQUIRED_LIST_ANCHORS  = REQUIRED_CIRCLE_BASIC.list;
