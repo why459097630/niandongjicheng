@@ -9,13 +9,12 @@ import { NdjcOrchestratorOutput, ApplyResult, AnchorChange } from './types';
  * =======================================================*/
 type BuildPlan = {
   run_id?: string;
-  template_key: string;                 // e.g. circle-basic
+  template_key: string;
   preset_used?: string;
-  anchors: Record<string, any>;         // NDJC:*
-  conditions?: Record<string, boolean>; // IF:*
-  lists?: Record<string, any[]>;        // LIST:*
-  blocks?: Record<string, string>;      // BLOCK:*
-  companions?: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64'; overwrite?: boolean }>;
+  anchors: Record<string, any>;
+  conditions?: Record<string, boolean>;
+  lists?: Record<string, any[]>;
+  blocks?: Record<string, string>;
 };
 
 /* ========= 路径策略 ========= */
@@ -34,7 +33,7 @@ function isTextFile(p: string) {
   return TEXT_EXT.has(path.extname(p).toLowerCase());
 }
 
-/* ========= 工具 ========= */
+/* ========= 工具函数 ========= */
 async function copyDir(src: string, dst: string) {
   await fs.mkdir(dst, { recursive: true });
   for (const e of await fs.readdir(src, { withFileTypes: true })) {
@@ -74,7 +73,6 @@ function escapeXml(s: string) {
 /* ========= materializeToWorkspace ========= */
 export async function materializeToWorkspace(templateKeyOrLegacyName: string) {
   const base = templatesBase();
-
   const candidates = [
     path.join(base, templateKeyOrLegacyName, 'app'),
     path.join(base, templateKeyOrLegacyName),
@@ -116,13 +114,19 @@ export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
   }
 
   const blocks: Record<string, string> = { ...(o as any)?.blocks };
-  const permXml = (o as any)?.permissionsXml as string | undefined;
-  const ifXml   = (o as any)?.intentFiltersXml as string | undefined;
-  const themeOv = (o as any)?.themeOverridesXml as string | undefined;
+  const permXml = (o as any)?.permissionsXml;
+  const ifXml   = (o as any)?.intentFiltersXml;
+  const themeOv = (o as any)?.themeOverridesXml;
 
-  if (permXml && !blocks['NDJC:BLOCK:PERMISSIONS']) blocks['NDJC:BLOCK:PERMISSIONS'] = String(permXml);
-  if (ifXml && !blocks['NDJC:BLOCK:INTENT_FILTERS']) blocks['NDJC:BLOCK:INTENT_FILTERS'] = String(ifXml);
-  if (themeOv && !blocks['NDJC:BLOCK:THEME_OVERRIDES']) blocks['NDJC:BLOCK:THEME_OVERRIDES'] = String(themeOv);
+  if (permXml && !blocks['NDJC:BLOCK:PERMISSIONS']) {
+    blocks['NDJC:BLOCK:PERMISSIONS'] = String(permXml);
+  }
+  if (ifXml && !blocks['NDJC:BLOCK:INTENT_FILTERS']) {
+    blocks['NDJC:BLOCK:INTENT_FILTERS'] = String(ifXml);
+  }
+  if (themeOv && !blocks['NDJC:BLOCK:THEME_OVERRIDES']) {
+    blocks['NDJC:BLOCK:THEME_OVERRIDES'] = String(themeOv);
+  }
 
   return {
     run_id: (o as any)?.runId || (o as any)?.run_id,
@@ -132,14 +136,12 @@ export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
     conditions: (o as any)?.conditions ?? {},
     lists: (o as any)?.lists ?? {},
     blocks,
-    companions: (o as any)?.companions ?? [],  // 新增：把 orchestrator companions 带入
   };
 }
 
 /* ========= applyPlanDetailed ========= */
 export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]> {
   if (!plan?.template_key) throw new Error('applyPlanDetailed: missing template_key');
-
   const appRoot = path.join(workRepoRoot(), 'app');
   const results: ApplyResult[] = [];
 
@@ -168,18 +170,6 @@ export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]>
       results.push({ file: f, changes });
     }
   }
-
-  // companion 文件落地
-  if (plan.companions?.length) {
-    for (const comp of plan.companions) {
-      const dst = path.join(appRoot, comp.path);
-      await fs.mkdir(path.dirname(dst), { recursive: true });
-      const buf = comp.encoding === 'base64' ? Buffer.from(comp.content, 'base64') : Buffer.from(comp.content, 'utf8');
-      await fs.writeFile(dst, buf);
-      results.push({ file: dst, changes: [{ file: dst, marker: 'COMPANION_FILE', found: true, replacedCount: 1 }] });
-    }
-  }
-
   return results;
 }
 
@@ -203,6 +193,173 @@ export async function cleanupAnchors(appRoot?: string) {
   }
 }
 
-/* ====================== 具体替换实现 ====================== */
-// 以下 applyManifest / updateStringsXml / updateGradleAppId / applyTextAnchors 同你原始版本完全保留
-// ...（已完整拷贝，不省略）
+/* ====================== 具体实现 ====================== */
+async function findManifest(appRoot: string) {
+  const cands = [
+    path.join(appRoot, 'src/main/AndroidManifest.xml'),
+    path.join(appRoot, 'AndroidManifest.xml'),
+  ];
+  for (const p of cands) {
+    try { await fs.access(p); return p; } catch {}
+  }
+  return null;
+}
+
+async function updateStringsXml(appRoot: string, plan: BuildPlan): Promise<ApplyResult | null> {
+  const file = path.join(appRoot, 'src/main/res/values/strings.xml');
+  try { await fs.access(file); } catch { return null; }
+  let txt = await fs.readFile(file, 'utf8');
+  const before = txt;
+  const changes: AnchorChange[] = [];
+  const map = [
+    { key: 'app_name',       anchor: 'NDJC:APP_LABEL' },
+    { key: 'home_title',     anchor: 'NDJC:HOME_TITLE' },
+    { key: 'primary_button', anchor: 'NDJC:PRIMARY_BUTTON_TEXT' },
+  ];
+  for (const { key, anchor } of map) {
+    const val = plan.anchors?.[anchor];
+    if (val == null) continue;
+    const re = new RegExp(`<string\\s+name="${escapeRe(key)}">[\\s\\S]*?<\\/string>`);
+    if (re.test(txt)) {
+      txt = txt.replace(re, `<string name="${key}">${escapeXml(String(val))}</string>`);
+      changes.push({ file, marker: anchor, found: true, replacedCount: 1 });
+    }
+  }
+  if (txt !== before) {
+    await fs.writeFile(file, txt, 'utf8');
+    return { file, changes };
+  }
+  return null;
+}
+
+async function updateGradleAppId(appRoot: string, plan: BuildPlan): Promise<ApplyResult | null> {
+  const fileKts = path.join(appRoot, 'build.gradle.kts');
+  const fileGroovy = path.join(appRoot, 'build.gradle');
+  const file = existsSync(fileKts) ? fileKts : fileGroovy;
+  try { await fs.access(file); } catch { return null; }
+  const appId = plan.anchors?.['NDJC:PACKAGE_NAME'];
+  if (!appId) return null;
+  let txt = await fs.readFile(file, 'utf8');
+  const before = txt;
+  const changes: AnchorChange[] = [];
+  txt = txt
+    .replace(/applicationId\("([^"]*)"\)/, `applicationId("${appId}")`)
+    .replace(/applicationId\s+'([^']*)'/, `applicationId '${appId}'`);
+  if (txt !== before) {
+    await fs.writeFile(file, txt, 'utf8');
+    changes.push({ file, marker: 'NDJC:PACKAGE_NAME', found: true, replacedCount: 1 });
+    return { file, changes };
+  }
+  return null;
+}
+
+function applyTextAnchors(src: string, plan: BuildPlan) {
+  let text = src;
+  const changes: AnchorChange[] = [];
+  for (const [k, v] of Object.entries(plan.blocks || {})) {
+    const name = String(k);
+    const pat = new RegExp(`<!--\\s*${escapeRe(name)}\\s*-->[\\s\\S]*?<!--\\s*END_BLOCK\\s*-->`, 'g');
+    const before = text;
+    text = text.replace(pat, String(v ?? ''));
+    if (text !== before) changes.push({ file: '', marker: name, found: true, replacedCount: 1 });
+  }
+  for (const [k, arr] of Object.entries(plan.lists || {})) {
+    const name = String(k);
+    const payload = (arr || []).map(v => String(v)).join('\n');
+    const pat = new RegExp(`<!--\\s*${escapeRe(name)}\\s*-->`, 'g');
+    const m = text.match(pat);
+    if (m?.length) {
+      text = text.replace(pat, payload);
+      changes.push({ file: '', marker: name, found: true, replacedCount: m.length });
+    }
+  }
+  for (const [k, v] of Object.entries(plan.anchors || {})) {
+    const mk = String(k);
+    const rep = String(v ?? '');
+    const pat1 = new RegExp(escapeRe(mk), 'g');
+    const pat2 = new RegExp(`\\$\\{\\s*${escapeRe(mk)}\\s*\\}`, 'g');
+    const c1 = (text.match(pat1) || []).length;
+    const c2 = (text.match(pat2) || []).length;
+    if (c1 + c2 > 0) {
+      text = text.replace(pat1, rep).replace(pat2, rep);
+      changes.push({ file: '', marker: mk, found: true, replacedCount: c1 + c2 });
+    }
+  }
+  return { text, changes };
+}
+
+function applyManifest(src: string, plan: BuildPlan) {
+  let text = src;
+  const changes: AnchorChange[] = [];
+  for (const [blkKey, blkVal] of Object.entries(plan.blocks || {})) {
+    const pat = new RegExp(`<!--\\s*${escapeRe(blkKey)}\\s*-->[\\s\\S]*?<!--\\s*END_BLOCK\\s*-->`, 'g');
+    const before = text;
+    text = text.replace(pat, String(blkVal ?? ''));
+    if (text !== before) changes.push({ file: '', marker: blkKey, found: true, replacedCount: 1 });
+  }
+  const permMap: Record<string, string> = {
+    'IF:PERMISSION.CAMERA':       'android.permission.CAMERA',
+    'IF:PERMISSION.MEDIA':        'android.permission.READ_MEDIA_IMAGES',
+    'IF:PERMISSION.NOTIFICATION': 'android.permission.POST_NOTIFICATIONS',
+    'IF:PERMISSION.LOCATION':     'android.permission.ACCESS_FINE_LOCATION',
+    'IF:PERMISSION.CONTACTS':     'android.permission.READ_CONTACTS',
+  };
+  for (const [ifKey, perm] of Object.entries(permMap)) {
+    if (plan.conditions?.[ifKey]) {
+      if (!new RegExp(`<uses-permission[^>]+${escapeRe(perm)}`).test(text)) {
+        text = text.replace(/<manifest[^>]*>/, m => `${m}\n    <uses-permission android:name="${perm}"/>`);
+        changes.push({ file: '', marker: ifKey, found: true, replacedCount: 1 });
+      }
+    }
+  }
+  const appStart = /<application\b([^>]*)>/;
+  const m = text.match(appStart);
+  if (m) {
+    let attrs = m[1] || '';
+    if (plan.conditions?.['IF:NETWORK.CLEAR_TEXT'] && !/usesCleartextTraffic=/.test(attrs)) {
+      attrs += ` android:usesCleartextTraffic="true"`;
+      changes.push({ file: '', marker: 'IF:NETWORK.CLEAR_TEXT', found: true, replacedCount: 1 });
+    }
+    if (plan.anchors?.['NDJC:THEME_NAME'] && !/android:theme=/.test(attrs)) {
+      attrs += ` android:theme="@style/${plan.anchors['NDJC:THEME_NAME']}"`;
+      changes.push({ file: '', marker: 'NDJC:THEME_NAME', found: true, replacedCount: 1 });
+    }
+    if (plan.anchors?.['NDJC:APP_LABEL'] && !/android:label=/.test(attrs)) {
+      attrs += ` android:label="${escapeXml(String(plan.anchors['NDJC:APP_LABEL']))}"`;
+      changes.push({ file: '', marker: 'NDJC:APP_LABEL@app', found: true, replacedCount: 1 });
+    }
+    text = text.replace(appStart, `<application${attrs}>`);
+  }
+  const deeplinks = plan.lists?.['LIST:DEEPLINK_PATTERNS'];
+  if (Array.isArray(deeplinks) && deeplinks.length) {
+    const payload = deeplinks.map(u => genDataTag(String(u))).join('\n                ');
+    const intentPat = /<intent-filter>[\s\S]*?<category android:name="android\.intent\.category\.LAUNCHER"\/>[\s\S]*?<\/intent-filter>/;
+    if (intentPat.test(text)) {
+      text = text.replace(intentPat, seg => {
+        if (/android:name="android\.intent\.action\.VIEW"/.test(seg)) return seg;
+        return seg.replace(
+          `<category android:name="android.intent.category.LAUNCHER"/>`,
+          `<category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.VIEW"/>
+                ${payload}
+                <category android:name="android.intent.category.DEFAULT"/>`
+        );
+      });
+      changes.push({ file: '', marker: 'LIST:DEEPLINK_PATTERNS', found: true, replacedCount: deeplinks.length });
+    }
+  }
+  const extra = applyTextAnchors(text, plan);
+  text = extra.text;
+  changes.push(...extra.changes);
+  return { text, changes };
+}
+
+function genDataTag(url: string) {
+  try {
+    const u = new URL(url);
+    const host = u.host || '';
+    const pathName = u.pathname && u.pathname !== '/' ? u.pathname : '';
+    return [
+      `<data android:scheme="${u.protocol.replace(':','')}"`,
+      host ? `      android:host="${host}"` : '',
+      pathName ?
