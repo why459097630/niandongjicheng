@@ -11,10 +11,42 @@ type BuildPlan = {
   run_id?: string;
   template_key: string;                 // e.g. circle-basic
   preset_used?: string;
-  anchors: Record<string, any>;         // NDJC:*
-  conditions?: Record<string, boolean>; // IF:*
-  lists?: Record<string, any[]>;        // LIST:*
-  blocks?: Record<string, string>;      // BLOCK:*
+
+  // 文本锚点（NDJC:*）
+  anchors: Record<string, any>;
+
+  // 条件锚点（IF:*）
+  conditions?: Record<string, boolean>;
+
+  // 列表锚点（LIST:*）
+  lists?: Record<string, any[]>;
+
+  // 块锚点（NDJC:BLOCK:* 或 BLOCK:*）
+  blocks?: Record<string, string>;
+
+  // HOOK 锚点（HOOK:*）
+  hooks?: Record<string, string>;
+
+  // 资源锚点（values/xml、drawable/raw 等）
+  resources?: {
+    values?: {
+      strings?: Record<string, string>;
+      colors?: Record<string, string>;
+      dimens?: Record<string, string>;
+    };
+    // key -> { content, encoding?, filename? }
+    raw?: Record<string, { content: string; encoding?: 'utf8' | 'base64'; filename?: string }>;
+    // key -> { content, encoding?, ext? }
+    drawable?: Record<string, { content: string; encoding?: 'utf8' | 'base64'; ext?: string }>;
+    // 追加 strings.xml 的额外条目（不覆盖模板已有同名键）
+    stringsExtraXml?: Record<string, string>;
+  };
+
+  // 功能模块（可以转投 LIST:FEATURE_FLAGS 或对应列表）
+  features?: Record<string, any>;
+
+  // 路由（可以转投 LIST:ROUTES）
+  routes?: Array<string | { path: string; name?: string; icon?: string }>;
 };
 
 /* ========= 路径策略 ========= */
@@ -72,6 +104,17 @@ function escapeXml(s: string) {
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+function toAndroidResName(s: string) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    || 'ndjc_res';
+}
+function isLikelyXml(text: string) {
+  return /^\s*</.test(text || '');
 }
 
 /* ========= materializeToWorkspace =========
@@ -142,14 +185,40 @@ export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
     blocks['NDJC:BLOCK:THEME_OVERRIDES'] = String(themeOv);
   }
 
+  // 新增通道：hooks/features/routes，允许 orchestrator 直接传入
+  const hooks = { ...(o as any)?.hooks } as Record<string, string> | undefined;
+  const features = (o as any)?.features as Record<string, any> | undefined;
+  const routes = (o as any)?.routes as Array<string | { path: string; name?: string; icon?: string }> | undefined;
+
+  // lists 若未给，从 routes/features 兜底生成
+  const lists: Record<string, any[]> = { ...(o as any)?.lists } ?? {};
+  if (routes && !lists['LIST:ROUTES']) {
+    lists['LIST:ROUTES'] = routes.map((r) =>
+      typeof r === 'string' ? r : (r.path || '')
+    ).filter(Boolean);
+  }
+  if (features && !lists['LIST:FEATURE_FLAGS']) {
+    // 转换为 "key=value" 形式，或仅 key（布尔 true）
+    lists['LIST:FEATURE_FLAGS'] = Object.entries(features).map(([k, v]) =>
+      typeof v === 'boolean' ? (v ? k : '') : `${k}=${JSON.stringify(v)}`
+    ).filter(Boolean);
+  }
+
+  // 资源锚点通道
+  const resources = (o as any)?.resources;
+
   return {
     run_id: (o as any)?.runId || (o as any)?.run_id,
     template_key: (o as any)?.template_key || (o as any)?.template,
     preset_used: (o as any)?.preset_used,
     anchors,
     conditions: (o as any)?.conditions ?? {},
-    lists: (o as any)?.lists ?? {},
+    lists,
     blocks,
+    hooks,
+    resources,
+    features,
+    routes,
   };
 }
 
@@ -160,30 +229,36 @@ export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]>
   const appRoot = path.join(workRepoRoot(), 'app');
   const results: ApplyResult[] = [];
 
+  // —— 0) 规范化（把 hooks 合并为 block-like，routes/features 兜底到 lists）——
+  const normalized = normalizePlan(plan);
+
   // 1) Manifest（权限、application 属性、deeplink）
   const manifest = await findManifest(appRoot);
   if (manifest) {
     const xml = await fs.readFile(manifest, 'utf8');
-    const { text, changes } = applyManifest(xml, plan);
+    const { text, changes } = applyManifest(xml, normalized);
     if (text !== xml) await fs.writeFile(manifest, text, 'utf8');
     results.push({ file: manifest, changes });
   }
 
-  // 2) 结构化：strings.xml 资源覆盖
-  const stringsRes = await updateStringsXml(appRoot, plan);
+  // 2) 结构化：strings.xml 资源覆盖（app_name 等）+ 资源落盘
+  const stringsRes = await updateStringsXml(appRoot, normalized);
   if (stringsRes) results.push(stringsRes);
 
+  const resRes = await applyResources(appRoot, normalized);
+  if (resRes.length) results.push(...resRes);
+
   // 3) 结构化：Gradle applicationId 覆盖
-  const gradleRes = await updateGradleAppId(appRoot, plan);
+  const gradleRes = await updateGradleAppId(appRoot, normalized);
   if (gradleRes) results.push(gradleRes);
 
-  // 4) 其他文本文件跑 NDJC/BLOCK/LIST 替换
+  // 4) 其他文本文件跑 NDJC/BLOCK/LIST/HOOK 替换
   const files = await allFiles(appRoot);
   for (const f of files) {
     if (f === manifest || (stringsRes && f === stringsRes.file) || (gradleRes && f === gradleRes.file)) continue;
     if (!isTextFile(f)) continue;
     const src = await fs.readFile(f, 'utf8');
-    const { text, changes } = applyTextAnchors(src, plan);
+    const { text, changes } = applyTextAnchors(src, normalized);
     if (changes.length > 0) {
       await fs.writeFile(f, text, 'utf8');
       results.push({ file: f, changes });
@@ -193,15 +268,16 @@ export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]>
   return results;
 }
 
-/* ========= cleanupAnchors：清理 NDJC/IF/LIST/BLOCK 残留 ========= */
+/* ========= cleanupAnchors：清理 NDJC/IF/LIST/BLOCK/HOOK 残留 ========= */
 export async function cleanupAnchors(appRoot?: string) {
   const base = appRoot ?? path.join(workRepoRoot(), 'app');
   const files = await allFiles(base);
   const COMMENT_PATTERNS: RegExp[] = [
-    /<!--\s*(NDJC:|IF:|LIST:|BLOCK:)[\s\S]*?-->/g,
-    /\/\/\s*(NDJC:|IF:|LIST:|BLOCK:).*/g,
-    /\/\*+\s*(NDJC:|IF:|LIST:|BLOCK:)[\s\S]*?\*+\//g,
+    /<!--\s*(NDJC:|IF:|LIST:|BLOCK:|HOOK:)[\s\S]*?-->/g,
+    /\/\/\s*(NDJC:|IF:|LIST:|BLOCK:|HOOK:).*/g,
+    /\/\*+\s*(NDJC:|IF:|LIST:|BLOCK:|HOOK:)[\s\S]*?\*+\//g,
     /NDJC:[^\s<>"']+/g,
+    /HOOK:[^\s<>"']+/g,
   ];
   for (const f of files) {
     if (!isTextFile(f)) continue;
@@ -215,6 +291,36 @@ export async function cleanupAnchors(appRoot?: string) {
 
 /* ====================== 具体替换实现 ====================== */
 
+// —— 规范化：把 hooks 合并为 blocks-like；routes/features 兜底 lists —— //
+function normalizePlan(plan: BuildPlan): BuildPlan {
+  const out: BuildPlan = { ...plan };
+
+  // HOOK → 当作一种“块锚点”处理（支持注释包围与单点插入）
+  if (plan.hooks && Object.keys(plan.hooks).length) {
+    out.blocks = { ...(out.blocks || {}) };
+    for (const [k, v] of Object.entries(plan.hooks)) {
+      const name = k.startsWith('HOOK:') ? k : `HOOK:${k}`;
+      // 不覆盖已有块
+      if (out.blocks[name] == null) out.blocks[name] = String(v ?? '');
+    }
+  }
+
+  // routes/features 转投 lists
+  out.lists = { ...(out.lists || {}) };
+  if (plan.routes && !out.lists['LIST:ROUTES']) {
+    out.lists['LIST:ROUTES'] = plan.routes.map((r) =>
+      typeof r === 'string' ? r : (r.path || '')
+    ).filter(Boolean);
+  }
+  if (plan.features && !out.lists['LIST:FEATURE_FLAGS']) {
+    out.lists['LIST:FEATURE_FLAGS'] = Object.entries(plan.features).map(([k, v]) =>
+      typeof v === 'boolean' ? (v ? k : '') : `${k}=${JSON.stringify(v)}`
+    ).filter(Boolean);
+  }
+
+  return out;
+}
+
 // Manifest 定位
 async function findManifest(appRoot: string) {
   const cands = [
@@ -227,7 +333,7 @@ async function findManifest(appRoot: string) {
   return null;
 }
 
-// 结构化：覆盖 strings.xml 的常用键
+// 结构化：覆盖 strings.xml 的常用键（再叠加 resources.values.strings、stringsExtraXml）
 async function updateStringsXml(appRoot: string, plan: BuildPlan): Promise<ApplyResult | null> {
   const file = path.join(appRoot, 'src/main/res/values/strings.xml');
   try { await fs.access(file); } catch { return null; }
@@ -252,11 +358,104 @@ async function updateStringsXml(appRoot: string, plan: BuildPlan): Promise<Apply
     }
   }
 
+  // 追加 stringsExtraXml（若给）
+  const extras = plan.resources?.stringsExtraXml || {};
+  const entries = Object.entries(extras);
+  if (entries.length) {
+    // 简单插入到 </resources> 前（若已存在名为 key 的 string，此处不覆盖）
+    for (const [k, v] of entries) {
+      const kRe = new RegExp(`<string\\s+name="${escapeRe(k)}">[\\s\\S]*?<\\/string>`);
+      if (!kRe.test(txt)) {
+        txt = txt.replace(/<\/resources>\s*$/m, `  <string name="${escapeXml(k)}">${escapeXml(v)}</string>\n</resources>`);
+        changes.push({ file, marker: `RES:strings:${k}`, found: true, replacedCount: 1 });
+      }
+    }
+  }
+
   if (txt !== before) {
     await fs.writeFile(file, txt, 'utf8');
     return { file, changes };
   }
   return null;
+}
+
+// 资源落盘（values/colors/dimens -> values/ndjc_extras.xml；drawable/raw 写文件）
+async function applyResources(appRoot: string, plan: BuildPlan): Promise<ApplyResult[]> {
+  const res: ApplyResult[] = [];
+  const base = path.join(appRoot, 'src/main/res');
+
+  const values = plan.resources?.values;
+  if (values && (Object.keys(values.strings || {}).length || Object.keys(values.colors || {}).length || Object.keys(values.dimens || {}).length)) {
+    const outFile = path.join(base, 'values', 'ndjc_extras.xml');
+    await fs.mkdir(path.dirname(outFile), { recursive: true });
+    const xml = buildValuesXml(values);
+    await fs.writeFile(outFile, xml, 'utf8');
+    res.push({
+      file: outFile,
+      changes: [
+        ...(Object.keys(values.strings || {}).map(k => ({ file: outFile, marker: `RES:values.strings:${k}`, found: true, replacedCount: 1 } as AnchorChange))),
+        ...(Object.keys(values.colors || {}).map(k => ({ file: outFile, marker: `RES:values.colors:${k}`, found: true, replacedCount: 1 } as AnchorChange))),
+        ...(Object.keys(values.dimens || {}).map(k => ({ file: outFile, marker: `RES:values.dimens:${k}`, found: true, replacedCount: 1 } as AnchorChange))),
+      ]
+    });
+  }
+
+  // drawable
+  const draw = plan.resources?.drawable || {};
+  for (const [key, obj] of Object.entries(draw)) {
+    const name = toAndroidResName(key);
+    // 依据内容推断 ext：XML 则 .xml，默认 .png；允许 obj.ext 覆盖
+    const ext = obj.ext || (isLikelyXml(obj.content) ? '.xml' : '.png');
+    const outFile = path.join(base, 'drawable', `${name}${ext.startsWith('.') ? ext : `.${ext}`}`);
+    await fs.mkdir(path.dirname(outFile), { recursive: true });
+    const buf = (obj.encoding === 'base64')
+      ? Buffer.from(obj.content || '', 'base64')
+      : Buffer.from(obj.content || '', 'utf8');
+    await fs.writeFile(outFile, buf);
+    res.push({ file: outFile, changes: [{ file: outFile, marker: `RES:drawable:${key}`, found: true, replacedCount: 1 }] });
+  }
+
+  // raw
+  const raw = plan.resources?.raw || {};
+  for (const [key, obj] of Object.entries(raw)) {
+    const name = toAndroidResName(obj.filename || key);
+    // 默认 .txt；若内容形似 JSON 则 .json
+    const ext = guessRawExt(obj.content, obj.filename);
+    const outFile = path.join(base, 'raw', `${name}${ext}`);
+    await fs.mkdir(path.dirname(outFile), { recursive: true });
+    const buf = (obj.encoding === 'base64')
+      ? Buffer.from(obj.content || '', 'base64')
+      : Buffer.from(obj.content || '', 'utf8');
+    await fs.writeFile(outFile, buf);
+    res.push({ file: outFile, changes: [{ file: outFile, marker: `RES:raw:${key}`, found: true, replacedCount: 1 }] });
+  }
+
+  return res;
+}
+
+function buildValuesXml(values?: BuildPlan['resources'] extends infer R ? (R extends { values: infer V } ? V : never) : never) {
+  const strings = values?.strings || {};
+  const colors  = values?.colors  || {};
+  const dimens  = values?.dimens  || {};
+
+  const s = Object.entries(strings).map(([k, v]) =>
+    `  <string name="${escapeXml(k)}">${escapeXml(String(v))}</string>`).join('\n');
+  const c = Object.entries(colors).map(([k, v]) =>
+    `  <color name="${escapeXml(k)}">${escapeXml(String(v))}</color>`).join('\n');
+  const d = Object.entries(dimens).map(([k, v]) =>
+    `  <dimen name="${escapeXml(k)}">${escapeXml(String(v))}</dimen>`).join('\n');
+
+  const body = [s, c, d].filter(Boolean).join('\n');
+  return `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n${body}\n</resources>\n`;
+}
+
+function guessRawExt(content: string, filename?: string) {
+  if (filename && /\.[a-z0-9]+$/i.test(filename)) {
+    return filename.slice(filename.lastIndexOf('.'));
+  }
+  const t = (content || '').trim();
+  if (t.startsWith('{') || t.startsWith('[')) return '.json';
+  return '.txt';
 }
 
 // 结构化：覆盖 Gradle 的 applicationId
@@ -286,19 +485,53 @@ async function updateGradleAppId(appRoot: string, plan: BuildPlan): Promise<Appl
   return null;
 }
 
-// 纯文本文件里的 NDJC/BLOCK/LIST 替换（非 manifest）
+// 纯文本文件里的 NDJC/BLOCK/LIST/HOOK 替换（非 manifest）
 function applyTextAnchors(src: string, plan: BuildPlan) {
   let text = src;
   const changes: AnchorChange[] = [];
 
-  // 块：<!-- BLOCK:NAME -->…<!-- END_BLOCK -->
+  // 块：<!-- BLOCK:NAME -->…<!-- END_BLOCK -->，以及 <!-- NDJC:BLOCK:NAME -->…-->
   for (const [k, v] of Object.entries(plan.blocks || {})) {
     const name = String(k);
-    const pat = new RegExp(`<!--\\s*${escapeRe(name)}\\s*-->[\\s\\S]*?<!--\\s*END_BLOCK\\s*-->`, 'g');
-    const before = text;
-    text = text.replace(pat, String(v ?? ''));
+    const nameEsc = escapeRe(name);
+    const pats = [
+      new RegExp(`<!--\\s*${nameEsc}\\s*-->[\\s\\S]*?<!--\\s*END_BLOCK\\s*-->`, 'g'),
+      new RegExp(`<!--\\s*NDJC:BLOCK:${nameEsc}\\s*-->[\\s\\S]*?<!--\\s*END_BLOCK\\s*-->`, 'g'),
+    ];
+    for (const pat of pats) {
+      const before = text;
+      text = text.replace(pat, String(v ?? ''));
+      if (text !== before) {
+        changes.push({ file: '', marker: name, found: true, replacedCount: 1 });
+      }
+    }
+  }
+
+  // HOOK：支持三种形式
+  //  A) <!-- HOOK:NAME -->…<!-- END_HOOK -->
+  //  B) // HOOK:NAME
+  //  C) <!-- HOOK:NAME -->
+  for (const [hk, hv] of Object.entries(plan.hooks || {})) {
+    const name = hk.startsWith('HOOK:') ? hk : `HOOK:${hk}`;
+    const esc = escapeRe(name);
+
+    // A：块状
+    const patBlock = new RegExp(`<!--\\s*${esc}\\s*-->[\\s\\S]*?<!--\\s*END_HOOK\\s*-->`, 'g');
+    let before = text;
+    text = text.replace(patBlock, String(hv ?? ''));
     if (text !== before) {
       changes.push({ file: '', marker: name, found: true, replacedCount: 1 });
+      continue;
+    }
+
+    // B/C：单点插入，用代码片段替换占位注释
+    const patLine1 = new RegExp(`\\/\\/\\s*${esc}\\b.*`, 'g');       // // HOOK:NAME
+    const patLine2 = new RegExp(`<!--\\s*${esc}\\s*-->`, 'g');       // <!-- HOOK:NAME -->
+    const m1 = text.match(patLine1)?.length || 0;
+    const m2 = text.match(patLine2)?.length || 0;
+    if (m1 + m2 > 0) {
+      text = text.replace(patLine1, String(hv ?? '')).replace(patLine2, String(hv ?? ''));
+      changes.push({ file: '', marker: name, found: true, replacedCount: m1 + m2 });
     }
   }
 
@@ -331,18 +564,28 @@ function applyTextAnchors(src: string, plan: BuildPlan) {
   return { text, changes };
 }
 
-// Manifest 专用处理：权限、application 属性、deeplink、再跑一次文本锚点
+// Manifest 专用处理：权限、application 属性、deeplink、再跑一次文本锚点（含 BLOCK/HOOK/LIST）
 function applyManifest(src: string, plan: BuildPlan) {
   let text = src;
   const changes: AnchorChange[] = [];
 
-  // 0) 若模板在 Manifest 内部使用了 NDJC:BLOCK:* 占位，允许直接替换
+  // 0) 若模板在 Manifest 内部使用了 BLOCK/HOOK 占位，允许直接替换
   for (const [blkKey, blkVal] of Object.entries(plan.blocks || {})) {
     const pat = new RegExp(`<!--\\s*${escapeRe(blkKey)}\\s*-->[\\s\\S]*?<!--\\s*END_BLOCK\\s*-->`, 'g');
     const before = text;
     text = text.replace(pat, String(blkVal ?? ''));
     if (text !== before) {
       changes.push({ file: '', marker: blkKey, found: true, replacedCount: 1 });
+    }
+  }
+  for (const [hk, hv] of Object.entries(plan.hooks || {})) {
+    const name = hk.startsWith('HOOK:') ? hk : `HOOK:${hk}`;
+    const esc = escapeRe(name);
+    const patBlock = new RegExp(`<!--\\s*${esc}\\s*-->[\\s\\S]*?<!--\\s*END_HOOK\\s*-->`, 'g');
+    const before = text;
+    text = text.replace(patBlock, String(hv ?? ''));
+    if (text !== before) {
+      changes.push({ file: '', marker: name, found: true, replacedCount: 1 });
     }
   }
 
@@ -411,7 +654,7 @@ function applyManifest(src: string, plan: BuildPlan) {
     }
   }
 
-  // 4) 其他 NDJC/BLOCK/LIST 也跑一遍（保证非标准占位也能替换）
+  // 4) 其他 NDJC/BLOCK/LIST/HOOK 也跑一遍（保证非标准占位也能替换）
   const extra = applyTextAnchors(text, plan);
   text = extra.text;
   changes.push(...extra.changes);
