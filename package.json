@@ -29,8 +29,6 @@
     "socks-proxy-agent": "8.0.5",
     "undici": "5.29.0",
     "zod": "3.23.8",
-
-    /* 关键：把 styled-jsx 放到 dependencies 里 */
     "styled-jsx": "5.1.1"
   },
   "devDependencies": {
@@ -45,9 +43,7 @@
     "tailwindcss": "3.4.12",
     "typescript": "5.4.5"
   },
-
-  /* 关键：让 pnpm 把 styled-jsx（以及其它包）公开提升，避免被裁剪后找不到 */
   "pnpm": {
-    "public-hoist-pattern": ["styled-jsx", "*"]
+    "public-hoist-pattern": ["*"]
   }
 }
