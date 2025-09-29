@@ -2,14 +2,14 @@
 import '@/lib/proxy';
 import { NextRequest, NextResponse } from 'next/server';
 
-// ⛔️ 移除：import 'styled-jsx'  （该包为 client-only，服务端 Route 不能直接 import）
+// ⛔️ 已移除：import 'styled-jsx'（该包为 client-only，服务端 Route 不能直接 import）
 
 import { orchestrate } from '@/lib/ndjc/orchestrator';
 import {
   buildPlan,
   applyPlanDetailed,
   materializeToWorkspace,
-  cleanupAnchors,
+  cleanupAnchors, // 小写
 } from '@/lib/ndjc/generator';
 
 import * as JournalMod from '@/lib/ndjc/journal';
@@ -28,7 +28,7 @@ import { parseStrictJson } from '@/lib/ndjc/llm/strict-json';
 import { validateContractV1 } from '@/lib/ndjc/validators';
 import { contractV1ToPlan } from '@/lib/ndjc/contract/contractv1-to-plan';
 
-// -------------------- CORS（保留） --------------------
+// -------------------- CORS --------------------
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST,OPTIONS',
@@ -149,7 +149,7 @@ async function ensureLatestTemplates(runId: string) {
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
   };
-    if (process.env.GH_PAT) headers.Authorization = `Bearer ${process.env.GH_PAT}`;
+  if (process.env.GH_PAT) headers.Authorization = `Bearer ${process.env.GH_PAT}`;
 
   await mirrorRepoPathToDir(owner, repo, ref, subPath, dstRoot, headers);
 
@@ -381,7 +381,7 @@ export async function POST(req: NextRequest) {
     }
     await jWriteJSON(runId, '01_orchestrator.json', o);
 
-    // 2.5) Contract v1 预校验 + 直接映射为 plan（按需开启）
+    // 2.5) Contract v1
     const wantContractV1 =
       input?.contract === 'v1' || input?.contractV1 === true || process.env.NDJC_CONTRACT_V1 === '1';
 
@@ -418,7 +418,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // 通过校验：直接把 Contract v1 JSON 映射为 plan
       planFromContract = contractV1ToPlan(parsed.data);
       await jWriteJSON(runId, '02_plan_from_contract.json', planFromContract);
     }
@@ -461,7 +460,7 @@ export async function POST(req: NextRequest) {
     }
 
     step = 'cleanup';
-    await cleanupAnchors(appRoot);
+    await cleanupAnchors(appRoot); // ✔ 小写函数
     await jWriteText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
     // 伴生文件（方案B）
