@@ -3,8 +3,7 @@
     "app/api/**": {
       "maxDuration": 60,
       "memory": 1024,
-      "includeFiles": "node_modules/styled-jsx/package.json",
-      "externalNodeModules": ["styled-jsx"]
+      "includeFiles": "node_modules/styled-jsx/package.json"
     }
   }
 }
