@@ -1,5 +1,5 @@
 // lib/ndjc/orchestrator.ts
-import { groqChat as callGroqChat } from "@/lib/ndjc/groq"; // 避免命名冲突
+import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
 /** 伴生文件（仅 B 模式可能返回/使用） */
@@ -32,8 +32,8 @@ export type OrchestrateInput = NdjcRequest & {
 
   developerNotes?: string;
 
-  // 允许前端显式开启 v1
-  contract?: "v1";
+  // 可选：显式要求 v1
+  contract?: "v1" | "legacy";
   contractV1?: boolean;
 };
 
@@ -62,14 +62,13 @@ export type OrchestrateOutput = {
 
 /* ----------------- helpers ----------------- */
 
-function wantV1(input?: { contract?: any; contractV1?: any }) {
-  const env = (process.env.NDJC_CONTRACT_V1 || "").trim().toLowerCase();
+// v1 开关：入参/环境变量二选一
+function wantV1(input: Partial<OrchestrateInput>): boolean {
+  const envRaw = (process.env.NDJC_CONTRACT_V1 || "").trim().toLowerCase();
   return (
-    input?.contract === "v1" ||
-    input?.contractV1 === true ||
-    env === "1" ||
-    env === "true" ||
-    env === "v1"
+    input.contract === "v1" ||
+    input.contractV1 === true ||
+    envRaw === "1" || envRaw === "true" || envRaw === "v1"
   );
 }
 
@@ -128,6 +127,77 @@ function sanitizeCompanions(list?: Companion[]): Companion[] {
   return out;
 }
 
+/** 把当前编排结果组装成 Contract v1 文档（最小满足校验集） */
+function makeV1Doc(opts: {
+  runId?: string | null;
+  template: string;
+  mode: "A" | "B";
+  appName: string;
+  homeTitle: string;
+  mainButtonText: string;
+  packageId: string;
+  resConfigsCsv?: string;
+  permissions?: string[];
+  companions?: Companion[];
+}) {
+  const resConfigsArr = (opts.resConfigsCsv || "")
+    .split(",").map(s => s.trim()).filter(Boolean);
+
+  const files = (opts.mode === "B" && Array.isArray(opts.companions))
+    ? opts.companions.map(f => ({
+        path: f.path,
+        content: f.content,
+        encoding: "utf8" as const,
+        kind: (f.kind || "txt"),
+      }))
+    : [];
+
+  return {
+    metadata: {
+      runId: opts.runId || undefined,
+      template: opts.template,
+      appName: opts.appName,
+      packageId: opts.packageId,
+      mode: opts.mode,
+    },
+    anchors: {
+      text: {
+        "NDJC:PACKAGE_NAME": opts.packageId,
+        "NDJC:APP_LABEL": opts.appName,
+        "NDJC:HOME_TITLE": opts.homeTitle || opts.appName,
+        "NDJC:PRIMARY_BUTTON_TEXT": opts.mainButtonText || "Start",
+      },
+      block: {},
+      list: {
+        "LIST:ROUTES": ["home"],
+      },
+      if: {},
+      // 可留空：校验器允许存在空对象
+      res: {},
+      hook: {},
+      gradle: {
+        applicationId: opts.packageId,
+        resConfigs: resConfigsArr,
+        permissions: opts.permissions || [],
+      },
+    },
+    // patches 里把 gradle/manifest 的增量也填上（最小集）
+    patches: {
+      gradle: {
+        resConfigs: resConfigsArr,
+        permissions: opts.permissions || [],
+      },
+      manifest: {
+        permissions: opts.permissions || [],
+      },
+    },
+    // B 模式伴生文件
+    files,
+    // 兼容 contractv1-to-plan 的另一路读取（非必须）
+    resources: {},
+  };
+}
+
 /* ----------------- main orchestrate ----------------- */
 
 export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateOutput> {
@@ -142,8 +212,9 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   let companions: Companion[] = Array.isArray(input._companions) ? sanitizeCompanions(input._companions) : [];
 
-  let mode: "A" | "B" = input.mode === "B" ? "B" : "A";
+  const mode: "A" | "B" = input.mode === "B" ? "B" : "A";
   const allowCompanions = !!input.allowCompanions && mode === "B";
+  const template = (input.template as any) || "circle-basic";
 
   let _trace: any | null = null;
 
@@ -155,83 +226,8 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     const unwrap = (r: any) =>
       (typeof r === "string" ? { text: r, trace: null } : { text: r?.text ?? "", trace: r?.trace ?? null });
 
-    const askV1 = wantV1(input);
-
-    if (askV1) {
-      // === Contract v1：强制 LLM 返回 v1 结构（含 metadata）===
-      // mode 由入参/默认决定；B 模式允许 companions
-      const targetMode = allowCompanions ? "B" : mode;
-
-      const sysBase = `You are a strict JSON API. Return ONLY raw JSON (no code fences, no comments).
-Schema (Contract v1):
-{
-  "metadata": {
-    "appName": string,            // non-empty
-    "packageId": string,          // Android applicationId (a.b.c)
-    "mode": "A" | "B"             // "${targetMode}" preferred
-  },
-  "fields": {
-    "appName": string,
-    "homeTitle": string,
-    "mainButtonText": string,
-    "packageId": string | null,
-    "permissions": string[],
-    "intentHost": string | null,
-    "locales": string[]
-  },
-  "companions": ${targetMode === "B" ? "[{ \"path\": string, \"kind\":\"kotlin|xml|json|md|txt\", \"content\": string, \"overwrite\": boolean }]" : "[]"}
-}
-Rules:
-- Do NOT wrap with \`\`\`.
-- All strings must be plain text (no escaping artifacts).
-- Provide non-empty metadata.appName, metadata.packageId; metadata.mode must be "A" or "B".`;
-
-      try {
-        const r = await callGroqChat(
-          [
-            { role: "system", content: wrapSystem(sysBase) },
-            { role: "user", content: input.requirement! },
-          ],
-          { json: true, temperature: 0 }
-        );
-        const { text, trace } = unwrap(r);
-        _trace = trace || { rawText: text };
-
-        const j = parseJsonSafely(text) as any;
-        if (j && typeof j === "object") {
-          // 1) metadata
-          const meta = j.metadata || {};
-          if (typeof meta.appName === "string" && meta.appName.trim()) appName = meta.appName.trim();
-          if (typeof meta.packageId === "string" && meta.packageId.trim()) {
-            packageId = ensurePackageId(meta.packageId, packageId);
-          }
-          if (meta.mode === "A" || meta.mode === "B") mode = meta.mode;
-
-          // 2) fields
-          const f = j.fields || {};
-          appName        = f.appName        || appName;
-          homeTitle      = f.homeTitle      || homeTitle;
-          mainButtonText = f.mainButtonText || mainButtonText;
-          packageId      = ensurePackageId(f.packageId || packageId, packageId);
-
-          if (Array.isArray(f.permissions)) permissions = f.permissions;
-          if (typeof f.intentHost === "string" || f.intentHost === null) intentHost = f.intentHost;
-          if (Array.isArray(f.locales) && f.locales.length) locales = normalizeLocales(f.locales);
-
-          // 3) companions（仅 B）
-          if (mode === "B" && allowCompanions) {
-            companions = sanitizeCompanions(Array.isArray(j.companions) ? (j.companions as Companion[]) : []);
-          } else {
-            companions = [];
-          }
-        }
-      } catch {
-        // 忽略 LLM 失败，保留默认
-      }
-    } else {
-      // === 旧逻辑：A/B 简单字段抽取 ===
-      if (mode === "A") {
-        const sysBase =
+    // —— 路线 A：仅抽字段（兼容 legacy）——
+    const sysA = wrapSystem(
 `You are a JSON API. Reply ONLY JSON with keys:
 {
   "appName": string,
@@ -241,31 +237,11 @@ Rules:
   "permissions": string[],
   "intentHost": string | null,
   "locales": string[]
-}`;
-        try {
-          const r = await callGroqChat(
-            [
-              { role: "system", content: wrapSystem(sysBase) },
-              { role: "user", content: input.requirement! },
-            ],
-            { json: true, temperature: 0 }
-          );
-          const { text, trace } = unwrap(r);
-          _trace = trace || { rawText: text };
+}`
+    );
 
-          const j = parseJsonSafely(text) as any;
-          if (j) {
-            appName        = j.appName        || appName;
-            homeTitle      = j.homeTitle      || homeTitle;
-            mainButtonText = j.mainButtonText || mainButtonText;
-            packageId      = ensurePackageId(j.packageId || packageId, packageId);
-            if (Array.isArray(j.permissions)) permissions = j.permissions;
-            if (typeof j.intentHost === "string" || j.intentHost === null) intentHost = j.intentHost;
-            if (Array.isArray(j.locales) && j.locales.length) locales = normalizeLocales(j.locales);
-          }
-        } catch { /* keep defaults */ }
-      } else { // mode === "B"
-        const sysBase =
+    // —— 路线 B：字段 + 伴生文件（兼容 legacy）——
+    const sysB = wrapSystem(
 `你是移动端生成助手。以严格 JSON 返回（不可包含代码块标记）：
 {
   "fields": {
@@ -280,48 +256,88 @@ Rules:
   "companions": [
     { "path": "app/src/main/java/...", "kind":"kotlin|xml|json|md|txt", "content": "...", "overwrite": false }
   ]
-}`;
-        try {
-          const r = await callGroqChat(
-            [
-              { role: "system", content: wrapSystem(sysBase) },
-              { role: "user", content: input.requirement! },
-            ],
-            { json: true, temperature: 0.3 }
-          );
-          const { text, trace } = unwrap(r);
-          _trace = trace || { rawText: text };
+}`
+    );
 
-          const j = parseJsonSafely(text) as any;
-          if (j) {
-            const f = j.fields || {};
-            appName        = f.appName        || appName;
-            homeTitle      = f.homeTitle      || homeTitle;
-            mainButtonText = f.mainButtonText || mainButtonText;
-            packageId      = ensurePackageId(f.packageId || packageId, packageId);
+    try {
+      if (mode === "A") {
+        const r = await callGroqChat(
+          [
+            { role: "system", content: sysA },
+            { role: "user", content: input.requirement! },
+          ],
+          { json: true, temperature: 0 }
+        );
+        const { text, trace } = unwrap(r);
+        _trace = trace || { rawText: text };
+        const j = parseJsonSafely(text) as any;
+        if (j) {
+          appName        = j.appName        || appName;
+          homeTitle      = j.homeTitle      || homeTitle;
+          mainButtonText = j.mainButtonText || mainButtonText;
+          packageId      = ensurePackageId(j.packageId || packageId, packageId);
+          if (Array.isArray(j.permissions)) permissions = j.permissions;
+          if (typeof j.intentHost === "string" || j.intentHost === null) intentHost = j.intentHost;
+          if (Array.isArray(j.locales) && j.locales.length) locales = normalizeLocales(j.locales);
+        }
+      } else if (mode === "B" && allowCompanions) {
+        const r = await callGroqChat(
+          [
+            { role: "system", content: sysB },
+            { role: "user", content: input.requirement! },
+          ],
+          { json: true, temperature: 0.3 }
+        );
+        const { text, trace } = unwrap(r);
+        _trace = trace || { rawText: text };
+        const j = parseJsonSafely(text) as any;
+        if (j) {
+          const f = j.fields || {};
+          appName        = f.appName        || appName;
+          homeTitle      = f.homeTitle      || homeTitle;
+          mainButtonText = f.mainButtonText || mainButtonText;
+          packageId      = ensurePackageId(f.packageId || packageId, packageId);
+          if (Array.isArray(f.permissions)) permissions = f.permissions;
+          if (typeof f.intentHost === "string" || f.intentHost === null) intentHost = f.intentHost;
+          if (Array.isArray(f.locales) && f.locales.length) locales = normalizeLocales(f.locales);
 
-            if (Array.isArray(f.permissions)) permissions = f.permissions;
-            if (typeof f.intentHost === "string" || f.intentHost === null) intentHost = f.intentHost;
-            if (Array.isArray(f.locales) && f.locales.length) locales = normalizeLocales(f.locales);
-
-            companions = sanitizeCompanions(Array.isArray(j.companions) ? (j.companions as Companion[]) : []);
-          }
-        } catch { /* swallow */ }
+          companions = sanitizeCompanions(Array.isArray(j.companions) ? (j.companions as Companion[]) : []);
+        }
       }
+    } catch {
+      // swallow：沿用默认
     }
   }
 
-  // 片段/衍生
+  // 块锚点需要的 XML 片段
   const permissionsXml = mkPermissionsXml(permissions);
   const intentFiltersXml = mkIntentFiltersXml(intentHost);
   const themeOverridesXml = (input as any).themeOverridesXml || undefined;
 
+  // resConfigs：优先入参，其次由 locales 推导
   const resConfigs = input.resConfigs || localesToResConfigs(locales);
   const proguardExtra = input.proguardExtra;
   const packagingRules = input.packagingRules;
 
+  // —— 若启用 v1：将“可校验”的 v1 JSON 放到 _trace.rawText（满足 route 的校验）——
+  if (wantV1(input)) {
+    const v1doc = makeV1Doc({
+      runId: (input as any).runId || null,
+      template,
+      mode,
+      appName,
+      homeTitle,
+      mainButtonText,
+      packageId,
+      resConfigsCsv: resConfigs,
+      permissions,
+      companions: allowCompanions ? companions : [],
+    });
+    _trace = { rawText: JSON.stringify(v1doc) };
+  }
+
   return {
-    template: (input.template as any) || "core",
+    template,
     mode,
     allowCompanions,
 
@@ -339,7 +355,7 @@ Rules:
     intentFiltersXml,
     themeOverridesXml,
 
-    companions: allowCompanions && mode === "B" ? companions : [],
+    companions: allowCompanions ? companions : [],
     _trace,
   };
 }
