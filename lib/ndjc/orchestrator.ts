@@ -1,4 +1,9 @@
 // lib/ndjc/orchestrator.ts
+// 作用：把自然语言需求编排为“轻量结构化结果”，供后续 buildPlan/CI 使用。
+// - A 模式：仅抽取字段（appName/homeTitle/...），不返回伴生文件
+// - B 模式：在严格 JSON 主体外，允许返回 companions（仍由后端做白名单与沙箱落地）
+// - 始终尽量返回 _trace（若底层 groqChat 支持）
+
 import { groqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
@@ -26,22 +31,28 @@ type OrchestrateInput = NdjcRequest & {
   packageName?: string;
 
   /** 扩展字段（抽取或直传），供块锚点/Gradle 使用 */
-  permissions?: string[];      // ["android.permission.INTERNET", ...]
-  intentHost?: string | null;  // 比如 "example.com"
-  locales?: string[];          // ["en","zh-rCN","zh-rTW"]
-  resConfigs?: string;         // "en,zh-rCN,zh-rTW"
-  proguardExtra?: string;      // ",'proguard-ndjc.pro'"
-  packagingRules?: string;     // Gradle packaging{} 片段
+  permissions?: string[];
+  intentHost?: string | null;
+  locales?: string[];
+  resConfigs?: string;
+  proguardExtra?: string;
+  packagingRules?: string;
 
   /** B 模式下可能返回（或直传） */
   _companions?: Companion[];
 
   /** 可选：开发者补充提示，会被拼接到 system 提示中（避免使用 role:'developer'） */
   developerNotes?: string;
+
+  /** 透传给 groqChat 的选项（route.ts 会传入） */
+  provider?: string;
+  model?: string;
+  forceProvider?: string;
+  temperature?: number;
 };
 
 type OrchestrateOutput = {
-  template: "core" | "simple" | "form" | "circle-basic";
+  template: "circle-basic" | "core" | "simple" | "form";
   mode: "A" | "B";
   allowCompanions: boolean;
 
@@ -59,13 +70,19 @@ type OrchestrateOutput = {
   // 供块锚点注入的 XML 片段
   permissionsXml?: string;
   intentFiltersXml?: string;
-  themeOverridesXml?: string; // 可选（未抽到则留空）
+  themeOverridesXml?: string;
 
   // 方案 B 附件
   companions: Companion[];
 
   /** 调试/审计：若在线调用 LLM，这里带回原始请求/响应轨迹（供 route.ts 落盘） */
   _trace?: any | null;
+
+  // （可选）直传到 buildPlan 的通道：lists/features/hooks/resources
+  lists?: Record<string, any[]>;
+  features?: Record<string, any>;
+  hooks?: Record<string, string>;
+  resources?: any;
 };
 
 /* ----------------- helpers ----------------- */
@@ -73,18 +90,16 @@ type OrchestrateOutput = {
 function ensurePackageId(input?: string, fallback = "com.ndjc.demo.core") {
   let v = (input || "").trim();
   if (!v) return fallback;
-  // 粗略清洗：只保留字母/数字/下划线/点；首尾去点；多个点折叠
-  v = v.replace(/[^a-zA-Z0-9_.]+/g, "")
-       .replace(/^\.+|\.+$/g, "")
-       .replace(/\.+/g, ".");
+  v = v
+    .replace(/[^a-zA-Z0-9_.]+/g, "")
+    .replace(/^\.+|\.+$/g, "")
+    .replace(/\.+/g, ".");
   if (!v) return fallback;
   return v.toLowerCase();
 }
 
 function mkPermissionsXml(perms?: string[]) {
-  const list = (perms || [])
-    .map(p => (p || "").trim())
-    .filter(Boolean);
+  const list = (perms || []).map(p => (p || "").trim()).filter(Boolean);
   if (!list.length) return undefined;
   return list.map(p => `<uses-permission android:name="${p}"/>`).join("\n");
 }
@@ -105,9 +120,7 @@ function normalizeLocales(locales?: string[]) {
   const arr = (locales || []).map(s => (s || "").trim()).filter(Boolean);
   return arr.length ? arr : ["en", "zh-rCN", "zh-rTW"];
 }
-
 function localesToResConfigs(locales: string[]) {
-  // Gradle resConfigs 期望逗号分隔
   return locales.join(",");
 }
 
@@ -126,9 +139,9 @@ function parseJsonSafely(text: string): any | null {
 // 统一路径分隔符
 function toUnixPath(p: string) {
   return (p || "")
-    .replace(/^[\\/]+/, "")  // 开头多余斜杠
-    .replace(/\\/g, "/")     // 反斜杠 -> 正斜杠
-    .replace(/\/+/g, "/");   // 连续斜杠 -> 单个
+    .replace(/^[\\/]+/, "")
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/");
 }
 
 // 过滤/规范化 companions，避免无效或危险路径
@@ -149,18 +162,28 @@ function sanitizeCompanions(list?: Companion[]): Companion[] {
   return out;
 }
 
+// 兼容 groqChat 可能返回 string 或 { text, trace }
+function unwrapChat(r: any) {
+  if (typeof r === "string") return { text: r, trace: null };
+  return { text: r?.text ?? "", trace: r?.trace ?? null };
+}
+
 /* ----------------- main orchestrate ----------------- */
 
 export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateOutput> {
   // 1) 初始默认值（可被入参/LLM覆盖）
-  let appName = input.appName || "NDJC core";
-  let homeTitle = input.homeTitle || "Hello core";
-  let mainButtonText = input.mainButtonText || "Start core";
-  let packageId = ensurePackageId(input.packageId || input.packageName, "com.ndjc.demo.core");
+  let appName = input.appName || "NDJC App";
+  let homeTitle = input.homeTitle || "Hello NDJC";
+  let mainButtonText = input.mainButtonText || "Start";
+  let packageId = ensurePackageId(input.packageId || input.packageName, "com.ndjc.demo.app");
 
   let permissions = input.permissions || [];
   let intentHost = input.intentHost ?? null;
   let locales = normalizeLocales(input.locales);
+  let lists: Record<string, any[]> | undefined;
+  let features: Record<string, any> | undefined;
+  let hooks: Record<string, string> | undefined;
+  let resources: any;
 
   let companions: Companion[] = Array.isArray(input._companions) ? sanitizeCompanions(input._companions) : [];
 
@@ -172,16 +195,9 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   // 2) 若给了自然语言，按模式走 LLM
   if (input.requirement?.trim()) {
-    // 聚合系统+开发者提示（避免 role:'developer' 导致 TS 报错）
     const wrapSystem = (system: string) => {
       const dev = (input.developerNotes || "").trim();
       return dev ? `${system}\n\n---\n# Developer Notes\n${dev}` : system;
-    };
-
-    // 一个小工具：兼容 groqChat 可能返回 string 或 {text,trace}
-    const unwrap = (r: any) => {
-      if (typeof r === "string") return { text: r, trace: null };
-      return { text: r?.text ?? "", trace: r?.trace ?? null };
     };
 
     if (mode === "A") {
@@ -195,7 +211,11 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   "packageId": string | null,
   "permissions": string[],
   "intentHost": string | null,
-  "locales": string[]
+  "locales": string[],
+  "lists"?: object,           // 可选，e.g. { "LIST:ROUTES": ["home","detail"] }
+  "features"?: object,        // 可选
+  "hooks"?: object,           // 可选
+  "resources"?: object        // 可选
 }`;
       const sys = wrapSystem(sysBase);
 
@@ -205,9 +225,15 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
             { role: "system", content: sys },
             { role: "user", content: input.requirement! },
           ],
-          { json: true, temperature: 0 }
+          {
+            json: true,
+            temperature: input.temperature ?? 0,
+            provider: (input as any).provider,
+            model: (input as any).model,
+            forceProvider: (input as any).forceProvider,
+          }
         );
-        const { text, trace } = unwrap(r);
+        const { text, trace } = unwrapChat(r);
         _trace = trace;
 
         const j = parseJsonSafely(text) as any;
@@ -219,9 +245,13 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
           if (Array.isArray(j.permissions)) permissions = j.permissions;
           if (typeof j.intentHost === "string" || j.intentHost === null) intentHost = j.intentHost;
           if (Array.isArray(j.locales) && j.locales.length) locales = normalizeLocales(j.locales);
+          if (j.lists && typeof j.lists === "object") lists = j.lists;
+          if (j.features && typeof j.features === "object") features = j.features;
+          if (j.hooks && typeof j.hooks === "object") hooks = j.hooks;
+          if (j.resources && typeof j.resources === "object") resources = j.resources;
         }
       } catch {
-        // 保底：忽略 LLM 错误，走默认值
+        // 保底：忽略 LLM 错误
       }
     } else if (mode === "B" && allowCompanions) {
       // —— 方案B：JSON 主体 + 伴生文件（仍强制外层 JSON）——
@@ -235,7 +265,11 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     "packageId": string | null,
     "permissions": string[],
     "intentHost": string | null,
-    "locales": string[]
+    "locales": string[],
+    "lists"?: object,
+    "features"?: object,
+    "hooks"?: object,
+    "resources"?: object
   },
   "companions": [
     { "path": "app/src/main/java/...", "kind":"kotlin|xml|json|md|txt", "content": "...", "overwrite": false }
@@ -249,9 +283,15 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
             { role: "system", content: sys },
             { role: "user", content: input.requirement! },
           ],
-          { json: true, temperature: 0.3 }
+          {
+            json: true,
+            temperature: input.temperature ?? 0.3,
+            provider: (input as any).provider,
+            model: (input as any).model,
+            forceProvider: (input as any).forceProvider,
+          }
         );
-        const { text, trace } = unwrap(r);
+        const { text, trace } = unwrapChat(r);
         _trace = trace;
 
         const j = parseJsonSafely(text) as any;
@@ -265,6 +305,11 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
           if (Array.isArray(f.permissions)) permissions = f.permissions;
           if (typeof f.intentHost === "string" || f.intentHost === null) intentHost = f.intentHost;
           if (Array.isArray(f.locales) && f.locales.length) locales = normalizeLocales(f.locales);
+
+          if (f.lists && typeof f.lists === "object") lists = f.lists;
+          if (f.features && typeof f.features === "object") features = f.features;
+          if (f.hooks && typeof f.hooks === "object") hooks = f.hooks;
+          if (f.resources && typeof f.resources === "object") resources = f.resources;
 
           // 伴生文件（后端会做白名单/沙箱再落地）
           companions = sanitizeCompanions(Array.isArray(j.companions) ? (j.companions as Companion[]) : []);
@@ -287,7 +332,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   // 5) 汇总输出（供 generator 使用）
   const out: OrchestrateOutput = {
-    template: (input.template as any) || "core",
+    template: (input.template as any) || "circle-basic",
     mode,
     allowCompanions,
 
@@ -307,8 +352,13 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
     companions: allowCompanions ? companions : [],
 
-    // 调试轨迹：route.ts 可据此把 01a/01b/01c 审计文件写到 requests/<runId>/
     _trace,
+
+    // 直传附加结构（buildPlan 会兜底吸收）
+    lists,
+    features,
+    hooks,
+    resources,
   };
 
   return out;
