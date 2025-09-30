@@ -1,5 +1,7 @@
 // app/api/generate-apk/route.ts
-import '@/lib/proxy';
+// ❌ 去掉会引入重量 Node 代理依赖的全局代理注入
+// import '@/lib/proxy';
+
 import { NextRequest, NextResponse } from 'next/server';
 
 // ⛔️ 已移除：import 'styled-jsx'（该包为 client-only，服务端 Route 不能直接 import）
@@ -21,6 +23,8 @@ import { ensureBranch, pushDirByContentsApi } from '@/lib/ndjc/git-contents';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+// 仍保留 Node 运行时，以便使用本地 /tmp 落盘与模板物化。
+// （若后续把重活迁入 Actions，可将此改为 'edge'）
 export const runtime = 'nodejs';
 
 // ==== Contract v1: 严格 JSON 解析 + 校验 + 映射为 plan ====
@@ -38,7 +42,9 @@ export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
-// -------------------- 伴生文件（方案B）安全落地 --------------------
+// -------------------- （旧）伴生文件（方案B）安全落地 --------------------
+// 说明：伴生文件的真正落地已在 generator.applyPlanDetailed 中实现；
+// 这里保留工具但默认不再写入 companions 子目录，避免“写了等于没用”。
 const COMPANION_ROOT = 'companions';
 const COMPANION_WHITELIST = new Set([
   '.kt', '.kts', '.java', '.xml', '.json', '.txt', '.pro', '.md', '.gradle', '.properties',
@@ -57,32 +63,33 @@ async function emitCompanions(
   appRoot: string,
   companions: Array<{ path: string; content: string; overwrite?: boolean }>
 ) {
-  if (!companions?.length) return { written: 0, files: [] as string[] };
-  const dstRoot = path.join(appRoot, COMPANION_ROOT);
-  await fs.mkdir(dstRoot, { recursive: true });
+  // ⚠️ 兼容保留：为了与老日志结构对齐，这里不再真正写入（由 generator 负责真实落地）
+  // 如需回滚老行为，将下方 early-return 去掉即可。
+  return { written: 0, files: [] as string[] };
 
-  const written: string[] = [];
-  for (const file of companions) {
-    const rel = sanitizeCompanionPath(file.path || '');
-    if (!rel) continue;
-
-    const dst = path.join(dstRoot, rel);
-    const ext = path.extname(dst).toLowerCase();
-    if (!COMPANION_WHITELIST.has(ext)) continue;
-    if (!dst.startsWith(dstRoot)) continue;
-
-    await fs.mkdir(path.dirname(dst), { recursive: true });
-    try {
-      if (!file.overwrite) {
-        await fs.access(dst);
-        continue;
-      }
-    } catch {}
-
-    await fs.writeFile(dst, file.content ?? '', 'utf8');
-    written.push(path.relative(appRoot, dst));
-  }
-  return { written: written.length, files: written };
+  // ---- 旧实现（保留在下方，暂不执行） ----
+  // if (!companions?.length) return { written: 0, files: [] as string[] };
+  // const dstRoot = path.join(appRoot, COMPANION_ROOT);
+  // await fs.mkdir(dstRoot, { recursive: true });
+  // const written: string[] = [];
+  // for (const file of companions) {
+  //   const rel = sanitizeCompanionPath(file.path || '');
+  //   if (!rel) continue;
+  //   const dst = path.join(dstRoot, rel);
+  //   const ext = path.extname(dst).toLowerCase();
+  //   if (!COMPANION_WHITELIST.has(ext)) continue;
+  //   if (!dst.startsWith(dstRoot)) continue;
+  //   await fs.mkdir(path.dirname(dst), { recursive: true });
+  //   try {
+  //     if (!file.overwrite) {
+  //       await fs.access(dst);
+  //       continue;
+  //     }
+  //   } catch {}
+  //   await fs.writeFile(dst, file.content ?? '', 'utf8');
+  //   written.push(path.relative(appRoot, dst));
+  // }
+  // return { written: written.length, files: written };
 }
 
 // -------------------- 在线获取最新模板（可选） --------------------
@@ -318,6 +325,16 @@ export async function POST(req: NextRequest) {
       if (await pathExists(cand)) { tplDirExists = true; break; }
     }
 
+    // ✅ 记录更完整的运行与协议开关信息（含 NDJC_CONTRACT_V1 原值与解析）
+    const ndjcContractEnvRaw = (process.env.NDJC_CONTRACT_V1 || '').trim();
+    const ndjcContractEnv = ndjcContractEnvRaw.toLowerCase();
+    const wantContractV1 =
+      input?.contract === 'v1' ||
+      input?.contractV1 === true ||
+      ndjcContractEnv === 'v1' ||
+      ndjcContractEnv === '1' ||
+      ndjcContractEnv === 'true';
+
     const checks = {
       repoRoot,
       tplRoot,
@@ -335,7 +352,9 @@ export async function POST(req: NextRequest) {
         NDJC_SKIP_ACTIONS: process.env.NDJC_SKIP_ACTIONS === '1',
         GROQ_API_KEY: !!process.env.GROQ_API_KEY,
         GROQ_MODEL: process.env.GROQ_MODEL || null,
-        NDJC_CONTRACT_V1: process.env.NDJC_CONTRACT_V1 || null,
+        NDJC_CONTRACT_V1_RAW: ndjcContractEnvRaw || null,
+        NDJC_CONTRACT_V1: wantContractV1 ? 'v1' : null,
+        RUNTIME: runtime,
       },
     };
     await jWriteJSON(runId, '00_checks.json', checks);
@@ -381,15 +400,9 @@ export async function POST(req: NextRequest) {
     }
     await jWriteJSON(runId, '01_orchestrator.json', o);
 
-    // 2.5) Contract v1
-    const wantContractV1 =
-      input?.contract === 'v1' || input?.contractV1 === true || process.env.NDJC_CONTRACT_V1 === '1';
-
-    let planFromContract: any | null = null;
+    // 2.5) Contract v1（支持 NDJC_CONTRACT_V1 = v1/1/true）
     if (wantContractV1) {
-      const note = `contract-v1-precheck: ${rawTextForContract ? 'raw-present' : 'raw-missing'}`;
-      await jWriteText(runId, '00_contract_v1_note.txt', note);
-
+      await jWriteText(runId, '00_contract_v1_note.txt', `contract-v1-precheck: ${rawTextForContract ? 'raw-present' : 'raw-missing'}`);
       if (!rawTextForContract) {
         const issues = [{ code: 'E_NOT_JSON', message: 'No raw LLM text to validate', path: '<root>' }];
         await jWriteJSON(runId, '00_contract_check.json', { ok: false, issues });
@@ -398,7 +411,6 @@ export async function POST(req: NextRequest) {
           { status: 400, headers: CORS_HEADERS }
         );
       }
-
       const parsed = parseStrictJson(rawTextForContract);
       if (!parsed.ok) {
         const issues = [{ code: 'E_NOT_JSON', message: parsed.error, path: '<root>' }];
@@ -408,7 +420,6 @@ export async function POST(req: NextRequest) {
           { status: 400, headers: CORS_HEADERS }
         );
       }
-
       const validation = await validateContractV1(parsed.data);
       await jWriteJSON(runId, '00_contract_check.json', validation);
       if (!validation.ok) {
@@ -417,72 +428,59 @@ export async function POST(req: NextRequest) {
           { status: 400, headers: CORS_HEADERS }
         );
       }
-
-      planFromContract = contractV1ToPlan(parsed.data);
+      const planFromContract = contractV1ToPlan(parsed.data);
       await jWriteJSON(runId, '02_plan_from_contract.json', planFromContract);
-    }
 
-    // 3) 计划
-    step = 'build-plan';
-    const plan = planFromContract ?? buildPlan(o);
-    await jWriteJSON(runId, '02_plan.json', plan);
+      // 用 v1 计划继续下面流程
+      step = 'build-plan(v1)';
+      await jWriteJSON(runId, '02_plan.json', planFromContract);
 
-    // 4) 物化 + 应用 + 清理
-    step = 'materialize';
-    const material = await materializeToWorkspace(o.template);
-    const appRoot = material.dstApp;
-    await jWriteText(runId, '04_materialize.txt', `app copied to: ${appRoot}`);
+      step = 'materialize';
+      const material = await materializeToWorkspace(o.template);
+      const appRoot = material.dstApp;
+      await jWriteText(runId, '04_materialize.txt', `app copied to: ${appRoot}`);
 
-    step = 'apply';
-    const applyResult = await applyPlanDetailed(plan);
-    await jWriteJSON(runId, '03_apply_result.json', applyResult);
+      step = 'apply';
+      const applyResult = await applyPlanDetailed({
+        // 生成端统一 BuildPlan 结构的最小字段对齐（generator 有兜底）
+        template_key: o.template,
+        anchors: planFromContract.text,
+        blocks: planFromContract.block,
+        lists: planFromContract.lists,
+        conditions: planFromContract.if,
+        resources: planFromContract.resources as any,
+        hooks: Object.fromEntries(Object.entries(planFromContract.hooks || {}).map(([k,v]) => [k, (v||[]).join('\n')])),
+        features: undefined,
+        routes: undefined,
+        companions: planFromContract.companions as any,
+      } as any);
+      await jWriteJSON(runId, '03_apply_result.json', applyResult);
 
-    const replacedTotal = countCriticalReplacements(applyResult);
-    if (replacedTotal === 0) {
-      await jWriteText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
-      throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
-    }
-
-    const rawDir = path.join(appRoot, 'src', 'main', 'res', 'raw');
-    await fs.mkdir(rawDir, { recursive: true });
-    const posts = plan?.lists?.posts ?? plan?.lists?.feed ?? null;
-    if (Array.isArray(posts) && posts.length) {
-      const out = path.join(rawDir, 'seed_posts.json');
-      try {
-        await fs.access(out);
-        await jWriteText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (already exists)');
-      } catch {
-        await fs.writeFile(out, JSON.stringify(posts, null, 2), 'utf8');
-        await jWriteText(runId, '03a2_seed_json.txt', `emit seed_posts.json (items=${posts.length})`);
+      const replacedTotal = countCriticalReplacements(applyResult);
+      if (replacedTotal === 0) {
+        await jWriteText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
+        throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
       }
-    } else {
-      await jWriteText(runId, '03a2_seed_json.txt', 'skip emit seed_posts.json (no lists.posts in plan)');
-    }
 
-    step = 'cleanup';
-    await cleanupAnchors(appRoot); // ✔ 小写函数
-    await jWriteText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
+      // 伴生文件（提示：由 generator 负责真实落地）
+      await jWriteText(runId, '03a_companions_emitted.txt', 'handled by generator (merged into app/src/main/**)');
 
-    // 伴生文件（方案B）
-    if (o.mode === 'B' && o.allowCompanions && Array.isArray(o.companions) && o.companions.length) {
-      const emitted = await emitCompanions(appRoot, o.companions);
-      await jWriteJSON(runId, '03a_companions_emitted.json', emitted);
-    } else {
-      await jWriteText(runId, '03a_companions_emitted.txt', 'skip (mode!=B or no companions)');
-    }
+      step = 'cleanup';
+      await cleanupAnchors(appRoot);
+      await jWriteText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
 
-    // 5) 摘要
-    step = 'summary';
-    const anchors =
-      (applyResult || [])
-        .flatMap((r: any) =>
-          (r?.changes || []).map(
-            (c: any) =>
-              `- \`${c.marker}\` @ \`${r.file}\` → replaced=${c.replacedCount}, found=${c.found}`
+      // 摘要
+      step = 'summary';
+      const anchors =
+        (applyResult || [])
+          .flatMap((r: any) =>
+            (r?.changes || []).map(
+              (c: any) =>
+                `- \`${c.marker}\` @ \`${r.file}\` → replaced=${c.replacedCount}, found=${c.found}`
+            )
           )
-        )
-        .join('\n') || '- (no markers found)';
-    const summary = `# NDJC Run ${runId}
+          .join('\n') || '- (no markers found)';
+      const summary = `# NDJC Run ${runId}
 
 - mode: **${o.mode ?? 'A'}**
 - allowCompanions: **${!!o.allowCompanions}**
@@ -491,6 +489,7 @@ export async function POST(req: NextRequest) {
 - packageId: **${o.packageId}**
 - repo: \`${getRepoPath()}\`
 - templates: **${tplFetch.mode}** @ \`${process.env.TEMPLATES_DIR}\`
+- contract: **v1**
 
 ## Artifacts
 - 00_input.json
@@ -499,23 +498,71 @@ export async function POST(req: NextRequest) {
 - 01_orchestrator_mode.txt
 - 01_orchestrator.json
 - 01a_llm_request.json / 01b_llm_response.json / 01c_llm_raw.txt / 01a_llm_trace.json
-- 02_plan.json
+- 02_plan.json (from v1)
 - 03_apply_result.json
-- 03a_companions_emitted.json / .txt
-- 03a2_seed_json.txt
+- 03a_companions_emitted.txt
 - 03b_cleanup.txt
 - 04_materialize.txt
 
 ## Anchor Changes
 ${anchors}
 `;
-    await jWriteText(runId, '05_summary.md', summary);
+      await jWriteText(runId, '05_summary.md', summary);
+
+      // 继续推送与触发
+    }
+
+    // 3) 计划（若未启用 v1，则走旧 buildPlan）
+    if (!(await fileExists(path.join(runLocalRoot(runId), '02_plan.json')))) {
+      step = 'build-plan';
+      const plan = buildPlan(o);
+      await jWriteJSON(runId, '02_plan.json', plan);
+
+      step = 'materialize';
+      const material = await materializeToWorkspace(o.template);
+      const appRoot = material.dstApp;
+      await jWriteText(runId, '04_materialize.txt', `app copied to: ${appRoot}`);
+
+      step = 'apply';
+      const applyResult = await applyPlanDetailed(plan as any);
+      await jWriteJSON(runId, '03_apply_result.json', applyResult);
+
+      const replacedTotal = countCriticalReplacements(applyResult);
+      if (replacedTotal === 0) {
+        await jWriteText(runId, '03c_abort_reason.txt', 'No critical anchors replaced');
+        throw new Error('[NDJC] No critical anchors replaced (0) — abort to prevent empty APK.');
+      }
+
+      // 伴生文件（提示：由 generator 负责真实落地）
+      await jWriteText(runId, '03a_companions_emitted.txt', 'handled by generator (merged into app/src/main/**)');
+
+      step = 'cleanup';
+      await cleanupAnchors(appRoot); // ✔ 小写函数
+      await jWriteText(runId, '03b_cleanup.txt', 'NDJC/BLOCK anchors stripped');
+    }
+
+    // 5) 摘要（若未写入，在此兜底生成）
+    if (!(await fileExists(path.join(runLocalRoot(runId), '05_summary.md')))) {
+      const applyResult = JSON.parse(await fs.readFile(path.join(runLocalRoot(runId), '03_apply_result.json'), 'utf8'));
+      const anchors =
+        (applyResult || [])
+          .flatMap((r: any) =>
+            (r?.changes || []).map(
+              (c: any) =>
+                `- \`${c.marker}\` @ \`${r.file}\` → replaced=${c.replacedCount}, found=${c.found}`
+            )
+          )
+          .join('\n') || '- (no markers found)';
+      const summary = `# NDJC Run ${runId}\n\n## Anchor Changes\n${anchors}\n`;
+      await jWriteText(runId, '05_summary.md', summary);
+    }
 
     // 6) 可选提交
     step = 'git-commit';
     let commitInfo: any = null;
     if (process.env.NDJC_GIT_COMMIT === '1') {
-      commitInfo = await gitCommitPush(`[NDJC run ${runId}] template=${o.template} app=${o.appName}`);
+      const oJson = JSON.parse(await fs.readFile(path.join(runLocalRoot(runId), '01_orchestrator.json'), 'utf8'));
+      commitInfo = await gitCommitPush(`[NDJC run ${runId}] template=${oJson.template} app=${oJson.appName}`);
     } else {
       await jWriteText(runId, '05a_commit_skipped.txt', 'skip commit (NDJC_GIT_COMMIT != 1)');
     }
@@ -526,6 +573,8 @@ ${anchors}
     const runBranch = `ndjc-run/${runId}`;
     await ensureBranch(runBranch);
 
+    // 写法兜底检查
+    const appRoot = path.join(process.env.NDJC_WORKDIR || '/tmp/ndjc', 'app');
     await assertNoEscapedQuotes(appRoot);
 
     await pushDirByContentsApi(appRoot, 'app', runBranch, `[NDJC ${runId}] sync app`, { wipeFirst: true });
@@ -543,15 +592,16 @@ ${anchors}
     let dispatch: { ok: true; degraded: boolean } | null = null;
     let actionsUrl: string | null = null;
 
-    if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
-      await jWriteText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or input.skipActions)');
+    if (process.env.NDJC_SKIP_ACTIONS === '1' || (await fileExists(path.join(runLocalRoot(runId), '05e_pre_dispatch_error.txt')))) {
+      await jWriteText(runId, '05b_actions_skipped.txt', 'skip actions (NDJC_SKIP_ACTIONS == 1 or pre-dispatch error)');
     } else {
+      const oJson = JSON.parse(await fs.readFile(path.join(runLocalRoot(runId), '01_orchestrator.json'), 'utf8'));
       const inputs = {
         runId,
         branch: runBranch,
-        template: o.template,
-        appTitle: o.appName,
-        packageName: o.packageId,
+        template: oJson.template,
+        appTitle: oJson.appName,
+        packageName: oJson.packageId,
         preflight_mode: input?.preflight_mode || 'warn',
       };
 
@@ -564,6 +614,9 @@ ${anchors}
       actionsUrl  = `https://github.com/${owner}/${repo}/actions/workflows/${wf}`;
     }
 
+    const applyResult = JSON.parse(await fs.readFile(path.join(runLocalRoot(runId), '03_apply_result.json'), 'utf8'));
+    const replacedTotal = countCriticalReplacements(applyResult);
+
     return NextResponse.json({
       ok: true,
       runId,
@@ -572,7 +625,7 @@ ${anchors}
       commit: commitInfo ?? null,
       actionsUrl,
       degraded: dispatch?.degraded ?? null,
-      branch: runBranch,
+      branch: `ndjc-run/${runId}`,
       templates: tplFetch,
     }, { headers: CORS_HEADERS });
   } catch (e: any) {
