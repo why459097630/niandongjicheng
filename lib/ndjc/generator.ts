@@ -106,12 +106,13 @@ function escapeXml(s: string) {
     .replace(/>/g, '&gt;');
 }
 function toAndroidResName(s: string) {
-  return String(s || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    || 'ndjc_res';
+  return (
+    String(s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'ndjc_res'
+  );
 }
 function isLikelyXml(text: string) {
   return /^\s*</.test(text || '');
@@ -193,15 +194,15 @@ export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
   // lists 若未给，从 routes/features 兜底生成
   const lists: Record<string, any[]> = { ...(o as any)?.lists } ?? {};
   if (routes && !lists['LIST:ROUTES']) {
-    lists['LIST:ROUTES'] = routes.map((r) =>
-      typeof r === 'string' ? r : (r.path || '')
-    ).filter(Boolean);
+    lists['LIST:ROUTES'] = routes
+      .map((r) => (typeof r === 'string' ? r : r.path || ''))
+      .filter(Boolean);
   }
   if (features && !lists['LIST:FEATURE_FLAGS']) {
     // 转换为 "key=value" 形式，或仅 key（布尔 true）
-    lists['LIST:FEATURE_FLAGS'] = Object.entries(features).map(([k, v]) =>
-      typeof v === 'boolean' ? (v ? k : '') : `${k}=${JSON.stringify(v)}`
-    ).filter(Boolean);
+    lists['LIST:FEATURE_FLAGS'] = Object.entries(features)
+      .map(([k, v]) => (typeof v === 'boolean' ? (v ? k : '') : `${k}=${JSON.stringify(v)}`))
+      .filter(Boolean);
   }
 
   // 资源锚点通道
@@ -308,14 +309,14 @@ function normalizePlan(plan: BuildPlan): BuildPlan {
   // routes/features 转投 lists
   out.lists = { ...(out.lists || {}) };
   if (plan.routes && !out.lists['LIST:ROUTES']) {
-    out.lists['LIST:ROUTES'] = plan.routes.map((r) =>
-      typeof r === 'string' ? r : (r.path || '')
-    ).filter(Boolean);
+    out.lists['LIST:ROUTES'] = plan.routes
+      .map((r) => (typeof r === 'string' ? r : r.path || ''))
+      .filter(Boolean);
   }
   if (plan.features && !out.lists['LIST:FEATURE_FLAGS']) {
-    out.lists['LIST:FEATURE_FLAGS'] = Object.entries(plan.features).map(([k, v]) =>
-      typeof v === 'boolean' ? (v ? k : '') : `${k}=${JSON.stringify(v)}`
-    ).filter(Boolean);
+    out.lists['LIST:FEATURE_FLAGS'] = Object.entries(plan.features)
+      .map(([k, v]) => (typeof v === 'boolean' ? (v ? k : '') : `${k}=${JSON.stringify(v)}`))
+      .filter(Boolean);
   }
 
   return out;
@@ -366,7 +367,10 @@ async function updateStringsXml(appRoot: string, plan: BuildPlan): Promise<Apply
     for (const [k, v] of entries) {
       const kRe = new RegExp(`<string\\s+name="${escapeRe(k)}">[\\s\\S]*?<\\/string>`);
       if (!kRe.test(txt)) {
-        txt = txt.replace(/<\/resources>\s*$/m, `  <string name="${escapeXml(k)}">${escapeXml(v)}</string>\n</resources>`);
+        txt = txt.replace(
+          /<\/resources>\s*$/m,
+          `  <string name="${escapeXml(k)}">${escapeXml(v)}</string>\n</resources>`
+        );
         changes.push({ file, marker: `RES:strings:${k}`, found: true, replacedCount: 1 });
       }
     }
@@ -379,13 +383,25 @@ async function updateStringsXml(appRoot: string, plan: BuildPlan): Promise<Apply
   return null;
 }
 
-// 资源落盘（values/colors/dimens -> values/ndjc_extras.xml；drawable/raw 写文件）
+/* ===== 资源落盘（values/colors/dimens -> values/ndjc_extras.xml；drawable/raw 写文件） ===== */
+
+type ValuesBag = {
+  strings?: Record<string, string>;
+  colors?: Record<string, string>;
+  dimens?: Record<string, string>;
+};
+
 async function applyResources(appRoot: string, plan: BuildPlan): Promise<ApplyResult[]> {
   const res: ApplyResult[] = [];
   const base = path.join(appRoot, 'src/main/res');
 
   const values = plan.resources?.values;
-  if (values && (Object.keys(values.strings || {}).length || Object.keys(values.colors || {}).length || Object.keys(values.dimens || {}).length)) {
+  if (
+    values &&
+    (Object.keys(values.strings || {}).length ||
+      Object.keys(values.colors || {}).length ||
+      Object.keys(values.dimens || {}).length)
+  ) {
     const outFile = path.join(base, 'values', 'ndjc_extras.xml');
     await fs.mkdir(path.dirname(outFile), { recursive: true });
     const xml = buildValuesXml(values);
@@ -393,10 +409,16 @@ async function applyResources(appRoot: string, plan: BuildPlan): Promise<ApplyRe
     res.push({
       file: outFile,
       changes: [
-        ...(Object.keys(values.strings || {}).map(k => ({ file: outFile, marker: `RES:values.strings:${k}`, found: true, replacedCount: 1 } as AnchorChange))),
-        ...(Object.keys(values.colors || {}).map(k => ({ file: outFile, marker: `RES:values.colors:${k}`, found: true, replacedCount: 1 } as AnchorChange))),
-        ...(Object.keys(values.dimens || {}).map(k => ({ file: outFile, marker: `RES:values.dimens:${k}`, found: true, replacedCount: 1 } as AnchorChange))),
-      ]
+        ...(Object.keys(values.strings || {}).map(
+          (k) => ({ file: outFile, marker: `RES:values.strings:${k}`, found: true, replacedCount: 1 } as AnchorChange)
+        )),
+        ...(Object.keys(values.colors || {}).map(
+          (k) => ({ file: outFile, marker: `RES:values.colors:${k}`, found: true, replacedCount: 1 } as AnchorChange)
+        )),
+        ...(Object.keys(values.dimens || {}).map(
+          (k) => ({ file: outFile, marker: `RES:values.dimens:${k}`, found: true, replacedCount: 1 } as AnchorChange)
+        )),
+      ],
     });
   }
 
@@ -408,11 +430,14 @@ async function applyResources(appRoot: string, plan: BuildPlan): Promise<ApplyRe
     const ext = obj.ext || (isLikelyXml(obj.content) ? '.xml' : '.png');
     const outFile = path.join(base, 'drawable', `${name}${ext.startsWith('.') ? ext : `.${ext}`}`);
     await fs.mkdir(path.dirname(outFile), { recursive: true });
-    const buf = (obj.encoding === 'base64')
+    const buf = obj.encoding === 'base64'
       ? Buffer.from(obj.content || '', 'base64')
       : Buffer.from(obj.content || '', 'utf8');
     await fs.writeFile(outFile, buf);
-    res.push({ file: outFile, changes: [{ file: outFile, marker: `RES:drawable:${key}`, found: true, replacedCount: 1 }] });
+    res.push({
+      file: outFile,
+      changes: [{ file: outFile, marker: `RES:drawable:${key}`, found: true, replacedCount: 1 }],
+    });
   }
 
   // raw
@@ -423,27 +448,33 @@ async function applyResources(appRoot: string, plan: BuildPlan): Promise<ApplyRe
     const ext = guessRawExt(obj.content, obj.filename);
     const outFile = path.join(base, 'raw', `${name}${ext}`);
     await fs.mkdir(path.dirname(outFile), { recursive: true });
-    const buf = (obj.encoding === 'base64')
+    const buf = obj.encoding === 'base64'
       ? Buffer.from(obj.content || '', 'base64')
       : Buffer.from(obj.content || '', 'utf8');
     await fs.writeFile(outFile, buf);
-    res.push({ file: outFile, changes: [{ file: outFile, marker: `RES:raw:${key}`, found: true, replacedCount: 1 }] });
+    res.push({
+      file: outFile,
+      changes: [{ file: outFile, marker: `RES:raw:${key}`, found: true, replacedCount: 1 }],
+    });
   }
 
   return res;
 }
 
-function buildValuesXml(values?: BuildPlan['resources'] extends infer R ? (R extends { values: infer V } ? V : never) : never) {
+function buildValuesXml(values?: ValuesBag): string {
   const strings = values?.strings || {};
   const colors  = values?.colors  || {};
   const dimens  = values?.dimens  || {};
 
-  const s = Object.entries(strings).map(([k, v]) =>
-    `  <string name="${escapeXml(k)}">${escapeXml(String(v))}</string>`).join('\n');
-  const c = Object.entries(colors).map(([k, v]) =>
-    `  <color name="${escapeXml(k)}">${escapeXml(String(v))}</color>`).join('\n');
-  const d = Object.entries(dimens).map(([k, v]) =>
-    `  <dimen name="${escapeXml(k)}">${escapeXml(String(v))}</dimen>`).join('\n');
+  const s = Object.entries(strings)
+    .map(([k, v]) => `  <string name="${escapeXml(k)}">${escapeXml(String(v))}</string>`)
+    .join('\n');
+  const c = Object.entries(colors)
+    .map(([k, v]) => `  <color name="${escapeXml(k)}">${escapeXml(String(v))}</color>`)
+    .join('\n');
+  const d = Object.entries(dimens)
+    .map(([k, v]) => `  <dimen name="${escapeXml(k)}">${escapeXml(String(v))}</dimen>`)
+    .join('\n');
 
   const body = [s, c, d].filter(Boolean).join('\n');
   return `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n${body}\n</resources>\n`;
@@ -463,7 +494,11 @@ async function updateGradleAppId(appRoot: string, plan: BuildPlan): Promise<Appl
   const fileKts = path.join(appRoot, 'build.gradle.kts');
   const fileGroovy = path.join(appRoot, 'build.gradle');
   const file = existsSync(fileKts) ? fileKts : fileGroovy;
-  try { await fs.access(file); } catch { return null; }
+  try {
+    await fs.access(file);
+  } catch {
+    return null;
+  }
 
   const appId = plan.anchors?.['NDJC:PACKAGE_NAME'];
   if (!appId) return null;
@@ -538,7 +573,7 @@ function applyTextAnchors(src: string, plan: BuildPlan) {
   // 列表：占位注释直接替换
   for (const [k, arr] of Object.entries(plan.lists || {})) {
     const name = String(k);
-    const payload = (arr || []).map(v => String(v)).join('\n');
+    const payload = (arr || []).map((v) => String(v)).join('\n');
     const pat = new RegExp(`<!--\\s*${escapeRe(name)}\\s*-->`, 'g');
     const m = text.match(pat);
     if (m?.length) {
