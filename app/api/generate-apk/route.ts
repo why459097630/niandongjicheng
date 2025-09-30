@@ -5,9 +5,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { orchestrate } from '@/lib/ndjc/orchestrator';
 
-// Contract v1 严格模式
-import { parseStrictJson } from '@/lib/ndjc/llm/strict-json';
-import { validateContractV1 } from '@/lib/ndjc/validators';
+// Contract v1 严格模式（→ 统一从 strict-json.ts 导入）
+import { parseStrictJson, validateContractV1 } from '@/lib/ndjc/llm/strict-json';
 import { contractV1ToPlan } from '@/lib/ndjc/contract/contractv1-to-plan';
 
 export const runtime = 'edge';
@@ -29,7 +28,6 @@ function newRunId() {
   return `ndjc-${new Date().toISOString().replace(/[:.]/g, '-')}-${hex}`;
 }
 function b64(str: string) {
-  // Edge 环境没有 Buffer，用 TextEncoder + btoa
   const bytes = new TextEncoder().encode(str);
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
@@ -86,7 +84,6 @@ async function dispatchWorkflow(inputs: any) {
   });
   if (!r.ok) {
     const text = await r.text();
-    // 422: 兼容 repository_dispatch 降级
     if (r.status === 422) {
       const url2 = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
       const r2 = await fetch(url2, {
@@ -175,9 +172,7 @@ export async function POST(req: NextRequest) {
       mode: o?.mode || input?.mode || 'A',
       contract: v1 ? 'v1' : 'legacy',
       planB64: planV1 ? b64(JSON.stringify(planV1)) : undefined,
-      // 兼容 CI 端自行从 orchestrator 构建 plan 的场景
       orchestratorB64: !planV1 ? b64(JSON.stringify(o)) : undefined,
-      // 供 CI 记录
       clientNote: o?._mode || 'unknown',
       preflight_mode: input?.preflight_mode || 'warn',
     };
