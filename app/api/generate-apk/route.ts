@@ -9,7 +9,7 @@ import { orchestrate } from '@/lib/ndjc/orchestrator';
 import { parseStrictJson, validateContractV1 } from '@/lib/ndjc/llm/strict-json';
 import { contractV1ToPlan } from '@/lib/ndjc/contract/contractv1-to-plan';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 /* ---------------- CORS ---------------- */
 const CORS: Record<string, string> = {
