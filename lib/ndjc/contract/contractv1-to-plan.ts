@@ -74,7 +74,7 @@ function canonKey(raw: string, prefix?: string): string {
   if (!/^NDJC:|^BLOCK:|^LIST:|^IF:|^RES:|^HOOK:/i.test(k)) {
     // e.g. "routes" / "route" -> LIST:ROUTES
     if (k.toLowerCase() === "routes" || k.toLowerCase() === "route") return "LIST:ROUTES";
-    // e.g. "permissions" -> IF:* 无法推断，保持原样
+    // e.g. "permissions" -> IF:* 无法自动推断，保持原样
   }
 
   // 资源别名：res.drawable/... -> RES:drawable/...
@@ -150,7 +150,7 @@ const LIST_CANON: Record<string, string> = {
 };
 
 /** 路由相关的块别名（有路由时自动补齐这些块） */
-const ROUTE_BLOCKS = {
+const ROUTE_BLOCKS: Record<string, string[]> = {
   home: ["BLOCK:ROUTE_HOME"],
   detail: ["BLOCK:ROUTE_DETAIL"],
   post: ["BLOCK:ROUTE_POST"],
