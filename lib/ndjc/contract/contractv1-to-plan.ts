@@ -57,12 +57,15 @@ function toArrayOfString(v: any): string[] {
       if (Array.isArray(j)) return j.map(String);
     } catch {}
     // 逗号 / 换行切分
-    return v.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    return v
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   return [String(v)];
 }
 function shallowClone<T extends Dict>(obj?: T | null): T {
-  return (obj && typeof obj === "object") ? { ...(obj as any) } : ({} as T);
+  return obj && typeof obj === "object" ? { ...(obj as any) } : ({} as T);
 }
 
 /** 统一 key 大写、去空格、把 `res.drawable/app_icon.png` 标准化成 `RES:drawable/app_icon.png` */
@@ -105,18 +108,12 @@ function canonKey(raw: string, prefix?: string): string {
 }
 
 /** 把 Record 归一化成指定前缀（如 NDJC/BLOCK/LIST/IF/RES/HOOK） */
-function normalizeRecord(
-  rec: Dict<any> | undefined,
-  kind: "ndjc" | "block" | "list" | "if" | "res" | "hook"
-): Dict<any> {
+function normalizeRecord(rec: Dict<any> | undefined, kind: "ndjc" | "block" | "list" | "if" | "res" | "hook"): Dict<any> {
   const out: Dict<any> = {};
   if (!rec) return out;
 
-  const PREFIX = kind === "ndjc" ? "NDJC" :
-                 kind === "block" ? "BLOCK" :
-                 kind === "list" ? "LIST" :
-                 kind === "if" ? "IF" :
-                 kind === "res" ? "RES" : "HOOK";
+  const PREFIX =
+    kind === "ndjc" ? "NDJC" : kind === "block" ? "BLOCK" : kind === "list" ? "LIST" : kind === "if" ? "IF" : kind === "res" ? "RES" : "HOOK";
 
   for (const [k, v] of Object.entries(rec)) {
     const ck = canonKey(k, PREFIX);
@@ -132,25 +129,26 @@ function normalizeRecord(
 const LIST_CANON: Record<string, string> = {
   "LIST:ROUTE": "LIST:ROUTES",
   "LIST:ROUTES": "LIST:ROUTES",
-  "ROUTES": "LIST:ROUTES",
+  ROUTES: "LIST:ROUTES",
   "LIST:POST_FIELDS": "LIST:POST_FIELDS",
-  "POST_FIELDS": "LIST:POST_FIELDS",
+  POST_FIELDS: "LIST:POST_FIELDS",
   "LIST:COMMENT_FIELDS": "LIST:COMMENT_FIELDS",
-  "COMMENT_FIELDS": "LIST:COMMENT_FIELDS",
+  COMMENT_FIELDS: "LIST:COMMENT_FIELDS",
   "LIST:API_SPLITS": "LIST:API_SPLITS",
-  "API_SPLITS": "LIST:API_SPLITS",
+  API_SPLITS: "LIST:API_SPLITS",
   "LIST:PLURAL_STRINGS": "LIST:PLURAL_STRINGS",
-  "PLURAL_STRINGS": "LIST:PLURAL_STRINGS",
+  PLURAL_STRINGS: "LIST:PLURAL_STRINGS",
   "LIST:COMPONENT_STYLES": "LIST:COMPONENT_STYLES",
-  "COMPONENT_STYLES": "LIST:COMPONENT_STYLES",
+  COMPONENT_STYLES: "LIST:COMPONENT_STYLES",
   "LIST:REMOTE_FLAGS": "LIST:REMOTE_FLAGS",
-  "REMOTE_FLAGS": "LIST:REMOTE_FLAGS",
+  REMOTE_FLAGS: "LIST:REMOTE_FLAGS",
   "LIST:DEEPLINK_PATTERNS": "LIST:DEEPLINK_PATTERNS",
-  "DEEPLINK_PATTERNS": "LIST:DEEPLINK_PATTERNS",
+  DEEPLINK_PATTERNS: "LIST:DEEPLINK_PATTERNS",
 };
 
 /** 路由相关的块别名（有路由时自动补齐这些块） */
-const ROUTE_BLOCKS: Record<string, string[]> = {
+// ★ 关键修改：使用宽松索引签名，允许以任意 string 做键，避免 TS 报错
+const ROUTE_BLOCKS: Record<string, readonly string[]> = {
   home: ["BLOCK:ROUTE_HOME"],
   detail: ["BLOCK:ROUTE_DETAIL"],
   post: ["BLOCK:ROUTE_POST"],
@@ -176,10 +174,7 @@ const HOOK_CANON: Record<string, string> = {
 };
 
 /** 功能模块“配方”：启用某模块时应追加的锚点 */
-const MODULE_RECIPES: Record<
-  string,
-  { blocks?: string[]; lists?: Record<string, string[]>; res?: Record<string, string> }
-> = {
+const MODULE_RECIPES: Record<string, { blocks?: string[]; lists?: Record<string, string[]>; res?: Record<string, string> }> = {
   // Feed 列表（首页）
   feed: {
     blocks: ["BLOCK:HOME_HEADER", "BLOCK:HOME_BODY", "BLOCK:HOME_ACTIONS", "BLOCK:ROUTE_HOME"],
@@ -221,40 +216,44 @@ const MODULE_RECIPES: Record<
 /* ───────────────────────────── 主转换 ───────────────────────────── */
 
 export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
-  const pkg = doc.metadata.packageId;
+  // ★ 关键强化：packageId 兜底，避免后续空值回落到默认模板
+  const pkg =
+    (doc.metadata.packageId && String(doc.metadata.packageId)) ||
+    (doc as any)?.anchors?.gradle?.applicationId ||
+    "com.ndjc.app";
 
   /* 1) Gradle 汇总（兼容 anchors.gradle 与 patches.*） */
   const g = (doc.anchors?.gradle || ({} as any));
   const gradle = {
     applicationId: g.applicationId || pkg,
-    resConfigs: (g.resConfigs || doc.patches?.gradle?.resConfigs || []) ?? [],
-    permissions: (g.permissions || doc.patches?.manifest?.permissions || []) ?? [],
+    resConfigs: toArrayOfString(g.resConfigs || doc.patches?.gradle?.resConfigs),
+    permissions: toArrayOfString(g.permissions || (doc as any)?.patches?.manifest?.permissions),
     compileSdk: doc.patches?.gradle?.compileSdk ?? null,
     minSdk: doc.patches?.gradle?.minSdk ?? null,
     targetSdk: doc.patches?.gradle?.targetSdk ?? null,
-    dependencies: doc.patches?.gradle?.dependencies ?? [],
-    proguardExtra: doc.patches?.gradle?.proguardExtra ?? [],
+    dependencies: (doc.patches?.gradle?.dependencies as any) ?? [],
+    proguardExtra: toArrayOfString(doc.patches?.gradle?.proguardExtra),
   };
 
   /* 2) 读取 anchors 四类 + 新增 RES/HOOK 的多源输入 */
-  const textIn   = shallowClone(doc.anchors?.text);
-  const blockIn  = shallowClone(doc.anchors?.block);
-  const listIn   = shallowClone(doc.anchors?.list);
-  const ifIn     = shallowClone(doc.anchors?.if);
-  const resIn    = shallowClone((doc as any)?.anchors?.res ?? (doc as any)?.resources);
-  const hookIn   = shallowClone((doc as any)?.anchors?.hook ?? (doc as any)?.hooks);
+  const textIn = shallowClone(doc.anchors?.text);
+  const blockIn = shallowClone(doc.anchors?.block);
+  const listIn = shallowClone(doc.anchors?.list);
+  const ifIn = shallowClone(doc.anchors?.if);
+  const resIn = shallowClone((doc as any)?.anchors?.res ?? (doc as any)?.resources);
+  const hookIn = shallowClone((doc as any)?.anchors?.hook ?? (doc as any)?.hooks);
 
   // 归一化 → 标准前缀
-  const text  = normalizeRecord(textIn,  "ndjc") as Dict<string>;
+  const text = normalizeRecord(textIn, "ndjc") as Dict<string>;
   const block = normalizeRecord(blockIn, "block") as Dict<string>;
-  const listsRaw = normalizeRecord(listIn,  "list") as Dict<any>;
-  const iff   = normalizeRecord(ifIn,    "if")   as Dict<boolean>;
-  const resRaw = normalizeRecord(resIn,  "res")  as Dict<string>;
-  const hookRaw= normalizeRecord(hookIn, "hook") as Dict<any>;
+  const listsRaw = normalizeRecord(listIn, "list") as Dict<any>;
+  const iff = normalizeRecord(ifIn, "if") as Dict<boolean>;
+  const resRaw = normalizeRecord(resIn, "res") as Dict<string>;
+  const hookRaw = normalizeRecord(hookIn, "hook") as Dict<any>;
 
   /* 3) 关键文本锚点兜底 */
   if (!text["NDJC:PACKAGE_NAME"]) text["NDJC:PACKAGE_NAME"] = pkg;
-  if (!text["NDJC:APP_LABEL"])    text["NDJC:APP_LABEL"]    = doc.metadata.appName;
+  if (!text["NDJC:APP_LABEL"]) text["NDJC:APP_LABEL"] = doc.metadata.appName;
   if (!text["NDJC:HOME_TITLE"] && doc.metadata.appName) {
     text["NDJC:HOME_TITLE"] = doc.metadata.appName;
   }
@@ -265,23 +264,20 @@ export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
   /* 4) 列表类规范化（别名映射 + 数组化） */
   const lists: Record<string, string[]> = {};
   for (const [k, v] of Object.entries(listsRaw)) {
-    const key = LIST_CANON[k as keyof typeof LIST_CANON] || canonKey(k, "LIST");
+    const key = LIST_CANON[k] || canonKey(k, "LIST");
     lists[key] = toArrayOfString(v);
   }
 
   // 路由：从 doc.routes 或者 anchors -> 统一进 LIST:ROUTES
-  const routesIn: string[] = toArrayOfString(
-    (doc as any).routes?.items || (doc as any).routes || lists["LIST:ROUTES"]
-  );
+  const routesIn: string[] = toArrayOfString((doc as any).routes?.items || (doc as any).routes || lists["LIST:ROUTES"]);
   if (routesIn.length) {
     lists["LIST:ROUTES"] = Array.from(new Set([...(lists["LIST:ROUTES"] || []), ...routesIn]));
-    // 根据路由自动补齐块
+    // 根据路由自动补齐块（★ 关键修改：宽松索引签名 + 空数组兜底）
     for (const r of routesIn) {
       const name = String(r).toLowerCase();
-      if (ROUTE_BLOCKS[name]) {
-        for (const b of ROUTE_BLOCKS[name]) {
-          if (!block[b]) block[b] = ""; // 标记存在即可
-        }
+      const blocks = ROUTE_BLOCKS[name] || [];
+      for (const b of blocks) {
+        if (!block[b]) block[b] = ""; // 标记存在即可
       }
     }
   }
@@ -295,9 +291,9 @@ export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
   // doc.resources?.files（若 LLM 以 files 形式给资源）
   if (Array.isArray((doc as any).resources?.files)) {
     for (const f of (doc as any).resources.files) {
-      const k = canonResKey(f.key || f.path || f.name || "");
+      const k = canonResKey((f as any).key || (f as any).path || (f as any).name || "");
       if (!k) continue;
-      resources[k] = String(f.content ?? "");
+      resources[k] = String((f as any).content ?? "");
     }
   }
 
@@ -309,11 +305,9 @@ export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
   }
 
   /* 7) 功能模块（增量配方） */
-  const modsSrc: string[] =
-    toArrayOfString((doc as any).modules) ||
-    toArrayOfString((doc as any)?.features?.modules);
+  const modsSrc: string[] = toArrayOfString((doc as any).modules) || toArrayOfString((doc as any)?.features?.modules);
   if (modsSrc.length) {
-    const norm = modsSrc.map(s => String(s).toLowerCase().trim());
+    const norm = modsSrc.map((s) => String(s).toLowerCase().trim());
     for (const mName of norm) {
       const recipe = MODULE_RECIPES[mName];
       if (!recipe) continue;
@@ -339,11 +333,11 @@ export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
   const companions =
     doc.metadata.mode === "B"
       ? (doc.files || [])
-          .filter((f: any) => f.kind !== "manifest_patch")
+          .filter((f: any) => (f as any).kind !== "manifest_patch")
           .map((f: any) => ({
-            path: f.path,
-            content: f.content,
-            encoding: f.encoding || "utf8",
+            path: (f as any).path,
+            content: (f as any).content,
+            encoding: (f as any).encoding || "utf8",
           }))
       : [];
 
@@ -359,9 +353,7 @@ export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
     text,
     block,
     lists,
-    if: Object.fromEntries(
-      Object.entries(iff).map(([k, v]) => [k, toBool(v)])
-    ),
+    if: Object.fromEntries(Object.entries(iff).map(([k, v]) => [k, toBool(v)])),
     resources,
     hooks,
     gradle,
