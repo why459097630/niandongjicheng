@@ -47,6 +47,9 @@ type BuildPlan = {
 
   // 路由（可以转投 LIST:ROUTES）
   routes?: Array<string | { path: string; name?: string; icon?: string }>;
+
+  // ★ 新增：伴生文件（真正落地到工程路径）
+  companions?: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>;
 };
 
 /* ========= 路径策略 ========= */
@@ -186,10 +189,11 @@ export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
     blocks['NDJC:BLOCK:THEME_OVERRIDES'] = String(themeOv);
   }
 
-  // 新增通道：hooks/features/routes，允许 orchestrator 直接传入
+  // 新增通道：hooks/features/routes/companions，允许 orchestrator 直接传入
   const hooks = { ...(o as any)?.hooks } as Record<string, string> | undefined;
   const features = (o as any)?.features as Record<string, any> | undefined;
   const routes = (o as any)?.routes as Array<string | { path: string; name?: string; icon?: string }> | undefined;
+  const companions = (o as any)?.companions || (o as any)?.files; // 兼容 v0 命名
 
   // lists 若未给，从 routes/features 兜底生成
   const lists: Record<string, any[]> = { ...(o as any)?.lists } ?? {};
@@ -220,6 +224,7 @@ export function buildPlan(o: NdjcOrchestratorOutput): BuildPlan {
     resources,
     features,
     routes,
+    companions, // ★ 新增
   };
 }
 
@@ -249,11 +254,15 @@ export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]>
   const resRes = await applyResources(appRoot, normalized);
   if (resRes.length) results.push(...resRes);
 
-  // 3) 结构化：Gradle applicationId 覆盖
+  // 3) ★ 新增：伴生文件真正落地到工程路径
+  const compRes = await applyCompanions(appRoot, normalized);
+  if (compRes.length) results.push(...compRes);
+
+  // 4) 结构化：Gradle applicationId 覆盖
   const gradleRes = await updateGradleAppId(appRoot, normalized);
   if (gradleRes) results.push(gradleRes);
 
-  // 4) 其他文本文件跑 NDJC/BLOCK/LIST/HOOK 替换
+  // 5) 其他文本文件跑 NDJC/BLOCK/LIST/HOOK 替换
   const files = await allFiles(appRoot);
   for (const f of files) {
     if (f === manifest || (stringsRes && f === stringsRes.file) || (gradleRes && f === gradleRes.file)) continue;
@@ -489,6 +498,71 @@ function guessRawExt(content: string, filename?: string) {
   return '.txt';
 }
 
+// ★ 新增：伴生文件真正写入到 app/src/main/**（并按 package 路径展开）
+async function applyCompanions(appRoot: string, plan: BuildPlan): Promise<ApplyResult[]> {
+  const out: ApplyResult[] = [];
+  const items = plan.companions || [];
+  if (!items.length) return out;
+
+  const pkg = String(plan.anchors?.['NDJC:PACKAGE_NAME'] || '').trim();
+  const pkgPath = pkg ? pkg.replace(/\./g, '/') : '';
+
+  for (const it of items) {
+    if (!it?.path) continue;
+    const rel = normalizeCompanionPath(it.path, pkgPath);
+    if (!rel) continue;
+
+    const abs = path.join(appRoot, rel);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+
+    const buf = it.encoding === 'base64'
+      ? Buffer.from(it.content || '', 'base64')
+      : Buffer.from(it.content || '', 'utf8');
+
+    await fs.writeFile(abs, buf);
+    out.push({
+      file: abs,
+      changes: [{ file: abs, marker: `COMPANION:${rel}`, found: true, replacedCount: 1 }],
+    });
+  }
+  return out;
+}
+
+/** 把传入 path 统一映射到工程真实路径
+ *  - 支持去掉 'companions/' 或 'app/' 前缀
+ *  - 支持 'java/' / 'res/' / 'src/main/...' 直达
+ *  - 对于看起来是源码文件且未指定 src 路径的，按 package 展开到 src/main/java/<pkgPath>/
+ *  - 占位符支持：{PACKAGE_PATH} / __PKG__
+ */
+function normalizeCompanionPath(input: string, pkgPath: string): string {
+  let p = String(input || '').replace(/\\/g, '/').replace(/^\/+/, '');
+
+  // 去掉历史前缀
+  p = p.replace(/^companions\//, '').replace(/^app\//, '');
+
+  // 占位符替换
+  p = p.replace(/\{PACKAGE_PATH\}|\_\_PKG\_\_/g, pkgPath);
+
+  // 已经是 src/main/** 形式：尊重原样
+  if (/^src\/main\//.test(p)) return p;
+
+  // res/** 资源：映射到 src/main/res/**
+  if (/^res\//.test(p)) return `src/main/${p}`;
+
+  // java/** 源码：映射到 src/main/java/**
+  if (/^java\//.test(p)) return `src/main/${p}`;
+
+  // 如果是 .kt/.java 源文件但未指明路径，按包名展开
+  if (/\.(kt|java)$/i.test(p)) {
+    const baseName = p.replace(/^.*\//, '');
+    const dir = pkgPath || 'com/ndjc/app';
+    return `src/main/java/${dir}/${baseName}`;
+  }
+
+  // 其他文件（如配置）：默认放到工程根（不建议，但保留兼容）
+  return p;
+}
+
 // 结构化：覆盖 Gradle 的 applicationId
 async function updateGradleAppId(appRoot: string, plan: BuildPlan): Promise<ApplyResult | null> {
   const fileKts = path.join(appRoot, 'build.gradle.kts');
@@ -513,6 +587,7 @@ async function updateGradleAppId(appRoot: string, plan: BuildPlan): Promise<Appl
     .replace(/applicationId\s+'([^']*)'/, `applicationId '${appId}'`);
 
   if (txt !== before) {
+    await fs.writeFile(file, 'utf8'); // <- bugfix: 写入内容
     await fs.writeFile(file, txt, 'utf8');
     changes.push({ file, marker: 'NDJC:PACKAGE_NAME', found: true, replacedCount: 1 });
     return { file, changes };
