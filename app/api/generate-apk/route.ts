@@ -1,9 +1,10 @@
 // app/api/generate-apk/route.ts
-// 瘦路由（Edge）：只做编排 /（可选）Contract v1 校验 / 触发 GitHub Actions。
+// 瘦路由（Node.js）：只做编排 /（可选）Contract v1 校验 / 触发 GitHub Actions。
 // 物化、注入模板、推送与打包全在 CI 内执行。
 
 import { NextRequest, NextResponse } from 'next/server';
 import { orchestrate } from '@/lib/ndjc/orchestrator';
+import { randomBytes } from 'node:crypto';
 
 // Contract v1 严格模式（→ 统一从 strict-json.ts 导入）
 import { parseStrictJson, validateContractV1 } from '@/lib/ndjc/llm/strict-json';
@@ -21,17 +22,13 @@ export function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-/* -------------- 小工具（Edge 兼容） -------------- */
+/* -------------- 小工具（Node 兼容） -------------- */
 function newRunId() {
-  const r = crypto.getRandomValues(new Uint8Array(6));
-  const hex = Array.from(r).map(b => b.toString(16).padStart(2, '0')).join('');
+  const hex = randomBytes(6).toString('hex');
   return `ndjc-${new Date().toISOString().replace(/[:.]/g, '-')}-${hex}`;
 }
 function b64(str: string) {
-  const bytes = new TextEncoder().encode(str);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
+  return Buffer.from(str ?? '', 'utf8').toString('base64');
 }
 function normalizeWorkflowId(wf: string) {
   if (/^\d+$/.test(wf)) return wf;
@@ -59,7 +56,7 @@ function wantContractV1From(input: any) {
   );
 }
 
-/* -------------- 触发 GitHub Actions（Edge） -------------- */
+/* -------------- 触发 GitHub Actions -------------- */
 async function dispatchWorkflow(inputs: any) {
   const owner = process.env.GH_OWNER!;
   const repo = process.env.GH_REPO!;
@@ -99,7 +96,7 @@ async function dispatchWorkflow(inputs: any) {
   return { degraded: false };
 }
 
-/* ---------------- 路由主逻辑（Edge） ---------------- */
+/* ---------------- 路由主逻辑 ---------------- */
 export async function POST(req: NextRequest) {
   let step = 'start';
   const runId = newRunId();
@@ -116,7 +113,7 @@ export async function POST(req: NextRequest) {
       if (!process.env.GROQ_API_KEY) throw new Error('groq-key-missing');
 
       const model = process.env.GROQ_MODEL || input?.model || 'llama-3.1-8b-instant';
-      o = await orchestrate({ ...input, provider: 'groq', model, forceProvider: 'groq' });
+      o = await orchestrate({ ...input, provider: 'groq', model, forceProvider: 'groq' } as any);
       o = { ...o, _mode: `online(${model})` };
     } catch (err: any) {
       o = {
@@ -157,29 +154,29 @@ export async function POST(req: NextRequest) {
         );
       }
       step = 'contract-to-plan';
-      planV1 = contractV1ToPlan(parsed.data);
+      planV1 = contractV1ToPlan(parsed.data as any);
     }
 
     // —— 触发 CI（把 plan/orchestrator 作为 inputs 传过去）——
     step = 'dispatch';
     const branch = `ndjc-run/${runId}`;
-    const actionsInputs = {
+    const actionsInputs: Record<string, any> = {
       runId,
       branch,
-      template: o?.template || input?.template || 'circle-basic',
-      appTitle: o?.appName,
-      packageName: o?.packageId,
-      mode: o?.mode || input?.mode || 'A',
+      template: (o as any)?.template || input?.template || 'circle-basic',
+      appTitle: (o as any)?.appName,
+      packageName: (o as any)?.packageId,
+      mode: (o as any)?.mode || input?.mode || 'A',
       contract: v1 ? 'v1' : 'legacy',
       planB64: planV1 ? b64(JSON.stringify(planV1)) : undefined,
       orchestratorB64: !planV1 ? b64(JSON.stringify(o)) : undefined,
-      clientNote: o?._mode || 'unknown',
+      clientNote: (o as any)?._mode || 'unknown',
       preflight_mode: input?.preflight_mode || 'warn',
     };
 
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
       return NextResponse.json(
-        { ok: true, runId, branch, skipped: 'actions', actionsUrl: null, degraded: null, mode: o?.mode || 'A', contract: actionsInputs.contract },
+        { ok: true, runId, branch, skipped: 'actions', actionsUrl: null, degraded: null, mode: (o as any)?.mode || 'A', contract: actionsInputs.contract },
         { headers: CORS }
       );
     }
@@ -197,7 +194,7 @@ export async function POST(req: NextRequest) {
         branch,
         actionsUrl,
         degraded: res.degraded,
-        mode: o?.mode || 'A',
+        mode: (o as any)?.mode || 'A',
         contract: actionsInputs.contract,
       },
       { headers: CORS }
