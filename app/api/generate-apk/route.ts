@@ -1,11 +1,12 @@
 // app/api/generate-apk/route.ts
-// 瘦路由（Node.js）：编排 →（可选）V1 校验/转计划 → 触发 GitHub Actions（双通道）。
-// 打包与模板注入都在 CI 内执行。
+// 瘦路由（Node.js）：编排 /（可选）Contract v1 校验 / 触发 GitHub Actions。
+// 物化、注入模板、推送与打包均在 CI 内完成。
 
 import { NextRequest, NextResponse } from 'next/server';
 import { orchestrate } from '@/lib/ndjc/orchestrator';
 import { randomBytes } from 'node:crypto';
 
+// Contract v1 严格模式
 import { parseStrictJson, validateContractV1 } from '@/lib/ndjc/llm/strict-json';
 import { contractV1ToPlan } from '@/lib/ndjc/contract/contractv1-to-plan';
 
@@ -29,10 +30,8 @@ function newRunId() {
 function b64(str: string) {
   return Buffer.from(str ?? '', 'utf8').toString('base64');
 }
-function normalizeWorkflowId(wf: string | undefined | null) {
-  if (!wf) return '';
-  if (/^\d+$/.test(wf)) return wf;
-  return wf.endsWith('.yml') ? wf : `${wf}.yml`;
+function isDigits(s: string) {
+  return /^\d+$/.test(s || '');
 }
 function extractRawTraceText(trace: any): string | null {
   if (!trace) return null;
@@ -54,41 +53,42 @@ function wantContractV1From(input: any) {
   );
 }
 
-/* ---- GitHub 调用小工具 ---- */
-async function ghFetch(url: string, init: any) {
+/* -------------- GitHub 调用（更健壮） -------------- */
+async function ghFetch(url: string, init: RequestInit) {
   const r = await fetch(url, init);
   const text = await r.text().catch(() => '');
   return { ok: r.ok, status: r.status, statusText: r.statusText, text };
 }
-async function getDefaultBranch(owner: string, repo: string, token: string) {
-  const { ok, text } = await ghFetch(`https://api.github.com/repos/${owner}/${repo}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      Accept: 'application/vnd.github+json',
-    },
-  });
-  if (!ok) return 'main';
-  try {
-    const j = JSON.parse(text);
-    return j.default_branch || 'main';
-  } catch { return 'main'; }
+
+async function resolveWorkflowIdByName(owner: string, repo: string, token: string, nameOrFile: string) {
+  // 已是数字/文件名直接返回
+  if (isDigits(nameOrFile) || nameOrFile.endsWith('.yml') || nameOrFile.endsWith('.yaml')) return nameOrFile;
+
+  // 以“显示名称”匹配，列表中找数字 ID
+  const listUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows`;
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'X-GitHub-Api-Version': '2022-11-28',
+    Accept: 'application/vnd.github+json',
+  } as Record<string, string>;
+  const r = await fetch(listUrl, { headers });
+  if (!r.ok) return nameOrFile; // 查询失败则后续按原样尝试，并在失败时降级
+  const j = await r.json().catch(() => null) as any;
+  const items: any[] = Array.isArray(j?.workflows) ? j.workflows : [];
+  const target = items.find(wf => String(wf.name || '').toLowerCase() === nameOrFile.toLowerCase());
+  if (target?.id) return String(target.id);
+  return nameOrFile;
 }
 
-/* -------------- 触发 GitHub Actions（双通道） -------------- */
 async function dispatchWorkflow(inputs: any) {
   const owner = process.env.GH_OWNER!;
-  const repo  = process.env.GH_REPO!;
+  const repo = process.env.GH_REPO!;
+  const branch = process.env.GH_BRANCH || 'main'; // 必须是存放 yml 的分支
+  const wfRaw = process.env.WORKFLOW_ID!;
   const token = process.env.GH_PAT!;
-  const wfId  = normalizeWorkflowId(process.env.WORKFLOW_ID);
-  if (!owner || !repo || !token) {
-    throw new Error('Missing GH_OWNER/GH_REPO/GH_PAT');
+  if (!owner || !repo || !wfRaw || !token) {
+    throw new Error('Missing GH_OWNER/GH_REPO/WORKFLOW_ID/GH_PAT');
   }
-
-  // ref 选择：优先 GH_BRANCH；否则读仓库默认分支
-  const ref = (process.env.GH_BRANCH && process.env.GH_BRANCH.trim()) ||
-              await getDefaultBranch(owner, repo, token);
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -96,31 +96,33 @@ async function dispatchWorkflow(inputs: any) {
     Accept: 'application/vnd.github+json',
   };
 
-  // 1) repository_dispatch（不依赖 workflow 文件名/ID）
-  const r1 = await ghFetch(
-    `https://api.github.com/repos/${owner}/${repo}/dispatches`,
-    { method: 'POST', headers, body: JSON.stringify({ event_type: 'generate-apk', client_payload: inputs }) }
-  );
+  const resolved = await resolveWorkflowIdByName(owner, repo, token, wfRaw);
+  const wfForPath = isDigits(resolved)
+    ? resolved
+    : (resolved.endsWith('.yml') || resolved.endsWith('.yaml')) ? resolved : `${resolved}.yml`;
 
-  // 2) workflows/dispatches（明确到具体 workflow）
-  let r2: { ok: boolean; status: number; statusText: string; text: string } | null = null;
-  if (wfId) {
-    r2 = await ghFetch(
-      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wfId}/dispatches`,
-      { method: 'POST', headers, body: JSON.stringify({ ref, inputs }) }
-    );
+  // 1) 优先试 workflows/dispatches
+  const urlPrimary = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wfForPath}/dispatches`;
+  const primary = await ghFetch(urlPrimary, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ ref: branch, inputs }),
+  });
+
+  // 2) 任何非 2xx → 降级到 repository_dispatch（不只 422）
+  let secondary: any = null;
+  let degraded = false;
+  if (!primary.ok) {
+    const url2 = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
+    secondary = await ghFetch(url2, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ event_type: 'generate-apk', client_payload: inputs }),
+    });
+    degraded = !!secondary?.ok;
   }
 
-  // 判定：两个有一个 2xx/204 即认为成功（有的接口返回 204 无 body）
-  const success = (r1.ok && r1.status < 300) || (!!r2 && r2.ok && r2.status < 300);
-
-  if (!success) {
-    throw Object.assign(
-      new Error('GitHub dispatch failed'),
-      { gh: { owner, repo, ref, wfId, primary: r1, secondary: r2 } }
-    );
-  }
-  return { degraded: !(r2 && r2.ok), gh: { owner, repo, ref, wfId, primary: r1, secondary: r2 } };
+  return { degraded, primary, secondary, owner, repo, workflowId: wfForPath, branch };
 }
 
 /* ---------------- 路由主逻辑 ---------------- */
@@ -138,6 +140,7 @@ export async function POST(req: NextRequest) {
     try {
       if (process.env.NDJC_OFFLINE === '1' || input?.offline === true) throw new Error('force-offline');
       if (!process.env.GROQ_API_KEY) throw new Error('groq-key-missing');
+
       const model = process.env.GROQ_MODEL || input?.model || 'llama-3.1-8b-instant';
       o = await orchestrate({ ...input, provider: 'groq', model, forceProvider: 'groq' } as any);
       o = { ...o, _mode: `online(${model})` };
@@ -183,12 +186,12 @@ export async function POST(req: NextRequest) {
       planV1 = contractV1ToPlan(parsed.data as any);
     }
 
-    // —— 触发 CI ——（把 plan/orchestrator 做为 inputs 带过去）
+    // —— 触发 CI（把 plan/orchestrator 作为 inputs 传过去）——
     step = 'dispatch';
     const branch = `ndjc-run/${runId}`;
     const actionsInputs: Record<string, any> = {
       runId,
-      branch,                        // 供 workflow 自己 checkout 目标分支
+      branch,
       template: (o as any)?.template || input?.template || 'circle-basic',
       appTitle: (o as any)?.appName,
       packageName: (o as any)?.packageId,
@@ -198,6 +201,8 @@ export async function POST(req: NextRequest) {
       orchestratorB64: !planV1 ? b64(JSON.stringify(o)) : undefined,
       clientNote: (o as any)?._mode || 'unknown',
       preflight_mode: input?.preflight_mode || 'warn',
+      // 让 workflow 侧也能从 client_payload.ref 取到分支
+      ref: branch,
     };
 
     if (process.env.NDJC_SKIP_ACTIONS === '1' || input?.skipActions === true) {
@@ -208,28 +213,40 @@ export async function POST(req: NextRequest) {
     }
 
     const res = await dispatchWorkflow(actionsInputs);
+    const actionsUrl = `https://github.com/${res.owner}/${res.repo}/actions/workflows/${res.workflowId}`;
 
-    const owner = process.env.GH_OWNER!;
-    const repo  = process.env.GH_REPO!;
-    const wf    = normalizeWorkflowId(process.env.WORKFLOW_ID!);
-    const actionsUrl = `https://github.com/${owner}/${repo}/actions/workflows/${wf || ''}`;
+    if (!(res.degraded || res.primary.ok)) {
+      // 两种方式都没成功，直接带调试信息返回
+      return NextResponse.json(
+        {
+          ok: false, runId, branch, contract: actionsInputs.contract,
+          error: 'Failed to dispatch GitHub Actions (both endpoints)',
+          ghDebug: res,
+        },
+        { status: 502, headers: CORS }
+      );
+    }
 
     return NextResponse.json(
       {
         ok: true,
         runId,
         branch,
-        actionsUrl: wf ? actionsUrl : `https://github.com/${owner}/${repo}/actions`,
-        degraded: res.degraded,
+        actionsUrl,
+        degraded: res.degraded, // true 表示通过 repository_dispatch 降级触发
         mode: (o as any)?.mode || 'A',
         contract: actionsInputs.contract,
-        ghDebug: res.gh,         // ← 带回 GitHub 两次调用的状态，方便你在页面上直接看
+        ghDebug: {
+          primary: { status: res.primary.status, text: res.primary.text },
+          secondary: res.secondary ? { status: res.secondary.status, text: res.secondary.text } : null,
+          owner: res.owner, repo: res.repo, workflowId: res.workflowId, branch: res.branch,
+        },
       },
       { headers: CORS }
     );
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, runId, step, error: String(e?.message ?? e), gh: e?.gh || null },
+      { ok: false, runId, step, error: String(e?.message ?? e) },
       { status: 500, headers: CORS }
     );
   }
