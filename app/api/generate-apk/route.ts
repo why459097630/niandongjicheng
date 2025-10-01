@@ -1,6 +1,5 @@
 // app/api/generate-apk/route.ts
-// 瘦路由（Edge/Node）：只做编排 /（可选）Contract v1 校验 / 触发 GitHub Actions。
-// 物化、注入模板、推送与打包全在 CI 内执行。
+// 瘦路由（Node）：编排 /（可选）Contract v1 严格校验 / 写入 01/02/03 / 触发 GitHub Actions。
 
 import { NextRequest, NextResponse } from "next/server";
 import { orchestrate } from "@/lib/ndjc/orchestrator";
@@ -21,7 +20,7 @@ export function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-/* -------------- 小工具（Edge 兼容） -------------- */
+/* -------------- 小工具 -------------- */
 function newRunId() {
   const r = crypto.getRandomValues(new Uint8Array(6));
   const hex = Array.from(r).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -59,7 +58,77 @@ function wantContractV1From(input: any) {
   );
 }
 
-/* -------------- 触发 GitHub Actions（Edge） -------------- */
+/* -------------- GitHub 简易工具 -------------- */
+const GH_API = "https://api.github.com";
+
+async function gh(headers: Record<string, string>, method: string, url: string, body?: any) {
+  const r = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`${method} ${url} -> ${r.status} ${r.statusText}: ${text}`);
+  }
+  return r;
+}
+
+async function ensureRunBranchAndCommitFiles(args: {
+  owner: string;
+  repo: string;
+  baseRef: string; // e.g. 'main'（工作流所在分支）
+  runBranch: string; // e.g. 'ndjc-run/<runId>'
+  token: string;
+  files: Array<{ path: string; content: string }>;
+}) {
+  const { owner, repo, baseRef, runBranch, token, files } = args;
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+  };
+
+  // 1) 读取 baseRef 最新 commit SHA
+  const baseRefData = await (await gh(headers, "GET", `${GH_API}/repos/${owner}/${repo}/git/ref/heads/${baseRef}`)).json();
+  const baseSha: string = baseRefData.object.sha;
+
+  // 2) 如果 runBranch 不存在，则创建
+  let hasRunBranch = true;
+  try {
+    await gh(headers, "GET", `${GH_API}/repos/${owner}/${repo}/git/ref/heads/${runBranch}`);
+  } catch {
+    hasRunBranch = false;
+  }
+  if (!hasRunBranch) {
+    await gh(headers, "POST", `${GH_API}/repos/${owner}/${repo}/git/refs`, {
+      ref: `refs/heads/${runBranch}`,
+      sha: baseSha,
+    });
+  }
+
+  // 3) 逐个以 contents API 提交（适合少量文件）
+  for (const f of files) {
+    const url = `${GH_API}/repos/${owner}/${repo}/contents/${encodeURIComponent(f.path)}`;
+    // 先查 sha（如果该文件在分支上已存在）
+    let sha: string | undefined;
+    try {
+      const existing = await (await gh(headers, "GET", `${url}?ref=${runBranch}`)).json();
+      sha = existing.sha;
+    } catch {
+      sha = undefined;
+    }
+    await gh(headers, "PUT", url, {
+      message: `NDJC: materialize ${runBranch} -> ${f.path}`,
+      content: btoa(unescape(encodeURIComponent(f.content))), // utf8 -> base64
+      branch: runBranch,
+      sha,
+    });
+  }
+}
+
 async function dispatchWorkflow(inputs: any) {
   const owner = process.env.GH_OWNER!;
   const repo = process.env.GH_REPO!;
@@ -70,11 +139,12 @@ async function dispatchWorkflow(inputs: any) {
     throw new Error("Missing GH_OWNER/GH_REPO/WORKFLOW_ID/GH_PAT");
   }
 
-  const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
+  const url = `${GH_API}/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "X-GitHub-Api-Version": "2022-11-28",
     Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
   };
 
   const r = await fetch(url, {
@@ -86,21 +156,22 @@ async function dispatchWorkflow(inputs: any) {
   if (!r.ok) {
     const text = await r.text();
     if (r.status === 422) {
-      const url2 = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
+      // Fallback: repository_dispatch
+      const url2 = `${GH_API}/repos/${owner}/${repo}/dispatches`;
       const r2 = await fetch(url2, {
         method: "POST",
         headers,
         body: JSON.stringify({ event_type: "generate-apk", client_payload: inputs }),
       });
       if (!r2.ok) throw new Error(`GitHub 422 fallback failed: ${await r2.text()}`);
-      return { degraded: true };
+      return { degraded: true, owner, repo, wf, branch };
     }
     throw new Error(`GitHub ${r.status} ${r.statusText}: ${text}`);
   }
-  return { degraded: false };
+  return { degraded: false, owner, repo, wf, branch };
 }
 
-/* ---------------- 路由主逻辑（Edge） ---------------- */
+/* ---------------- 路由主逻辑 ---------------- */
 export async function POST(req: NextRequest) {
   let step = "start";
   const runId = newRunId();
@@ -115,7 +186,6 @@ export async function POST(req: NextRequest) {
     try {
       if (process.env.NDJC_OFFLINE === "1" || input?.offline === true) throw new Error("force-offline");
       if (!process.env.GROQ_API_KEY) throw new Error("groq-key-missing");
-
       const model = process.env.GROQ_MODEL || input?.model || "llama-3.1-8b-instant";
       o = await orchestrate({ ...input, provider: "groq", model, forceProvider: "groq" });
       o = { ...o, _mode: `online(${model})` };
@@ -129,68 +199,111 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    // —— Contract v1（可选）——
-    const v1 = wantContractV1From(input);
-    let planV1: any | null = null;
-    if (v1) {
-      step = "contract-precheck";
-      const raw = extractRawTraceText(o?._trace);
-      if (!raw || !String(raw).trim()) {
-        return NextResponse.json(
-          {
-            ok: false,
-            contract: "v1",
-            degrade: true,
-            runId,
-            reason: [{ code: "E_NOT_JSON", message: "No raw LLM text to validate", path: "<root>" }],
-          },
-          { status: 400, headers: CORS }
-        );
-      }
-
-      step = "contract-parse";
-      const parsed = parseStrictJson(raw);
-      if (!parsed.ok) {
-        return NextResponse.json(
-          {
-            ok: false,
-            contract: "v1",
-            degrade: true,
-            runId,
-            reason: [{ code: "E_NOT_JSON", message: parsed.error, path: "<root>" }],
-          },
-          { status: 400, headers: CORS }
-        );
-      }
-
-      step = "contract-validate";
-      const validation = await validateContractV1(parsed.data);
-      if (!validation.ok) {
-        return NextResponse.json(
-          { ok: false, contract: "v1", degrade: true, runId, reason: validation.issues },
-          { status: 400, headers: CORS }
-        );
-      }
-
-      step = "contract-to-plan";
-      planV1 = contractV1ToPlan(parsed.data);
+    // —— Contract v1（严格开启）——
+    const mustV1 = wantContractV1From(input);
+    if (!mustV1) {
+      return NextResponse.json(
+        { ok: false, runId, step: "contract-required", error: "Contract v1 is required in strict mode." },
+        { status: 400, headers: CORS }
+      );
     }
 
-    // —— 触发 CI（把 plan/orchestrator 作为 inputs 传过去）——
-    step = "dispatch";
+    step = "contract-precheck";
+    const raw = extractRawTraceText(o?._trace);
+    if (!raw || !String(raw).trim()) {
+      return NextResponse.json(
+        {
+          ok: false,
+          contract: "v1",
+          runId,
+          step,
+          reason: [{ code: "E_NOT_JSON", message: "No raw LLM text to validate", path: "<root>" }],
+        },
+        { status: 400, headers: CORS }
+      );
+    }
+
+    step = "contract-parse";
+    const parsed = parseStrictJson(raw);
+    if (!parsed.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          contract: "v1",
+          runId,
+          step,
+          reason: [{ code: "E_NOT_JSON", message: parsed.error, path: "<root>" }],
+        },
+        { status: 400, headers: CORS }
+      );
+    }
+
+    step = "contract-validate";
+    const validation = await validateContractV1(parsed.data);
+    if (!validation.ok) {
+      return NextResponse.json(
+        { ok: false, contract: "v1", runId, step, reason: validation.issues },
+        { status: 400, headers: CORS }
+      );
+    }
+
+    step = "contract-to-plan";
+    const planV1 = contractV1ToPlan(parsed.data);
+
+    // —— 先把 01/02/03 提交到 run 分支（严格守卫所需）——
+    step = "commit-requests";
+    const owner = process.env.GH_OWNER!;
+    const repo = process.env.GH_REPO!;
+    const token = process.env.GH_PAT!;
+    const wfBranch = process.env.GH_BRANCH || "main";
+    if (!owner || !repo || !token) {
+      return NextResponse.json(
+        { ok: false, runId, step, error: "Missing GH_OWNER/GH_REPO/GH_PAT" },
+        { status: 500, headers: CORS }
+      );
+    }
     const branch = `ndjc-run/${runId}`;
-    const actionsInputs = {
+    const runDir = `requests/${runId}`;
+
+    const applyStub = {
+      runId,
+      status: "pre-ci", // 让严格守卫先通过；CI 内继续物化与补全
+      template: o?.template || planV1?.meta?.template || input?.template || "circle-basic",
+      appTitle: o?.appName || planV1?.meta?.appName,
+      packageName: o?.packageId || planV1?.meta?.packageId,
+      note: "Apply result will be finalized in CI pipeline.",
+      changes: [],
+      warnings: [],
+    };
+
+    await ensureRunBranchAndCommitFiles({
+      owner,
+      repo,
+      baseRef: wfBranch,
+      runBranch: branch,
+      token,
+      files: [
+        { path: `${runDir}/01_contract.json`, content: JSON.stringify(parsed.data, null, 2) },
+        { path: `${runDir}/02_plan.json`, content: JSON.stringify(planV1, null, 2) },
+        { path: `${runDir}/03_apply_result.json`, content: JSON.stringify(applyStub, null, 2) },
+        { path: `${runDir}/actions-summary.txt`, content: `created by api; mode=${o?._mode || "unknown"}` },
+      ],
+    });
+
+    // —— 触发 CI（plan 仍作为 inputs 传过去，CI 可再次校验/物化）——
+    step = "dispatch";
+    const inputs = {
       runId,
       branch,
-      template: o?.template || input?.template || "circle-basic",
-      appTitle: o?.appName,
-      packageName: o?.packageId,
+      template: applyStub.template,
+      appTitle: applyStub.appTitle,
+      packageName: applyStub.packageName,
       mode: o?.mode || input?.mode || "A",
-      contract: v1 ? "v1" : "legacy",
-      planB64: planV1 ? b64(JSON.stringify(planV1)) : undefined,
-      orchestratorB64: !planV1 ? b64(JSON.stringify(o)) : undefined,
+      contract: "v1",
+      planB64: b64(JSON.stringify(planV1)),
+      orchestratorB64: undefined,
       clientNote: o?._mode || "unknown",
-      preflight_mode: input?.preflight_mode || "warn",
+      preflight_mode: input?.preflight_mode || "strict",
     };
 
     if (process.env.NDJC_SKIP_ACTIONS === "1" || input?.skipActions === true) {
@@ -202,18 +315,15 @@ export async function POST(req: NextRequest) {
           skipped: "actions",
           actionsUrl: null,
           degraded: null,
-          mode: o?.mode || "A",
-          contract: actionsInputs.contract,
+          mode: inputs.mode,
+          contract: inputs.contract,
         },
         { headers: CORS }
       );
     }
 
-    const res = await dispatchWorkflow(actionsInputs);
-    const owner = process.env.GH_OWNER!;
-    const repo = process.env.GH_REPO!;
-    const wf = normalizeWorkflowId(process.env.WORKFLOW_ID!);
-    const actionsUrl = `https://github.com/${owner}/${repo}/actions/workflows/${wf}`;
+    const res = await dispatchWorkflow(inputs);
+    const actionsUrl = `https://github.com/${res.owner}/${res.repo}/actions/workflows/${res.wf}`;
 
     return NextResponse.json(
       {
@@ -222,8 +332,8 @@ export async function POST(req: NextRequest) {
         branch,
         actionsUrl,
         degraded: res.degraded,
-        mode: o?.mode || "A",
-        contract: actionsInputs.contract,
+        mode: inputs.mode,
+        contract: inputs.contract,
       },
       { headers: CORS }
     );
