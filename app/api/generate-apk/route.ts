@@ -37,11 +37,11 @@ function normalizeWorkflowId(wf: string) {
 function extractRawTraceText(trace: any): string | null {
   if (!trace) return null;
   return (
-    trace.rawText ??
-    trace.text ??
-    trace.response?.text ??
-    trace.response?.body ??
-    trace.response?.choices?.[0]?.message?.content ??
+    (trace as any).rawText ??
+    (trace as any).text ??
+    (trace as any).response?.text ??
+    (trace as any).response?.body ??
+    (trace as any).response?.choices?.[0]?.message?.content ??
     null
   );
 }
@@ -56,7 +56,7 @@ function wantContractV1From(input: any) {
   );
 }
 
-/* -------------- 触发 GitHub Actions -------------- */
+/* -------------- 触发 GitHub Actions（双保险） -------------- */
 async function dispatchWorkflow(inputs: any) {
   const owner = process.env.GH_OWNER!;
   const repo = process.env.GH_REPO!;
@@ -67,33 +67,50 @@ async function dispatchWorkflow(inputs: any) {
     throw new Error('Missing GH_OWNER/GH_REPO/WORKFLOW_ID/GH_PAT');
   }
 
-  const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     'X-GitHub-Api-Version': '2022-11-28',
     Accept: 'application/vnd.github+json',
   };
 
-  const r = await fetch(url, {
+  const forceRepo = (process.env.NDJC_FORCE_REPO_DISPATCH || '').trim() === '1';
+  const wantDebug = (process.env.NDJC_DISPATCH_DEBUG || '').trim() === '1';
+
+  let okWF = false, okRepo = false;
+  let wfStatus = 0, repoStatus = 0;
+  let wfText = '', repoText = '';
+
+  // 1) 优先 workflow_dispatch（除非强制 repo dispatch）
+  if (!forceRepo) {
+    const urlWF = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
+    const r1 = await fetch(urlWF, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ref: branch, inputs }),
+    });
+    okWF = r1.ok;
+    wfStatus = r1.status;
+    if (!okWF && wantDebug) wfText = await r1.text().catch(() => '');
+  }
+
+  // 2) 兜底 repository_dispatch（总是补打一发，交给 concurrency 去重）
+  const urlRepo = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
+  const r2 = await fetch(urlRepo, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ ref: branch, inputs }),
+    body: JSON.stringify({ event_type: 'generate-apk', client_payload: inputs }),
   });
-  if (!r.ok) {
-    const text = await r.text();
-    if (r.status === 422) {
-      const url2 = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
-      const r2 = await fetch(url2, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ event_type: 'generate-apk', client_payload: inputs }),
-      });
-      if (!r2.ok) throw new Error(`GitHub 422 fallback failed: ${await r2.text()}`);
-      return { degraded: true };
-    }
-    throw new Error(`GitHub ${r.status} ${r.statusText}: ${text}`);
+  okRepo = r2.ok;
+  repoStatus = r2.status;
+  if (!okRepo && wantDebug) repoText = await r2.text().catch(() => '');
+
+  if (okWF || okRepo) {
+    return { degraded: !okWF, debug: wantDebug ? { wfStatus, repoStatus, wfText, repoText } : undefined };
   }
-  return { degraded: false };
+
+  throw new Error(
+    `dispatch failed: workflow_dispatch=${wfStatus} ${wfText || 'failed'}; repository_dispatch=${repoStatus} ${repoText || 'failed'}`
+  );
 }
 
 /* ---------------- 路由主逻辑 ---------------- */
@@ -187,15 +204,22 @@ export async function POST(req: NextRequest) {
     const wf = normalizeWorkflowId(process.env.WORKFLOW_ID!);
     const actionsUrl = `https://github.com/${owner}/${repo}/actions/workflows/${wf}`;
 
+    // 可选：调试信息，仅在 NDJC_DISPATCH_DEBUG=1 时返回
+    const extra: Record<string, any> = {};
+    if ((process.env.NDJC_DISPATCH_DEBUG || '').trim() === '1' && (res as any).debug) {
+      extra.dispatchDebug = (res as any).debug;
+    }
+
     return NextResponse.json(
       {
         ok: true,
         runId,
         branch,
         actionsUrl,
-        degraded: res.degraded,
+        degraded: (res as any).degraded,
         mode: (o as any)?.mode || 'A',
         contract: actionsInputs.contract,
+        ...extra,
       },
       { headers: CORS }
     );
