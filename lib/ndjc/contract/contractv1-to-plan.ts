@@ -185,6 +185,48 @@ const MODULE_RECIPES: Record<
   enhance: { blocks: ["BLOCK:NAV_TRANSITIONS"] },
 };
 
+/* ──────────────── 方案 C：companions 规范化工具 ──────────────── */
+
+function looksKotlin(src: string): boolean {
+  const s = String(src || "");
+  // 一些 kotlin 明显特征
+  return /\b(fun|val|var|data\s+class|object|suspend\s+fun|@Composable)\b/.test(s);
+}
+
+function normalizeCompanionPath(rawPath: string, defaultPkg: string): { relPath: string; pkgFromPath: string } {
+  let p = (rawPath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+
+  // 若缺少 src/main/* 结构，补成 app/src/main/java/<defaultPkg>/File.kt
+  const hasSrc = /(^|\/)src\/main\//.test(p);
+  if (!hasSrc) {
+    const base = defaultPkg.replace(/\./g, "/");
+    p = `app/src/main/java/${base}/${p}`;
+  }
+
+  // 统一 java 目录（把 /kotlin/ 并到 /java/）
+  p = p.replace(/\/kotlin\//, "/java/");
+
+  // 从路径推导 package
+  let pkgFromPath = "com.example.app";
+  const m = p.match(/src\/main\/java\/(.+)\/[^/]+$/);
+  if (m) {
+    pkgFromPath = m[1].replace(/\//g, ".");
+  }
+
+  return { relPath: p, pkgFromPath };
+}
+
+function ensurePackageHeader(content: string, targetPkg: string): string {
+  const src = String(content || "");
+  const m = src.match(/^\s*package\s+([a-zA-Z0-9_.]+)\s*$/m);
+  if (!m) {
+    return `package ${targetPkg}\n\n${src}`;
+  }
+  const cur = m[1];
+  if (cur === targetPkg) return src;
+  return src.replace(m[0], `package ${targetPkg}`);
+}
+
 /* ──────────────── 主转换 ──────────────── */
 
 export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
@@ -295,16 +337,30 @@ export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
     }
   }
 
-  /* 8) 伴生文件（仅 B 模式） */
+  /* 8) 伴生文件（仅 B 模式，且进行 Kotlin/.kt/路径/package 规范化） */
+  const defaultPkg = text["NDJC:PACKAGE_NAME"] || doc.metadata.packageId || "com.ndjc.app";
   const companions =
     doc.metadata.mode === "B"
       ? (doc.files || [])
-          .filter((f: any) => f.kind !== "manifest_patch")
-          .map((f: any) => ({
-            path: f.path,
-            content: f.content,
-            encoding: f.encoding || "utf8",
-          }))
+          .filter((f: any) => f && f.kind !== "manifest_patch")
+          .map((f: any) => {
+            const rawPath = String(f.path || f.name || "");
+            const { relPath, pkgFromPath } = normalizeCompanionPath(rawPath, defaultPkg);
+
+            // 统一扩展名：若是 Kotlin 内容但扩展名为 .java，则强制改为 .kt
+            const isKt = looksKotlin(f.content || "");
+            const finalPath = isKt && /\.java$/i.test(relPath) ? relPath.replace(/\.java$/i, ".kt") : relPath;
+
+            // package 兜底/修正
+            const targetPkg = pkgFromPath || defaultPkg;
+            const fixedContent = ensurePackageHeader(String(f.content ?? ""), targetPkg);
+
+            return {
+              path: finalPath,
+              content: fixedContent,
+              encoding: (f.encoding as "utf8" | "base64") || "utf8",
+            };
+          })
       : [];
 
   /* 9) 返回计划 */
