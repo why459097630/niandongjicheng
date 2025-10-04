@@ -1,24 +1,17 @@
 // lib/ndjc/contract/contractv1-to-plan.ts
 
-/**
- * Contract v1 -> BuildPlan 转换器（带 meta 兼容垫片）
- *
- * - 读取 v1 文档（对象或字符串/代码块形式）
- * - 校正/归一化字段
- * - 生成 BuildPlan（materialize 使用的通用计划）
- * - ★ 附带 `meta` 兼容块：{ runId, template, appName, packageId, mode }
- *   这样前端旧逻辑仍可从 plan.meta.* 读取关键信息
- */
+/* =========================================================
+ * Contract v1  → Build Plan（兼容垫片 · 零依赖版）
+ * - 去掉了对 "type-fest" 的依赖，内联 JSON 类型
+ * - 返回值带上 .meta 以兼容调用方 route.ts 的读取
+ * - 函数导出同时提供多个别名，降低对既有调用的侵入
+ * =======================================================*/
 
-import type { JSONValue } from "type-fest";
-// 需要 tsconfig.json 启用 `"resolveJsonModule": true`
-import REGISTRY from "../anchors/registry.circle-basic.json" assert { type: "json" };
+/** 轻量 JSON 类型（替代 type-fest 的 JSONValue） */
+type JSONPrimitive = string | number | boolean | null;
+type JSONValue = JSONPrimitive | { [k: string]: JSONValue } | JSONValue[];
 
-/* -------------------------------------------------------
- * 类型
- * -----------------------------------------------------*/
-
-// v1 文档（最小子集；允许多余字段）
+/** v1 文档的最小结构 */
 type V1Doc = {
   metadata?: {
     runId?: string;
@@ -30,238 +23,188 @@ type V1Doc = {
   anchors?: {
     text?: Record<string, JSONValue>;
     block?: Record<string, JSONValue>;
-    list?: Record<string, JSONValue>;
-    if?: Record<string, JSONValue>;
+    list?: Record<string, JSONValue | JSONValue[]>;
+    if?: Record<string, boolean>;
     res?: Record<string, JSONValue>;
     hook?: Record<string, JSONValue>;
     gradle?: {
       applicationId?: string;
-      resConfigs?: string[] | string;
+      resConfigs?: string[];
       permissions?: string[];
     };
   };
   patches?: {
-    gradle?: {
-      resConfigs?: string[] | string;
-      permissions?: string[];
-    };
-    manifest?: {
-      permissions?: string[];
-    };
+    gradle?: Partial<{
+      applicationId: string;
+      resConfigs: string[];
+      permissions: string[];
+    }>;
+    manifest?: Record<string, unknown>;
   };
   files?: Array<{
     path: string;
     content: string;
     encoding?: "utf8" | "base64";
     kind?: "kotlin" | "xml" | "json" | "md" | "txt";
+    overwrite?: boolean;
   }>;
+  resources?: Record<string, unknown>;
 };
 
-// BuildPlan（给 materialize 使用）— 加入 `meta?` 兼容字段
-export type BuildPlan = {
-  // ★ 兼容旧前端读取
-  meta?: {
-    runId?: string;
-    template?: string;
-    appName?: string;
-    packageId?: string;
-    mode?: "A" | "B";
-  };
-
-  run_id?: string;
-  template_key: string;
-
-  anchors: Record<string, string>;
-  blocks?: Record<string, string>;
-  lists?: Record<string, string[]>;
-  conditions?: Record<string, boolean>;
-  hooks?: Record<string, string>;
-
-  resources?: {
-    values?: {
-      strings?: Record<string, string>;
-      colors?: Record<string, string>;
-      dimens?: Record<string, string>;
-    };
-    // 追加 strings.xml，不覆盖同名
-    stringsExtraXml?: Record<string, string>;
-    raw?: Record<string, { content: string; encoding?: "utf8" | "base64"; filename?: string }>;
-    drawable?: Record<string, { content: string; encoding?: "utf8" | "base64"; ext?: string }>;
-  };
-
-  companions?: Array<{ path: string; content: string; encoding?: "utf8" | "base64" }>;
-
-  // 透传/可选
-  mode?: "A" | "B";
-};
-
-/* -------------------------------------------------------
- * 工具
- * -----------------------------------------------------*/
-
-function parseMaybeJson(input: unknown): any | null {
-  if (input == null) return null;
-  if (typeof input === "object") return input as any;
-  const s = String(input);
-  const m = s.match(/```json\s*([\s\S]*?)```/i) || s.match(/```\s*([\s\S]*?)```/);
-  const raw = m ? m[1] : s;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
+/** 规范化前缀：把 key 变成 NDJC:/BLOCK:/LIST:/IF:/HOOK: */
+function withPrefix(key: string, kind: "NDJC" | "BLOCK" | "LIST" | "IF" | "HOOK") {
+  const k = String(key || "").trim();
+  if (!k) return "";
+  if (
+    k.startsWith("NDJC:") ||
+    k.startsWith("BLOCK:") ||
+    k.startsWith("LIST:") ||
+    k.startsWith("IF:") ||
+    k.startsWith("HOOK:")
+  ) {
+    return k;
   }
+  // 允许简写（如 PACKAGE_NAME、ROUTES）
+  if (kind === "NDJC") return `NDJC:${k}`;
+  return `${kind}:${k}`;
 }
 
-function toArray<T = string>(x: unknown): T[] {
-  if (Array.isArray(x)) return x as T[];
-  if (x == null || x === "") return [];
-  return [x as T];
-}
-
-function str(v: unknown): string {
+/** 把任意 JSONValue 安全地转为字符串（锚点文本替换场景） */
+function toStr(v: JSONValue): string {
   if (v == null) return "";
   if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
   try {
     return JSON.stringify(v);
   } catch {
-    return String(v);
+    return "";
   }
 }
 
-function bool(v: unknown): boolean {
-  if (typeof v === "boolean") return v;
-  if (typeof v === "string") {
-    const t = v.trim().toLowerCase();
-    return t === "1" || t === "true" || t === "yes";
-  }
-  if (typeof v === "number") return v !== 0;
-  return !!v;
+/** 把 list 的值统一转成 string[] */
+function toStrArr(v: JSONValue | JSONValue[] | undefined): string[] {
+  if (v == null) return [];
+  if (Array.isArray(v)) return v.map((x) => toStr(x as JSONValue)).filter(Boolean);
+  // 允许 v1 把单值放进来
+  return [toStr(v as JSONValue)].filter(Boolean);
 }
 
-function pickStrings(obj?: Record<string, JSONValue>): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!obj) return out;
-  for (const [k, v] of Object.entries(obj)) {
-    out[k] = str(v);
-  }
-  return out;
-}
+/** 主函数：v1 → plan
+ * 返回 any 用于兼容调用方在类型上读取 .meta 字段
+ */
+export function contractV1ToPlan(v1Raw: unknown, defaultTemplate = "circle-basic"): any {
+  const v1 = (v1Raw || {}) as V1Doc;
 
-function pickStringArray(obj?: Record<string, JSONValue>): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  if (!obj) return out;
-  for (const [k, v] of Object.entries(obj)) {
-    out[k] = toArray<string>(v).map(str).filter(Boolean);
-  }
-  return out;
-}
+  const meta = v1.metadata || {};
+  const anchors = v1.anchors || {};
+  const patches = v1.patches || {};
 
-function pickBooleans(obj?: Record<string, JSONValue>): Record<string, boolean> {
-  const out: Record<string, boolean> = {};
-  if (!obj) return out;
-  for (const [k, v] of Object.entries(obj)) {
-    out[k] = bool(v);
-  }
-  return out;
-}
+  const templateKey = meta.template || defaultTemplate;
 
-// 将 registry 中列出的锚点白名单化（避免脏键）
-function filterByRegistry<T extends Record<string, any>>(
-  bag: T,
-  section: "text" | "block" | "list" | "if" | "hook"
-): T {
-  const allow: Set<string> = new Set(
-    Array.isArray((REGISTRY as any)[section]) ? (REGISTRY as any)[section] : []
-  );
-  const out: Record<string, any> = {};
-  for (const [k, v] of Object.entries(bag || {})) {
-    if (allow.size === 0 || allow.has(k)) out[k] = v;
-  }
-  return out as T;
-}
-
-/* -------------------------------------------------------
- * 主转换函数
- * -----------------------------------------------------*/
-
-export function contractV1ToPlan(input: unknown): BuildPlan {
-  const doc = (parseMaybeJson(input) || {}) as V1Doc;
-
-  const meta = doc.metadata || {};
-  const a = doc.anchors || {};
-
-  // 1) anchors ——— 归一化
-  let anchors = pickStrings(a.text);
-  anchors = filterByRegistry(anchors, "text");
-
-  // gradle.applicationId 映射到 PACKAGE_NAME（优先）
-  const appId =
-    a.gradle?.applicationId ||
-    doc.metadata?.packageId ||
-    anchors["NDJC:PACKAGE_NAME"];
-  if (appId) anchors["NDJC:PACKAGE_NAME"] = String(appId);
-
-  // 兜底 HOME/按钮/标题
-  if (!anchors["NDJC:APP_LABEL"] && meta.appName)
-    anchors["NDJC:APP_LABEL"] = meta.appName;
-  if (!anchors["NDJC:HOME_TITLE"] && anchors["NDJC:APP_LABEL"])
-    anchors["NDJC:HOME_TITLE"] = anchors["NDJC:APP_LABEL"];
-  if (!anchors["NDJC:PRIMARY_BUTTON_TEXT"])
-    anchors["NDJC:PRIMARY_BUTTON_TEXT"] = "Start";
-
-  const blocks = filterByRegistry(pickStrings(a.block), "block");
-  const listsBase = pickStringArray(a.list);
-  const lists = filterByRegistry(listsBase, "list");
-
-  const conditions = filterByRegistry(pickBooleans(a.if), "if");
-  const hooks = filterByRegistry(pickStrings(a.hook), "hook");
-
-  // 2) companions
-  const companions =
-    (doc.files || []).map((f) => ({
-      path: f.path,
-      content: f.content || "",
-      encoding: f.encoding === "base64" ? "base64" : "utf8",
-    })) || [];
-
-  // 3) resources（此处保守为空；如需可从 a.res 中转换）
-  const resources: BuildPlan["resources"] = {};
-
-  // 4) template / runId / mode
-  const templateKey =
-    (meta.template as string) ||
-    "circle-basic";
-
-  const runId = meta.runId || undefined;
-  const mode = (meta.mode as any) === "B" ? "B" : "A";
-
-  // 5) ★ meta 兼容垫片（供前端老代码读取）
-  const metaCompat: NonNullable<BuildPlan["meta"]> = {
-    runId,
-    template: templateKey,
-    appName: anchors["NDJC:APP_LABEL"],
-    packageId: anchors["NDJC:PACKAGE_NAME"],
-    mode,
-  };
-
-  // 6) 组装 BuildPlan
-  const plan: BuildPlan = {
-    meta: metaCompat,            // ★ 兼容
-    run_id: runId,
+  // ====== 基本骨架 ======
+  const plan: any = {
     template_key: templateKey,
-    mode,
-
-    anchors,
-    blocks,
-    lists,
-    conditions,
-    hooks,
-
-    resources,
-    companions,
+    // 文本锚点
+    anchors: {} as Record<string, string>,
+    // 块锚点
+    blocks: {} as Record<string, string>,
+    // 列表锚点
+    lists: {} as Record<string, string[]>,
+    // 条件锚点
+    conditions: {} as Record<string, boolean>,
+    // 资源锚点（透传，落盘逻辑在 generator 侧）
+    resources: v1.resources || {},
+    // HOOK（作为“特殊块”或占位点插入的代码片段）
+    hooks: {} as Record<string, string>,
+    // v1 files → companions（伴生文件）
+    companions: [] as Array<{ path: string; content: string; encoding?: "utf8" | "base64" }>,
+    // gradle 附带信息（供 generator 在 build.gradle / manifest 等结构化处理）
+    gradle: {
+      applicationId: anchors.gradle?.applicationId ?? meta.packageId ?? "",
+      resConfigs: (anchors.gradle?.resConfigs ??
+        patches.gradle?.resConfigs ??
+        []) as string[],
+      permissions: (anchors.gradle?.permissions ??
+        patches.gradle?.permissions ??
+        []) as string[],
+    },
+    // 兼容调用方读取
+    meta,
   };
+
+  // ====== 文本锚点（NDJC:*）======
+  for (const [k, v] of Object.entries(anchors.text || {})) {
+    const key = withPrefix(k, "NDJC");
+    if (key) plan.anchors[key] = toStr(v as JSONValue);
+  }
+
+  // 常见兜底：如果文本锚点未提供而 metadata 有，就补上
+  if (!plan.anchors["NDJC:PACKAGE_NAME"] && meta.packageId) {
+    plan.anchors["NDJC:PACKAGE_NAME"] = meta.packageId;
+  }
+  if (!plan.anchors["NDJC:APP_LABEL"] && meta.appName) {
+    plan.anchors["NDJC:APP_LABEL"] = meta.appName;
+  }
+  if (!plan.anchors["NDJC:HOME_TITLE"] && meta.appName) {
+    plan.anchors["NDJC:HOME_TITLE"] = meta.appName;
+  }
+  if (!plan.anchors["NDJC:PRIMARY_BUTTON_TEXT"]) {
+    plan.anchors["NDJC:PRIMARY_BUTTON_TEXT"] = "Start";
+  }
+
+  // ====== 块锚点（BLOCK:* / NDJC:BLOCK:*）======
+  for (const [k, v] of Object.entries(anchors.block || {})) {
+    let key = String(k || "").trim();
+    if (!key.startsWith("BLOCK:") && !key.startsWith("NDJC:BLOCK:")) {
+      key = withPrefix(key, "BLOCK");
+    }
+    if (key) plan.blocks[key] = toStr(v as JSONValue);
+  }
+
+  // ====== 列表锚点（LIST:*）======
+  for (const [k, lv] of Object.entries(anchors.list || {})) {
+    const key = withPrefix(k, "LIST");
+    if (!key) continue;
+    const arr = toStrArr(lv as any);
+    if (arr.length) plan.lists[key] = arr;
+  }
+
+  // 保底提供路由列表
+  if (!plan.lists["LIST:ROUTES"]) {
+    plan.lists["LIST:ROUTES"] = ["home"];
+  }
+
+  // ====== 条件锚点（IF:*）======
+  for (const [k, b] of Object.entries(anchors.if || {})) {
+    const key = withPrefix(k, "IF");
+    plan.conditions[key] = !!b;
+  }
+
+  // ====== HOOK（HOOK:*）======
+  for (const [k, v] of Object.entries(anchors.hook || {})) {
+    const key = withPrefix(k, "HOOK");
+    if (key) plan.hooks[key] = toStr(v as JSONValue);
+  }
+
+  // ====== 伴生文件（files → companions）======
+  const files = Array.isArray(v1.files) ? v1.files : [];
+  plan.companions = files
+    .map((f) => ({
+      path: String(f.path || ""),
+      content: String(f.content || ""),
+      encoding: f.encoding === "base64" ? "base64" : "utf8",
+    }))
+    .filter((f) => f.path && f.content);
+
+  // ====== gradle 兜底 ======
+  if (!plan.gradle.applicationId && plan.anchors["NDJC:PACKAGE_NAME"]) {
+    plan.gradle.applicationId = plan.anchors["NDJC:PACKAGE_NAME"];
+  }
 
   return plan;
 }
 
+/* 兼容性导出：尽量覆盖现有调用方的不同命名 */
+export const convertContractV1ToPlan = contractV1ToPlan;
+export const toPlanFromContractV1 = contractV1ToPlan;
 export default contractV1ToPlan;
