@@ -11,12 +11,8 @@
     "start": "next start -H 127.0.0.1 -p 4311",
     "lint": "next lint",
 
-    "gen:apk": "node scripts/generate-apk.mjs",
-
     "ndjc:lint-plan": "tsx lib/ndjc/guard/plan_linter.ts",
-    "ndjc:sanitize": "tsx lib/ndjc/sanitize/index.ts",
-
-    "build:lib": "tsc -p tsconfig.json --pretty"
+    "ndjc:sanitize": "tsx lib/ndjc/sanitize/index.ts"
   },
   "dependencies": {
     "@octokit/rest": "20.1.1",
@@ -26,7 +22,7 @@
     "https-proxy-agent": "7.0.6",
     "next": "14.2.5",
     "node-fetch": "2.7.0",
-    "octokit": "3.2.7",
+    "octokit": "5.0.3",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "socks-proxy-agent": "8.0.5",
@@ -45,9 +41,12 @@
     "postcss": "8.4.47",
     "tailwindcss": "3.4.12",
     "typescript": "5.4.5",
-    "tsx": "4.7.2"
+    "tsx": "^4.17.0"
   },
   "pnpm": {
-    "public-hoist-pattern": ["*"]
+    "public-hoist-pattern": ["*"],
+    "overrides": {
+      "octokit": "5.0.3"
+    }
   }
 }
