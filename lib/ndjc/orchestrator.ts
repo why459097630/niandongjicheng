@@ -1,11 +1,19 @@
-// lib/ndjc/orchestrator.ts
-// 负责把自然语言/参数编排成结构化字段，并在需要时把
-// Contract v1 文档**内嵌**到 _trace.rawText，供下游 route/plan 直接读取。
-
+import fs from "node:fs/promises";
+import path from "node:path";
 import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
-/** 伴生文件（仅 B 模式可能返回/使用） */
+type Registry = {
+  template: string;
+  text: string[];
+  block: string[];
+  list: string[];
+  if: string[];
+  hook: string[];
+  resources?: string[];
+  aliases?: Record<string, string>;
+};
+
 type Companion = {
   path: string;
   content: string;
@@ -34,13 +42,12 @@ export type OrchestrateInput = NdjcRequest & {
   _companions?: Companion[];
   developerNotes?: string;
 
-  // 显式启用 v1 文档输出
   contract?: "v1" | "legacy";
   contractV1?: boolean;
 };
 
 export type OrchestrateOutput = {
-  template: "core" | "simple" | "form" | "circle-basic";
+  template: "circle-basic" | string;
   mode: "A" | "B";
   allowCompanions: boolean;
 
@@ -62,13 +69,16 @@ export type OrchestrateOutput = {
   _trace?: any | null;
 };
 
-// ----------------- helpers -----------------
+/* ----------------- helpers ----------------- */
+
 function wantV1(input: Partial<OrchestrateInput>): boolean {
   const envRaw = (process.env.NDJC_CONTRACT_V1 || "").trim().toLowerCase();
   return (
     input.contract === "v1" ||
     input.contractV1 === true ||
-    envRaw === "1" || envRaw === "true" || envRaw === "v1"
+    envRaw === "1" ||
+    envRaw === "true" ||
+    envRaw === "v1"
   );
 }
 
@@ -81,9 +91,9 @@ function ensurePackageId(input?: string, fallback = "com.ndjc.demo.core") {
 }
 
 function mkPermissionsXml(perms?: string[]) {
-  const list = (perms || []).map(p => (p || "").trim()).filter(Boolean);
+  const list = (perms || []).map((p) => (p || "").trim()).filter(Boolean);
   if (!list.length) return undefined;
-  return list.map(p => `<uses-permission android:name="${p}"/>`).join("\n");
+  return list.map((p) => `<uses-permission android:name="${p}"/>`).join("\n");
 }
 
 function mkIntentFiltersXml(host?: string | null) {
@@ -98,7 +108,7 @@ function mkIntentFiltersXml(host?: string | null) {
 }
 
 function normalizeLocales(locales?: string[]) {
-  const arr = (locales || []).map(s => (s || "").trim()).filter(Boolean);
+  const arr = (locales || []).map((s) => (s || "").trim()).filter(Boolean);
   return arr.length ? arr : ["en", "zh-rCN", "zh-rTW"];
 }
 function localesToResConfigs(locales: string[]) {
@@ -107,9 +117,16 @@ function localesToResConfigs(locales: string[]) {
 
 function parseJsonSafely(text: string): any | null {
   if (!text) return null;
-  const m = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
+  const m =
+    text.match(/```json\s*([\s\S]*?)```/i) ||
+    text.match(/```\s*([\s\S]*?)```/) ||
+    null;
   const raw = m ? m[1] : text;
-  try { return JSON.parse(raw); } catch { return null; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 function toUnixPath(p: string) {
@@ -122,83 +139,72 @@ function sanitizeCompanions(list?: Companion[]): Companion[] {
     if (!it || typeof it.path !== "string") continue;
     const rel = toUnixPath(it.path);
     if (!rel || rel.startsWith("../") || rel.includes("..%2f")) continue;
-    out.push({ path: rel, content: typeof it.content === "string" ? it.content : "", overwrite: !!it.overwrite, kind: it.kind });
+    out.push({
+      path: rel,
+      content: typeof it.content === "string" ? it.content : "",
+      overwrite: !!it.overwrite,
+      kind: it.kind || "txt"
+    });
   }
   return out;
 }
 
-/** 生成最小 Contract v1 文档，供下游（plan）硬校验与注入 */
-function makeV1Doc(opts: {
-  runId?: string | null;
-  template: string;
-  mode: "A" | "B";
-  appName: string;
-  homeTitle: string;
-  mainButtonText: string;
-  packageId: string;
-  resConfigsCsv?: string;
-  permissions?: string[];
-  companions?: Companion[];
-}) {
-  const resConfigsArr = (opts.resConfigsCsv || "")
-    .split(",").map(s => s.trim()).filter(Boolean);
-
-  const files = (opts.mode === "B" && Array.isArray(opts.companions))
-    ? opts.companions.map(f => ({
-        path: f.path,
-        content: f.content,
-        encoding: "utf8" as const,
-        kind: (f.kind || "txt"),
-      }))
-    : [];
-
-  return {
-    metadata: {
-      runId: opts.runId || undefined,
-      template: opts.template,
-      appName: opts.appName,
-      packageId: opts.packageId,
-      mode: opts.mode,
-    },
-    anchors: {
-      text: {
-        "NDJC:PACKAGE_NAME": opts.packageId,
-        "NDJC:APP_LABEL": opts.appName,
-        "NDJC:HOME_TITLE": opts.homeTitle || opts.appName,
-        "NDJC:PRIMARY_BUTTON_TEXT": opts.mainButtonText || "Start",
-      },
-      block: {},
-      list: {
-        "LIST:ROUTES": ["home"],
-      },
-      if: {},
-      res: {},
-      hook: {},
-      gradle: {
-        applicationId: opts.packageId,
-        resConfigs: resConfigsArr,
-        permissions: opts.permissions || [],
-      },
-    },
-    patches: {
-      gradle: {
-        resConfigs: resConfigsArr,
-        permissions: opts.permissions || [],
-      },
-      manifest: {
-        permissions: opts.permissions || [],
-      },
-    },
-    files,
-    resources: {},
-  };
+async function loadRegistry(): Promise<Registry | null> {
+  const root = process.cwd();
+  const hint =
+    process.env.NDJC_REGISTRY_FILE ||
+    path.join(root, "lib/ndjc/anchors/registry.circle-basic.json");
+  try {
+    const buf = await fs.readFile(hint, "utf8");
+    return JSON.parse(buf) as Registry;
+  } catch {
+    return null;
+  }
 }
 
-// ----------------- main orchestrate -----------------
+function buildSystemPromptFromRegistry(reg: Registry): string {
+  const lines: string[] = [];
+  lines.push(`你是“念动即成 NDJC”的模板生成助手。只输出严格 JSON（不要 Markdown 代码块）。`);
+  lines.push(`模板：${reg.template}`);
+  lines.push(`允许的锚点键如下（仅可使用这些键名）：`);
+  lines.push(`- Text: ${reg.text.join(", ")}`);
+  lines.push(`- Block: ${reg.block.join(", ")}`);
+  lines.push(`- List: ${reg.list.join(", ")}`);
+  lines.push(`- If: ${reg.if.join(", ")}`);
+  lines.push(`- Hook: ${reg.hook.join(", ")}`);
+  if (reg.resources?.length) lines.push(`- Resources: ${reg.resources.join(", ")}`);
+  lines.push(`请返回 **Contract v1** 文档，键结构如下（示例）：`);
+  lines.push(`{
+  "metadata": { "template": "${reg.template}", "appName": "...", "packageId": "com.example.app", "mode": "A|B" },
+  "anchors": {
+    "text": { "NDJC:PACKAGE_NAME": "com.example.app", "NDJC:APP_LABEL": "示例App", "NDJC:HOME_TITLE": "首页", "NDJC:PRIMARY_BUTTON_TEXT": "开始" },
+    "block": { "BLOCK:HOME_HEADER": "<!-- xml or kotlin snippet -->" },
+    "list":  { "LIST:ROUTES": ["home"] },
+    "if":    { "IF:PERMISSION.NOTIFICATION": true },
+    "hook":  { "HOOK:BEFORE_BUILD": "// gradle snippet" },
+    "gradle": { "applicationId": "com.example.app", "resConfigs": ["en","zh-rCN"], "permissions": ["android.permission.POST_NOTIFICATIONS"] }
+  },
+  "files": []  // 若 mode=B 且允许伴生文件，可在此给出 path/content
+}`);
+  lines.push(`只使用上面列出的锚点键；不要发明新键；空的部分可以给空对象/空数组。`);
+  return lines.join("\n");
+}
+
+/* ----------------- main orchestrate ----------------- */
+
 export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateOutput> {
-  let appName = input.appName || "NDJC core";
-  let homeTitle = input.homeTitle || "Hello core";
-  let mainButtonText = input.mainButtonText || "Start core";
+  const reg = (await loadRegistry()) || {
+    template: "circle-basic",
+    text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"],
+    block: [],
+    list: ["LIST:ROUTES"],
+    if: [],
+    hook: []
+  };
+
+  let appName = input.appName || "NDJC App";
+  let homeTitle = input.homeTitle || "Home";
+  let mainButtonText = input.mainButtonText || "Start";
   let packageId = ensurePackageId(input.packageId || input.packageName, "com.ndjc.demo.core");
 
   let permissions = input.permissions || [];
@@ -209,123 +215,79 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   const mode: "A" | "B" = input.mode === "B" ? "B" : "A";
   const allowCompanions = !!input.allowCompanions && mode === "B";
-  const template = (input.template as any) || "circle-basic";
+  const template = (input.template as any) || (reg.template || "circle-basic");
 
   let _trace: any | null = null;
 
   if (input.requirement?.trim()) {
-    const wrapSystem = (system: string) => {
-      const dev = (input.developerNotes || "").trim();
-      return dev ? `${system}\n\n---\n# Developer Notes\n${dev}` : system;
-    };
-    const unwrap = (r: any) =>
-      (typeof r === "string" ? { text: r, trace: null } : { text: r?.text ?? "", trace: r?.trace ?? null });
-
-    const sysA = wrapSystem(
-`You are a JSON API. Reply ONLY JSON with keys:
-{
-  "appName": string,
-  "homeTitle": string,
-  "mainButtonText": string,
-  "packageId": string | null,
-  "permissions": string[],
-  "intentHost": string | null,
-  "locales": string[]
-}`
-    );
-
-    const sysB = wrapSystem(
-`你是移动端生成助手。以严格 JSON 返回（不可包含代码块标记）：
-{
-  "fields": {
-    "appName": string,
-    "homeTitle": string,
-    "mainButtonText": string,
-    "packageId": string | null,
-    "permissions": string[],
-    "intentHost": string | null,
-    "locales": string[]
-  },
-  "companions": [
-    { "path": "app/src/main/java/...", "kind":"kotlin|xml|json|md|txt", "content": "...", "overwrite": false }
-  ]
-}`
-    );
-
+    const system = buildSystemPromptFromRegistry(reg);
     try {
-      if (mode === "A") {
-        const r = await callGroqChat(
-          [
-            { role: "system", content: sysA },
-            { role: "user", content: input.requirement! },
-          ],
-          { json: true, temperature: 0 }
-        );
-        const { text, trace } = unwrap(r);
-        _trace = trace || { rawText: text };
-        const j = parseJsonSafely(text) as any;
-        if (j) {
-          appName        = j.appName        || appName;
-          homeTitle      = j.homeTitle      || homeTitle;
-          mainButtonText = j.mainButtonText || mainButtonText;
-          packageId      = ensurePackageId(j.packageId || packageId, packageId);
-          if (Array.isArray(j.permissions)) permissions = j.permissions;
-          if (typeof j.intentHost === "string" || j.intentHost === null) intentHost = j.intentHost;
-          if (Array.isArray(j.locales) && j.locales.length) locales = normalizeLocales(j.locales);
-        }
-      } else if (mode === "B" && allowCompanions) {
-        const r = await callGroqChat(
-          [
-            { role: "system", content: sysB },
-            { role: "user", content: input.requirement! },
-          ],
-          { json: true, temperature: 0.3 }
-        );
-        const { text, trace } = unwrap(r);
-        _trace = trace || { rawText: text };
-        const j = parseJsonSafely(text) as any;
-        if (j) {
-          const f = j.fields || {};
-          appName        = f.appName        || appName;
-          homeTitle      = f.homeTitle      || homeTitle;
-          mainButtonText = f.mainButtonText || mainButtonText;
-          packageId      = ensurePackageId(f.packageId || packageId, packageId);
-          if (Array.isArray(f.permissions)) permissions = f.permissions;
-          if (typeof f.intentHost === "string" || f.intentHost === null) intentHost = f.intentHost;
-          if (Array.isArray(f.locales) && f.locales.length) locales = normalizeLocales(f.locales);
-
-          companions = sanitizeCompanions(Array.isArray(j.companions) ? (j.companions as Companion[]) : []);
-        }
+      const r = await callGroqChat(
+        [
+          { role: "system", content: system },
+          { role: "user", content: input.requirement! }
+        ],
+        { json: true, temperature: 0 }
+      );
+      const text = typeof r === "string" ? r : (r as any)?.text ?? "";
+      _trace = { rawText: text, registryUsed: true };
+      const j = parseJsonSafely(text) as any;
+      // 若能直接抽关键字段，先兜底一下（真正的 v1→plan 在后续阶段）
+      if (j?.metadata) {
+        appName = j.metadata.appName || appName;
+        packageId = ensurePackageId(j.metadata.packageId || packageId, packageId);
+      }
+      if (j?.anchors?.text) {
+        homeTitle = j.anchors.text["NDJC:HOME_TITLE"] || homeTitle;
+        mainButtonText = j.anchors.text["NDJC:PRIMARY_BUTTON_TEXT"] || mainButtonText;
+      }
+      if (Array.isArray(j?.anchors?.gradle?.resConfigs)) {
+        locales = normalizeLocales(j.anchors.gradle.resConfigs);
+      }
+      if (Array.isArray(j?.anchors?.gradle?.permissions)) {
+        permissions = j.anchors.gradle.permissions;
+      }
+      if (allowCompanions && Array.isArray(j?.files)) {
+        companions = sanitizeCompanions(j.files);
       }
     } catch {
-      // 容错：忽略 LLM 失败，沿用默认字段
+      // ignore, fallback to defaults
     }
   }
 
-  // XML 片段（供 materialize 阶段落地）
   const permissionsXml = mkPermissionsXml(permissions);
   const intentFiltersXml = mkIntentFiltersXml(intentHost);
   const themeOverridesXml = (input as any).themeOverridesXml || undefined;
-
   const resConfigs = input.resConfigs || localesToResConfigs(locales);
   const proguardExtra = input.proguardExtra;
   const packagingRules = input.packagingRules;
 
-  // 若启用 v1：把“可校验”的 v1 JSON 放到 _trace.rawText，供下一步 contractV1→plan 使用
-  if (wantV1(input)) {
-    const v1doc = makeV1Doc({
-      runId: (input as any).runId || null,
-      template,
-      mode,
-      appName,
-      homeTitle,
-      mainButtonText,
-      packageId,
-      resConfigsCsv: resConfigs,
-      permissions,
-      companions: allowCompanions ? companions : [],
-    });
-    _trace = { rawText: JSON.stringify(v1doc) };
+  // 若需强制 v1，在 _trace.rawText 中放入 v1 文档（便于下游写 01_orchestrator.json）
+  if (wantV1(input) && (!_trace || !_trace.rawText)) {
+    const v1doc = {
+      metadata: {
+        runId: (input as any).runId || undefined,
+        template,
+        appName,
+        packageId,
+        mode
+      },
+      anchors: {
+        text: {
+          "NDJC:PACKAGE_NAME": packageId,
+          "NDJC:APP_LABEL": appName,
+          "NDJC:HOME_TITLE": homeTitle,
+          "NDJC:PRIMARY_BUTTON_TEXT": mainButtonText
+        },
+        block: {},
+        list: { "LIST:ROUTES": ["home"] },
+        if: {},
+        hook: {},
+        gradle: { applicationId: packageId, resConfigs: resConfigs.split(",").filter(Boolean), permissions }
+      },
+      files: allowCompanions ? companions : []
+    };
+    _trace = { rawText: JSON.stringify(v1doc), registryUsed: !!reg };
   }
 
   return {
@@ -348,6 +310,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     themeOverridesXml,
 
     companions: allowCompanions ? companions : [],
-    _trace,
+    _trace
   };
 }
