@@ -60,6 +60,23 @@ function shallowClone<T extends Dict>(obj?: T | null): T {
   return obj && typeof obj === "object" ? { ...(obj as any) } : ({} as T);
 }
 
+function asPosix(p: string): string {
+  return (p || "").replace(/\\/g, "/");
+}
+
+/** 简单判断内容是否“像 Kotlin” */
+function looksLikeKotlin(source: string): boolean {
+  const s = source || "";
+  // 若出现明显 Kotlin 语法关键词或 class 继承语法
+  return /\b(data|sealed|enum)\s+class\b/.test(s) ||
+         /\bobject\s+\w+/.test(s) ||
+         /\bcompanion\s+object\b/.test(s) ||
+         /\bsuspend\s+fun\b/.test(s) ||
+         /\bfun\s+\w+\s*\(/.test(s) ||
+         /\b(val|var)\s+\w+\s*:/.test(s) ||
+         /\bclass\s+\w+\s*:\s+[A-Z]\w+/.test(s);
+}
+
 /** 统一 key 大写、去空格、把 `res.drawable/app_icon.png` 标准化成 `RES:drawable/app_icon.png` */
 function canonKey(raw: string, prefix?: string): string {
   let k = String(raw || "").trim();
@@ -112,7 +129,6 @@ function normalizeRecord(
 
 /* ──────────────── 锚点别名/配方 ──────────────── */
 
-/** 列表类常见别名（统一到 LIST:*） */
 const LIST_CANON: Record<string, string> = {
   "LIST:ROUTE": "LIST:ROUTES",
   "LIST:ROUTES": "LIST:ROUTES",
@@ -133,14 +149,12 @@ const LIST_CANON: Record<string, string> = {
   "DEEPLINK_PATTERNS": "LIST:DEEPLINK_PATTERNS",
 };
 
-/** 路由相关的块别名（有路由时自动补齐这些块） */
 const ROUTE_BLOCKS: Record<string, string[]> = {
   home: ["BLOCK:ROUTE_HOME"],
   detail: ["BLOCK:ROUTE_DETAIL"],
   post: ["BLOCK:ROUTE_POST"],
 };
 
-/** 资源类常见别名：统一到 RES: 前缀，尾部保持大小写（文件名大小写敏感） */
 function canonResKey(k: string): string {
   if (!/^RES:/i.test(k) && /^(drawable|raw|font|mipmap|values|xml)\//i.test(k)) {
     return "RES:" + k.replace(/\\/g, "/");
@@ -148,7 +162,6 @@ function canonResKey(k: string): string {
   return canonKey(k, "RES");
 }
 
-/** HOOK 别名 */
 const HOOK_CANON: Record<string, string> = {
   "HOOK:BEFORE_BUILD": "HOOK:BEFORE_BUILD",
   "HOOK:AFTER_BUILD": "HOOK:AFTER_BUILD",
@@ -158,7 +171,6 @@ const HOOK_CANON: Record<string, string> = {
   "HOOK:AFTER_INSTALL": "HOOK:AFTER_INSTALL",
 };
 
-/** 功能模块“配方”：启用某模块时应追加的锚点 */
 const MODULE_RECIPES: Record<
   string,
   { blocks?: string[]; lists?: Record<string, string[]>; res?: Record<string, string> }
@@ -167,65 +179,14 @@ const MODULE_RECIPES: Record<
     blocks: ["BLOCK:HOME_HEADER", "BLOCK:HOME_BODY", "BLOCK:HOME_ACTIONS", "BLOCK:ROUTE_HOME"],
     lists: { "LIST:ROUTES": ["home"] },
   },
-  detail: {
-    blocks: ["BLOCK:ROUTE_DETAIL"],
-    lists: { "LIST:ROUTES": ["detail"] },
-  },
-  post: {
-    blocks: ["BLOCK:ROUTE_POST"],
-    lists: { "LIST:ROUTES": ["post"], "LIST:POST_FIELDS": ["title", "content"] },
-  },
+  detail: { blocks: ["BLOCK:ROUTE_DETAIL"], lists: { "LIST:ROUTES": ["detail"] } },
+  post:   { blocks: ["BLOCK:ROUTE_POST"], lists: { "LIST:ROUTES": ["post"], "LIST:POST_FIELDS": ["title", "content"] } },
   search: { blocks: [] },
-  comments: {
-    blocks: [],
-    lists: { "LIST:COMMENT_FIELDS": ["author", "content", "time"] },
-  },
+  comments: { blocks: [], lists: { "LIST:COMMENT_FIELDS": ["author", "content", "time"] } },
   emptystate: { blocks: ["BLOCK:EMPTY_STATE"] },
   topbar: { blocks: [] },
   enhance: { blocks: ["BLOCK:NAV_TRANSITIONS"] },
 };
-
-/* ──────────────── 方案 C：companions 规范化工具 ──────────────── */
-
-function looksKotlin(src: string): boolean {
-  const s = String(src || "");
-  // 一些 kotlin 明显特征
-  return /\b(fun|val|var|data\s+class|object|suspend\s+fun|@Composable)\b/.test(s);
-}
-
-function normalizeCompanionPath(rawPath: string, defaultPkg: string): { relPath: string; pkgFromPath: string } {
-  let p = (rawPath || "").replace(/\\/g, "/").replace(/^\/+/, "");
-
-  // 若缺少 src/main/* 结构，补成 app/src/main/java/<defaultPkg>/File.kt
-  const hasSrc = /(^|\/)src\/main\//.test(p);
-  if (!hasSrc) {
-    const base = defaultPkg.replace(/\./g, "/");
-    p = `app/src/main/java/${base}/${p}`;
-  }
-
-  // 统一 java 目录（把 /kotlin/ 并到 /java/）
-  p = p.replace(/\/kotlin\//, "/java/");
-
-  // 从路径推导 package
-  let pkgFromPath = "com.example.app";
-  const m = p.match(/src\/main\/java\/(.+)\/[^/]+$/);
-  if (m) {
-    pkgFromPath = m[1].replace(/\//g, ".");
-  }
-
-  return { relPath: p, pkgFromPath };
-}
-
-function ensurePackageHeader(content: string, targetPkg: string): string {
-  const src = String(content || "");
-  const m = src.match(/^\s*package\s+([a-zA-Z0-9_.]+)\s*$/m);
-  if (!m) {
-    return `package ${targetPkg}\n\n${src}`;
-  }
-  const cur = m[1];
-  if (cur === targetPkg) return src;
-  return src.replace(m[0], `package ${targetPkg}`);
-}
 
 /* ──────────────── 主转换 ──────────────── */
 
@@ -287,9 +248,7 @@ export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
     for (const r of routesIn) {
       const name = String(r).toLowerCase();
       if (ROUTE_BLOCKS[name]) {
-        for (const b of ROUTE_BLOCKS[name]) {
-          if (!block[b]) block[b] = ""; // 标记存在即可
-        }
+        for (const b of ROUTE_BLOCKS[name]) if (!block[b]) block[b] = "";
       }
     }
   }
@@ -299,7 +258,6 @@ export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
   for (const [rk, rv] of Object.entries(resRaw)) {
     resources[canonResKey(rk)] = String(rv ?? "");
   }
-  // 若 LLM 以 files 形式给资源
   if (Array.isArray((doc as any).resources?.files)) {
     for (const f of (doc as any).resources.files) {
       const k = canonResKey(f.key || f.path || f.name || "");
@@ -337,27 +295,21 @@ export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
     }
   }
 
-  /* 8) 伴生文件（仅 B 模式，且进行 Kotlin/.kt/路径/package 规范化） */
-  const defaultPkg = text["NDJC:PACKAGE_NAME"] || doc.metadata.packageId || "com.ndjc.app";
+  /* 8) 伴生文件（仅 B 模式）：识别 Kotlin 源且修正后缀为 .kt */
   const companions =
     doc.metadata.mode === "B"
       ? (doc.files || [])
           .filter((f: any) => f && f.kind !== "manifest_patch")
           .map((f: any) => {
-            const rawPath = String(f.path || f.name || "");
-            const { relPath, pkgFromPath } = normalizeCompanionPath(rawPath, defaultPkg);
-
-            // 统一扩展名：若是 Kotlin 内容但扩展名为 .java，则强制改为 .kt
-            const isKt = looksKotlin(f.content || "");
-            const finalPath = isKt && /\.java$/i.test(relPath) ? relPath.replace(/\.java$/i, ".kt") : relPath;
-
-            // package 兜底/修正
-            const targetPkg = pkgFromPath || defaultPkg;
-            const fixedContent = ensurePackageHeader(String(f.content ?? ""), targetPkg);
-
+            const path = asPosix(f.path || f.name || "");
+            const content = String(f.content ?? "");
+            let fixedPath = path;
+            if (/\.java$/i.test(path) && looksLikeKotlin(content)) {
+              fixedPath = path.replace(/\.java$/i, ".kt");
+            }
             return {
-              path: finalPath,
-              content: fixedContent,
+              path: fixedPath,
+              content,
               encoding: (f.encoding as "utf8" | "base64") || "utf8",
             };
           })
