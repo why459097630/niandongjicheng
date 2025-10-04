@@ -1,75 +1,40 @@
 {
-  "version": "2025-10-04",
-  "templateKey": "circle-basic",
-
-  "textAnchors": [
-    { "key": "NDJC:PACKAGE_NAME" },
-    { "key": "NDJC:APP_LABEL", "targets": { "strings": ["app_name"] } },
-    { "key": "NDJC:HOME_TITLE", "targets": { "strings": ["home_title", "feed_title"] } },
-    { "key": "NDJC:PRIMARY_BUTTON_TEXT", "targets": { "strings": ["primary_button"] } },
-    { "key": "NDJC:THEME_NAME" },
-
-    { "key": "NDJC:DARK_MODE" },
-    { "key": "NDJC:FONT_FAMILY_PRIMARY" },
-    { "key": "NDJC:FONT_FAMILY_SECONDARY" },
-    { "key": "NDJC:I18N_ENABLED" },
-    { "key": "NDJC:ANIM_ENABLED" },
-    { "key": "NDJC:ANIM_DURATION_MS" },
-    { "key": "NDJC:LAYOUT_DENSITY" },
-
-    { "key": "NDJC:DATA_SOURCE" },
-    { "key": "NDJC:SEED_ENABLED" },
-    { "key": "NDJC:FEED_SORT" },
-    { "key": "NDJC:PAGING_SIZE" },
-    { "key": "NDJC:OFFLINE_POLICY" },
-    { "key": "NDJC:PRIVACY_POLICY" },
-    { "key": "NDJC:DRAFT_ENABLED" },
-
-    { "key": "NDJC:USE_APP_BUNDLE" },
-    { "key": "NDJC:BUILD_META_RUNID" },
-    { "key": "NDJC:FEATURE_TOGGLE_MIN" },
-    { "key": "NDJC:DEBUG_LOG_ENABLED" },
-
-    { "key": "NDJC:RUN_ID" },
-    { "key": "NDJC:LOG_LEVEL" },
-    { "key": "NDJC:METRICS_ENABLED" },
-    { "key": "NDJC:CRASHLYTICS_ENABLED" },
-
-    { "key": "NDJC:EXPERIMENT_BUCKET" }
+  "template": "circle-basic",
+  "text": [
+    "NDJC:PACKAGE_NAME",
+    "NDJC:APP_LABEL",
+    "NDJC:HOME_TITLE",
+    "NDJC:PRIMARY_BUTTON_TEXT",
+    "NDJC:THEME_NAME",
+    "NDJC:RUN_ID",
+    "NDJC:LOG_LEVEL",
+    "NDJC:DEBUG_LOG_ENABLED"
   ],
-
-  "blockAnchors": [
+  "block": [
     "BLOCK:HOME_HEADER",
     "BLOCK:HOME_BODY",
     "BLOCK:HOME_ACTIONS",
-
     "BLOCK:THEME_COLORS",
     "BLOCK:TYPOCASE_OVERRIDES",
     "BLOCK:STRINGS_EXTRA",
-
     "BLOCK:ROUTE_HOME",
     "BLOCK:ROUTE_DETAIL",
     "BLOCK:ROUTE_POST",
     "BLOCK:NAV_TRANSITIONS",
-
     "BLOCK:SPLASH_CONTENT",
     "BLOCK:EMPTY_STATE",
     "BLOCK:ERROR_STATE",
-
     "BLOCK:DEPENDENCY_SNIPPETS",
     "BLOCK:DEBUG_PANEL",
     "BLOCK:BUILD_SUMMARY",
-
     "BLOCK:HEADER_AD_SLOT",
     "BLOCK:FEED_ITEM_BADGES",
     "BLOCK:USER_PROFILE_CARD",
     "BLOCK:SPONSORED_CARD",
-
     "BLOCK:PROFILE_SECTION",
     "BLOCK:SETTINGS_SECTION"
   ],
-
-  "listAnchors": [
+  "list": [
     "LIST:PROGUARD_EXTRA",
     "LIST:PACKAGING_RULES",
     "LIST:ROUTES",
@@ -81,8 +46,7 @@
     "LIST:REMOTE_FLAGS",
     "LIST:DEEPLINK_PATTERNS"
   ],
-
-  "ifAnchors": [
+  "if": [
     "IF:PERMISSION.CAMERA",
     "IF:PERMISSION.MEDIA",
     "IF:PERMISSION.NOTIFICATION",
@@ -94,8 +58,7 @@
     "IF:FILE_PROVIDER",
     "IF:INTENT.SHARE"
   ],
-
-  "hookAnchors": [
+  "hook": [
     "HOOK:BEFORE_BUILD",
     "HOOK:AFTER_BUILD",
     "HOOK:PRE_INJECT",
@@ -103,8 +66,7 @@
     "HOOK:PRE_COMMIT",
     "HOOK:AFTER_INSTALL"
   ],
-
-  "resourceAnchors": [
+  "resources": [
     "RES:drawable/app_icon.png",
     "RES:drawable/empty_illustration.png",
     "RES:drawable/avatar_placeholder.png",
@@ -115,46 +77,9 @@
     "RES:raw/theme_colors.json",
     "RES:raw/seed_data.json"
   ],
-
   "aliases": {
-    "PACKAGE_ID": "NDJC:PACKAGE_NAME",
-    "APP_NAME": "NDJC:APP_LABEL",
-    "HOME_TITLE": "NDJC:HOME_TITLE",
-    "PRIMARY_BUTTON": "NDJC:PRIMARY_BUTTON_TEXT",
     "ROUTES": "LIST:ROUTES",
-    "DEEPLINKS": "LIST:DEEPLINK_PATTERNS"
-  },
-
-  "mvp": {
-    "required": [
-      "NDJC:PACKAGE_NAME",
-      "NDJC:APP_LABEL"
-    ],
-    "impactHigh": [
-      "BLOCK:HOME_BODY",
-      "BLOCK:ROUTE_HOME",
-      "LIST:ROUTES"
-    ]
-  },
-
-  "companions": {
-    "allowGlobs": [
-      "src/main/java/{PACKAGE_PATH}/**/*.kt",
-      "src/main/res/drawable/**/*.{xml,png,webp}",
-      "src/main/res/layout/**/*.xml",
-      "src/main/res/raw/**/*.{json,txt}",
-      "src/main/res/values/**/*.xml"
-    ],
-    "denyOverwrite": [
-      "build.gradle",
-      "build.gradle.kts",
-      "settings.gradle",
-      "settings.gradle.kts",
-      "AndroidManifest.xml",
-      "src/main/java/**/MainActivity.kt",
-      "src/main/java/**/NavGraph.kt"
-    ],
-    "sizeLimitBytes": 2097152,
-    "perFileLimitBytes": 204800
+    "DEEPLINKS": "LIST:DEEPLINK_PATTERNS",
+    "PERMISSIONS": "IF:PERMISSION"
   }
 }
