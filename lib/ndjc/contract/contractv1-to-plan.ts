@@ -1,406 +1,314 @@
 // lib/ndjc/contract/contractv1-to-plan.ts
-import type { ContractV1 } from "./types";
+//
+// 将 Contract v1 JSON（字符串或对象）转换为通用 BuildPlan，
+// 并使用 anchors 注册表做强校验 + 规范化（只通过白名单锚点）。
+//
+// 依赖：niandongjicheng/lib/ndjc/anchors/registry.circle-basic.json
 
-/** generator 期望的 plan 形状（与 buildPlan/applyPlanDetailed 对齐，扩展 resources/hooks） */
-export interface NdjcPlanV1 {
-  meta: {
-    runId?: string;
-    template: string;
-    appName: string;
-    packageId: string;
-    mode: "A" | "B";
-    /** 新增：注册表追踪 */
-    templateKey?: string;
-    registryVersion?: string;
+import type { Buffer } from "node:buffer";
+
+// ---------- 注册表类型与导入 ----------
+interface AnchorRegistry {
+  text: string[];               // NDJC:* 锚点（不含前缀也可，但推荐带前缀）
+  block: string[];              // BLOCK:*
+  list: string[];               // LIST:*
+  if: string[];                 // IF:*
+  hooks?: string[];             // HOOK:*
+  resources?: {
+    drawable?: string[];        // e.g. RES:drawable/app_icon.png
+    raw?: string[];             // e.g. RES:raw/theme_colors.json
+    values?: {
+      strings?: string[];
+      colors?: string[];
+      dimens?: string[];
+    };
   };
-  /** 文本锚点：NDJC:* */
-  text: Record<string, string>;
-  /** 块锚点：BLOCK:* */
-  block: Record<string, string>;
-  /** 列表锚点：LIST:* */
-  lists: Record<string, string[]>;
-  /** 条件锚点：IF:* */
-  if: Record<string, boolean>;
-  /** 资源锚点：RES:* -> 文件内容（utf8 或 base64；保持原样，由 generator 落盘） */
-  resources?: Record<string, string>;
-  /** HOOK 锚点：HOOK:* -> 若干片段（字符串数组） */
-  hooks?: Record<string, string[]>;
-  /** Gradle 汇总 */
-  gradle: {
-    applicationId: string;
-    resConfigs?: string[];
-    permissions?: string[];
-    compileSdk?: number | null;
-    minSdk?: number | null;
-    targetSdk?: number | null;
-    dependencies?: { group: string; name: string; version?: string | null; scope: string }[];
-    proguardExtra?: string[];
-  };
-  /** 仅 B 模式：伴生文件（供 generator 可选落地） */
-  companions?: { path: string; content: string; encoding?: "utf8" | "base64" }[];
 }
 
-/* ──────────────── 注册表加载（极简版） ──────────────── */
+// 重要：用强类型断言为 AnchorRegistry，避免 “unknown” 报错
+import registryJson from "../anchors/registry.circle-basic.json";
+const REGISTRY: AnchorRegistry = registryJson as AnchorRegistry;
 
-type AnchorRegistry = {
-  version?: string;
-  templateKey?: string;
-  textAnchors?: Array<{ key: string; targets?: { strings?: string[] } }>;
-  blockAnchors?: string[];
-  listAnchors?: string[];
-  ifAnchors?: string[];
-  hookAnchors?: string[];
-  resourceAnchors?: string[];
-  aliases?: Record<string, string>;
+// ---------- 外部类型（与 generator.ts 对齐的子集） ----------
+export type BuildPlan = {
+  run_id?: string;
+  template_key: string;
+  preset_used?: string;
+
+  anchors: Record<string, any>;
+  conditions?: Record<string, boolean>;
+  lists?: Record<string, any[]>;
+  blocks?: Record<string, string>;
+  hooks?: Record<string, string>;
+  resources?: {
+    values?: {
+      strings?: Record<string, string>;
+      colors?: Record<string, string>;
+      dimens?: Record<string, string>;
+    };
+    raw?: Record<string, { content: string; encoding?: "utf8" | "base64"; filename?: string }>;
+    drawable?: Record<string, { content: string; encoding?: "utf8" | "base64"; ext?: string }>;
+    stringsExtraXml?: Record<string, string>;
+  };
+  features?: Record<string, any>;
+  routes?: Array<string | { path: string; name?: string; icon?: string }>;
+  companions?: Array<{ path: string; content: string; encoding?: "utf8" | "base64" }>;
 };
 
-function loadRegistry(): AnchorRegistry {
-  // 运行环境可能是 ts-node/tsc 编译后；这里用 require 避免 ESM 限制
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const reg = require("../anchors/registry.circle-basic.json");
-    return reg as AnchorRegistry;
-  } catch {
-    return {};
+// v1 文档（最小子集，兼容 orchestrator.makeV1Doc 的输出）
+type ContractV1 = {
+  metadata?: {
+    runId?: string;
+    template?: string;
+    appName?: string;
+    packageId?: string;
+    mode?: "A" | "B";
+  };
+  anchors?: {
+    text?: Record<string, any>;
+    block?: Record<string, string>;
+    list?: Record<string, any[]>;
+    if?: Record<string, boolean>;
+    res?: any;
+    hook?: Record<string, string>;
+    gradle?: {
+      applicationId?: string;
+      resConfigs?: string[];    // 仅记录，不在此处强注入
+      permissions?: string[];   // 仅记录（manifest 注入在 materialize）
+    };
+  };
+  patches?: {
+    gradle?: any;
+    manifest?: any;
+  };
+  files?: Array<{ path: string; content: string; encoding?: "utf8" | "base64"; kind?: string }>;
+  resources?: any; // 兼容字段；实际按 BuildPlan.resources 分配
+};
+
+// ---------- 工具 ----------
+const upper = (s: string) => String(s || "").toUpperCase().trim();
+const trim = (s: string) => String(s || "").trim();
+
+function withPrefix(key: string, pref: "NDJC" | "BLOCK" | "LIST" | "IF" | "HOOK") {
+  const k = trim(key);
+  if (k.includes(":")) return k;
+  return `${pref}:${k}`;
+}
+function normKey(key: string) {
+  // 统一大小写，但不动 value；对 KEY 自身做上档与多余空白修整
+  // 注意：返回 *原样前缀 + 大写主体*（便于与注册表对比）
+  const i = key.indexOf(":");
+  if (i < 0) return upper(key);
+  const pref = key.slice(0, i);
+  const body = key.slice(i + 1);
+  return `${upper(pref)}:${upper(body)}`;
+}
+
+function toSet(arr?: string[]) {
+  const s = new Set<string>();
+  (arr || []).forEach((k) => s.add(normKey(k)));
+  return s;
+}
+
+// 注册表 → 白名单集合
+const TEXT_ALLOW = toSet(REGISTRY.text);
+const BLOCK_ALLOW = toSet(REGISTRY.block);
+const LIST_ALLOW = toSet(REGISTRY.list);
+const IF_ALLOW = toSet(REGISTRY.if);
+const HOOK_ALLOW = toSet(REGISTRY.hooks || []);
+
+// 生成 *去前缀* 的别名匹配表：
+// e.g. 允许 "APP_LABEL" 命中 "NDJC:APP_LABEL"；"ROUTE_HOME" 命中 "BLOCK:ROUTE_HOME"
+function aliasMap(set: Set<string>) {
+  const m = new Map<string, string>();
+  set.forEach((full) => {
+    const i = full.indexOf(":");
+    const body = i >= 0 ? full.slice(i + 1) : full;
+    m.set(upper(body), full);
+  });
+  return m;
+}
+const TEXT_ALIAS = aliasMap(TEXT_ALLOW);
+const BLOCK_ALIAS = aliasMap(BLOCK_ALLOW);
+const LIST_ALIAS = aliasMap(LIST_ALLOW);
+const IF_ALIAS = aliasMap(IF_ALLOW);
+const HOOK_ALIAS = aliasMap(HOOK_ALLOW);
+
+function canonKey(raw: string, kind?: "TEXT" | "BLOCK" | "LIST" | "IF" | "HOOK"): string | null {
+  const k = normKey(raw);
+  const [pref, body] = k.includes(":") ? [k.split(":")[0], k.split(":").slice(1).join(":")] : [k, ""];
+  const bodyKey = upper(body);
+
+  const tryAlias = (alias: Map<string, string>, allow: Set<string>, wantPref: string) => {
+    // 已有前缀且在 allow 里，直过
+    if (allow.has(k)) return k;
+    // 无法直接通过时，尝试用 body 别名映射
+    const mapped = alias.get(bodyKey);
+    if (!mapped) return null;
+    // 若指定 kind，需校验 mapped 前缀匹配
+    if (kind && !mapped.startsWith(`${kind}:`) && !(kind === "TEXT" && mapped.startsWith("NDJC:"))) {
+      // TEXT 特判 -> NDJC:
+      return null;
+    }
+    return mapped;
+  };
+
+  switch (kind || (pref as any)) {
+    case "TEXT":
+    case "NDJC":
+      return tryAlias(TEXT_ALIAS, TEXT_ALLOW, "NDJC");
+    case "BLOCK":
+      return tryAlias(BLOCK_ALIAS, BLOCK_ALLOW, "BLOCK");
+    case "LIST":
+      return tryAlias(LIST_ALIAS, LIST_ALLOW, "LIST");
+    case "IF":
+      return tryAlias(IF_ALIAS, IF_ALLOW, "IF");
+    case "HOOK":
+      return tryAlias(HOOK_ALIAS, HOOK_ALLOW, "HOOK");
+    default: {
+      // 未显式给 kind：根据前缀猜
+      if (pref === "NDJC") return tryAlias(TEXT_ALIAS, TEXT_ALLOW, "NDJC");
+      if (pref === "BLOCK") return tryAlias(BLOCK_ALIAS, BLOCK_ALLOW, "BLOCK");
+      if (pref === "LIST") return tryAlias(LIST_ALIAS, LIST_ALLOW, "LIST");
+      if (pref === "IF") return tryAlias(IF_ALIAS, IF_ALLOW, "IF");
+      if (pref === "HOOK") return tryAlias(HOOK_ALIAS, HOOK_ALLOW, "HOOK");
+      // 没有前缀时，优先当作 TEXT
+      return tryAlias(TEXT_ALIAS, TEXT_ALLOW, "NDJC");
+    }
   }
 }
 
-/* ──────────────── 小工具 ──────────────── */
+// ---------- 主转换 ----------
+export function contractV1ToPlan(input: string | ContractV1): BuildPlan {
+  const doc: ContractV1 =
+    typeof input === "string" ? safeParseJson(input) : (input || ({} as any));
 
-type Dict<T = any> = Record<string, T>;
+  const meta = doc.metadata || {};
+  const a = doc.anchors || {};
+  const templateKey = trim(meta.template || "circle-basic");
 
-function toBool(v: any) {
-  return v === true || v === "true" || v === 1 || v === "1";
+  const anchors: Record<string, any> = {};
+  const blocks: Record<string, string> = {};
+  const lists: Record<string, any[]> = {};
+  const ifs: Record<string, boolean> = {};
+  const hooks: Record<string, string> = {};
+
+  // 1) TEXT
+  for (const [k, v] of Object.entries(a.text || {})) {
+    const c = canonKey(k, "TEXT");
+    if (c) anchors[c] = v;
+  }
+
+  // 2) BLOCK
+  for (const [k, v] of Object.entries(a.block || {})) {
+    const c = canonKey(k, "BLOCK");
+    if (c) blocks[c] = String(v ?? "");
+  }
+
+  // 3) LIST
+  for (const [lk, lv] of Object.entries(a.list || {})) {
+    const c = canonKey(lk, "LIST");
+    if (!c) continue;
+    const exist = new Set<string>((lists[c] as any[]) || []);
+    // lv 在旧代码里因 JSON import 类型不明而被推断为 unknown，这里显式断言 string[]
+    for (const item of (lv as any[])) exist.add(String(item));
+    lists[c] = Array.from(exist);
+  }
+
+  // 4) IF
+  for (const [k, v] of Object.entries(a.if || {})) {
+    const c = canonKey(k, "IF");
+    if (!c) continue;
+    ifs[c] = !!v;
+  }
+
+  // 5) HOOK
+  for (const [k, v] of Object.entries(a.hook || {})) {
+    const c = canonKey(k, "HOOK");
+    if (!c) continue;
+    hooks[c] = String(v ?? "");
+  }
+
+  // 6) 伴生文件（files -> companions）
+  const companions = (doc.files || []).map((f) => ({
+    path: String(f.path || ""),
+    content: String(f.content || ""),
+    encoding: (f.encoding === "base64" ? "base64" : "utf8") as "utf8" | "base64",
+  }));
+
+  // 7) 资源映射（可选；此处仅做透明传递，实际落地在 generator.ts）
+  const resources = normalizeResources(doc.resources);
+
+  // 8) 条件/Gradle 补充：applicationId -> NDJC:PACKAGE_NAME（兜底，不覆盖 text 显式值）
+  const appId = a.gradle?.applicationId || meta.packageId;
+  if (appId && anchors["NDJC:PACKAGE_NAME"] == null) {
+    anchors["NDJC:PACKAGE_NAME"] = appId;
+  }
+  // routes 兜底 -> LIST:ROUTES
+  if (!lists["LIST:ROUTES"]) lists["LIST:ROUTES"] = ["home"];
+
+  const plan: BuildPlan = {
+    run_id: meta.runId,
+    template_key: templateKey,
+    anchors,
+    blocks,
+    lists,
+    conditions: ifs,
+    hooks,
+    resources,
+    companions,
+  };
+
+  return plan;
 }
-function toArrayOfString(v: any): string[] {
-  if (!v) return [];
-  if (Array.isArray(v)) return v.map(String);
-  if (typeof v === "string") {
-    try {
-      const j = JSON.parse(v);
-      if (Array.isArray(j)) return j.map(String);
-    } catch {}
-    return v.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+
+// ---------- 工具：资源归一 ----------
+function normalizeResources(src: any): BuildPlan["resources"] | undefined {
+  if (!src || typeof src !== "object") return undefined;
+  const out: BuildPlan["resources"] = {};
+  const values = src.values || {};
+  const raw = src.raw || {};
+  const draw = src.drawable || {};
+
+  if (Object.keys(values).length) {
+    out.values = {};
+    if (values.strings) out.values.strings = { ...values.strings };
+    if (values.colors) out.values.colors = { ...values.colors };
+    if (values.dimens) out.values.dimens = { ...values.dimens };
   }
-  return [String(v)];
-}
-function shallowClone<T extends Dict>(obj?: T | null): T {
-  return obj && typeof obj === "object" ? { ...(obj as any) } : ({} as T);
-}
-
-/** 统一 key 大写、去空格、把 `res.drawable/app_icon.png` 标准化成 `RES:drawable/app_icon.png` */
-function canonKey(raw: string, prefix?: string): string {
-  let k = String(raw || "").trim();
-  if (!k) return k;
-
-  // 资源别名：res.drawable/... -> RES:drawable/...
-  if (/^(res(\.|:)|resources:)/i.test(k)) {
-    k = k.replace(/^res(\.|:)/i, "RES:").replace(/^resources:/i, "RES:");
-    return k.replace(/\\/g, "/");
+  if (Object.keys(raw).length) {
+    out.raw = {};
+    for (const [k, v] of Object.entries<any>(raw)) {
+      out.raw[k] = {
+        content: String(v?.content || ""),
+        encoding: v?.encoding === "base64" ? "base64" : "utf8",
+        filename: v?.filename ? String(v.filename) : undefined,
+      };
+    }
   }
-  // HOOK 别名：hook.xxx -> HOOK:XXX
-  if (/^hook(\.|:)/i.test(k)) {
-    k = k.replace(/^hook(\.|:)/i, "HOOK:");
-    return "HOOK:" + k.slice("HOOK:".length).toUpperCase().replace(/\s+/g, "_");
-  }
-
-  if (prefix && !new RegExp(`^${prefix}:`, "i").test(k)) {
-    k = `${prefix}:${k}`;
-  }
-
-  // 大写：只处理 NDJC / BLOCK / LIST / IF / HOOK / RES
-  if (/^(NDJC|BLOCK|LIST|IF|HOOK|RES):/i.test(k)) {
-    const [p, rest] = k.split(":");
-    return p.toUpperCase() + ":" + rest.toUpperCase().replace(/\s+/g, "_");
-  }
-  return k;
-}
-
-/** 把 Record 归一化成指定前缀（如 NDJC/BLOCK/LIST/IF/RES/HOOK） */
-function normalizeRecord(
-  rec: Dict<any> | undefined,
-  kind: "ndjc" | "block" | "list" | "if" | "res" | "hook"
-): Dict<any> {
-  const out: Dict<any> = {};
-  if (!rec) return out;
-
-  const PREFIX = kind === "ndjc" ? "NDJC" :
-                 kind === "block" ? "BLOCK" :
-                 kind === "list" ? "LIST" :
-                 kind === "if" ? "IF" :
-                 kind === "res" ? "RES" : "HOOK";
-
-  for (const [k, v] of Object.entries(rec)) {
-    const ck = canonKey(k, PREFIX);
-    if (!ck) continue;
-    out[ck] = v;
+  if (Object.keys(draw).length) {
+    out.drawable = {};
+    for (const [k, v] of Object.entries<any>(draw)) {
+      out.drawable[k] = {
+        content: String(v?.content || ""),
+        encoding: v?.encoding === "base64" ? "base64" : "utf8",
+        ext: v?.ext ? String(v.ext) : undefined,
+      };
+    }
   }
   return out;
 }
 
-/* ──────────────── 列表/资源/HOOK 规范化工具 ──────────────── */
-
-const LIST_CANON: Record<string, string> = {
-  "LIST:ROUTE": "LIST:ROUTES",
-  "LIST:ROUTES": "LIST:ROUTES",
-  "ROUTES": "LIST:ROUTES",
-  "LIST:POST_FIELDS": "LIST:POST_FIELDS",
-  "POST_FIELDS": "LIST:POST_FIELDS",
-  "LIST:COMMENT_FIELDS": "LIST:COMMENT_FIELDS",
-  "COMMENT_FIELDS": "LIST:COMMENT_FIELDS",
-  "LIST:API_SPLITS": "LIST:API_SPLITS",
-  "API_SPLITS": "LIST:API_SPLITS",
-  "LIST:PLURAL_STRINGS": "LIST:PLURAL_STRINGS",
-  "PLURAL_STRINGS": "LIST:PLURAL_STRINGS",
-  "LIST:COMPONENT_STYLES": "LIST:COMPONENT_STYLES",
-  "COMPONENT_STYLES": "LIST:COMPONENT_STYLES",
-  "LIST:REMOTE_FLAGS": "LIST:REMOTE_FLAGS",
-  "REMOTE_FLAGS": "LIST:REMOTE_FLAGS",
-  "LIST:DEEPLINK_PATTERNS": "LIST:DEEPLINK_PATTERNS",
-  "DEEPLINK_PATTERNS": "LIST:DEEPLINK_PATTERNS",
-};
-
-const ROUTE_BLOCKS: Record<string, string[]> = {
-  home: ["BLOCK:ROUTE_HOME"],
-  detail: ["BLOCK:ROUTE_DETAIL"],
-  post: ["BLOCK:ROUTE_POST"],
-};
-
-function canonResKey(k: string): string {
-  if (!/^RES:/i.test(k) && /^(drawable|raw|font|mipmap|values|xml)\//i.test(k)) {
-    return "RES:" + k.replace(/\\/g, "/");
+// ---------- 工具：安全 JSON 解析 ----------
+function safeParseJson(text: string): ContractV1 {
+  try {
+    // 兼容 ```json ... ``` 包裹
+    const m = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
+    const raw = m ? m[1] : text;
+    return JSON.parse(raw);
+  } catch {
+    return {} as ContractV1;
   }
-  return canonKey(k, "RES");
 }
 
-const HOOK_CANON: Record<string, string> = {
-  "HOOK:BEFORE_BUILD": "HOOK:BEFORE_BUILD",
-  "HOOK:AFTER_BUILD": "HOOK:AFTER_BUILD",
-  "HOOK:PRE_INJECT": "HOOK:PRE_INJECT",
-  "HOOK:POST_INJECT": "HOOK:POST_INJECT",
-  "HOOK:PRE_COMMIT": "HOOK:PRE_COMMIT",
-  "HOOK:AFTER_INSTALL": "HOOK:AFTER_INSTALL",
-};
-
-/* ──────────────── 注册表：别名折叠 + 白名单过滤 ──────────────── */
-
-function applyAliases<T extends Dict<any>>(m: T, aliases?: Record<string, string>): T {
-  if (!aliases) return m;
-  const out: Dict<any> = {};
-  for (const [k, v] of Object.entries(m)) {
-    const ck = canonKey(k);
-    const target = aliases[ck] || aliases[ck.replace(/^NDJC:/, "")] || ck;
-    const tk = canonKey(target);
-    // 合并：后写覆盖前写（以 LLM 最新值为准）
-    out[tk] = v;
-  }
-  return out as T;
-}
-
-function filterKeys<T extends Dict<any>>(m: T, allow: Set<string>): T {
-  if (!m) return m;
-  const out: Dict<any> = {};
-  for (const [k, v] of Object.entries(m)) {
-    const ck = canonKey(k);
-    if (allow.has(ck)) out[ck] = v;
-  }
-  return out as T;
-}
-
-function toSet(arr?: Array<string | { key: string }>): Set<string> {
-  const s = new Set<string>();
-  (arr || []).forEach((it: any) => {
-    const k = typeof it === "string" ? it : it?.key;
-    if (k) s.add(canonKey(k));
-  });
-  return s;
-}
-
-/* ──────────────── 主转换 ──────────────── */
-
-export function contractV1ToPlan(doc: ContractV1): NdjcPlanV1 {
-  const pkg = doc.metadata.packageId;
-
-  // 读取注册表（极简：只用于别名折叠 + 白名单）
-  const REG = loadRegistry();
-  const ALIASES = REG.aliases || {};
-  const ALLOW_TEXT = toSet(REG.textAnchors as any);
-  const ALLOW_BLOCK = toSet(REG.blockAnchors);
-  const ALLOW_LIST  = toSet(REG.listAnchors);
-  const ALLOW_IF    = toSet(REG.ifAnchors);
-  const ALLOW_HOOK  = toSet(REG.hookAnchors);
-  const ALLOW_RES   = toSet(REG.resourceAnchors);
-
-  /* 1) Gradle 汇总（兼容 anchors.gradle 与 patches.*） */
-  const g = (doc.anchors?.gradle || ({} as any));
-  const gradle = {
-    applicationId: g.applicationId || pkg,
-    resConfigs: (g.resConfigs || doc.patches?.gradle?.resConfigs || []) ?? [],
-    permissions: (g.permissions || doc.patches?.manifest?.permissions || []) ?? [],
-    compileSdk: doc.patches?.gradle?.compileSdk ?? null,
-    minSdk: doc.patches?.gradle?.minSdk ?? null,
-    targetSdk: doc.patches?.gradle?.targetSdk ?? null,
-    dependencies: doc.patches?.gradle?.dependencies ?? [],
-    proguardExtra: doc.patches?.gradle?.proguardExtra ?? [],
-  };
-
-  /* 2) 读取 anchors 四类 + 新增 RES/HOOK 的多源输入（先常规规范化） */
-  const textIn   = shallowClone(doc.anchors?.text);
-  const blockIn  = shallowClone(doc.anchors?.block);
-  const listIn   = shallowClone(doc.anchors?.list);
-  const ifIn     = shallowClone(doc.anchors?.if);
-  const resIn    = shallowClone((doc as any)?.anchors?.res ?? (doc as any)?.resources);
-  const hookIn   = shallowClone((doc as any)?.anchors?.hook ?? (doc as any)?.hooks);
-
-  const textRaw  = normalizeRecord(textIn,  "ndjc") as Dict<string>;
-  const blockRaw = normalizeRecord(blockIn, "block") as Dict<string>;
-  const listsRaw = normalizeRecord(listIn,  "list")  as Dict<any>;
-  const iffRaw   = normalizeRecord(ifIn,    "if")    as Dict<boolean>;
-  const resRaw   = normalizeRecord(resIn,   "res")   as Dict<string>;
-  const hookRaw  = normalizeRecord(hookIn,  "hook")  as Dict<any>;
-
-  /* 3) 关键文本锚点兜底（保证最小可用） */
-  const textBase: Dict<string> = { ...textRaw };
-  if (!textBase["NDJC:PACKAGE_NAME"]) textBase["NDJC:PACKAGE_NAME"] = pkg;
-  if (!textBase["NDJC:APP_LABEL"])    textBase["NDJC:APP_LABEL"]    = doc.metadata.appName;
-  if (!textBase["NDJC:HOME_TITLE"] && doc.metadata.appName) {
-    textBase["NDJC:HOME_TITLE"] = doc.metadata.appName;
-  }
-  if (!textBase["NDJC:PRIMARY_BUTTON_TEXT"]) {
-    textBase["NDJC:PRIMARY_BUTTON_TEXT"] = "Start";
-  }
-
-  /* 4) 列表类规范化（别名映射 + 数组化） */
-  const listsBase: Record<string, string[]> = {};
-  for (const [k, v] of Object.entries(listsRaw)) {
-    const key = LIST_CANON[k as keyof typeof LIST_CANON] || canonKey(k, "LIST");
-    listsBase[key] = toArrayOfString(v);
-  }
-
-  // 路由：从 doc.routes 或 anchors -> 统一进 LIST:ROUTES，并自动补齐相关块
-  const routesIn: string[] = toArrayOfString(
-    (doc as any).routes?.items || (doc as any).routes || listsBase["LIST:ROUTES"]
-  );
-  if (routesIn.length) {
-    listsBase["LIST:ROUTES"] = Array.from(new Set([...(listsBase["LIST:ROUTES"] || []), ...routesIn]));
-  }
-
-  /* 5) 资源锚点（RES:*）规范化：支持多源 */
-  const resourcesBase: Record<string, string> = {};
-  for (const [rk, rv] of Object.entries(resRaw)) {
-    resourcesBase[canonResKey(rk)] = String(rv ?? "");
-  }
-  // 若 LLM 以 files 形式给资源
-  if (Array.isArray((doc as any).resources?.files)) {
-    for (const f of (doc as any).resources.files) {
-      const k = canonResKey(f.key || f.path || f.name || "");
-      if (!k) continue;
-      resourcesBase[k] = String(f.content ?? "");
-    }
-  }
-
-  /* 6) HOOK 锚点（HOOK:*）规范化 */
-  const hooksBase: Record<string, string[]> = {};
-  for (const [hk, hv] of Object.entries(hookRaw)) {
-    const ck = HOOK_CANON[canonKey(hk, "HOOK")] || canonKey(hk, "HOOK");
-    hooksBase[ck] = toArrayOfString(hv);
-  }
-
-  /* 7) 功能模块（增量配方：只标记相关块存在，内容由 LLM/模板兜底） */
-  const blockBase: Dict<string> = { ...blockRaw };
-  const modsSrc: string[] =
-    toArrayOfString((doc as any).modules) ||
-    toArrayOfString((doc as any)?.features?.modules);
-  if (modsSrc.length) {
-    const norm = modsSrc.map(s => String(s).toLowerCase().trim());
-    for (const mName of norm) {
-      const recipe = {
-        feed:   { blocks: ["BLOCK:HOME_HEADER", "BLOCK:HOME_BODY", "BLOCK:HOME_ACTIONS", "BLOCK:ROUTE_HOME"] },
-        detail: { blocks: ["BLOCK:ROUTE_DETAIL"] },
-        post:   { blocks: ["BLOCK:ROUTE_POST"], lists: { "LIST:POST_FIELDS": ["title", "content"] } },
-        comments: { lists: { "LIST:COMMENT_FIELDS": ["author", "content", "time"] } },
-        emptystate: { blocks: ["BLOCK:EMPTY_STATE"] },
-        topbar: { blocks: [] },
-        enhance: { blocks: ["BLOCK:NAV_TRANSITIONS"] },
-      } as const;
-      // @ts-ignore
-      const r = (recipe as any)[mName];
-      if (!r) continue;
-      (r.blocks || []).forEach((b: string) => { if (!blockBase[b]) blockBase[b] = ""; });
-      for (const [lk, lv] of Object.entries(r.lists || {})) {
-        const canonLk = LIST_CANON[lk] || canonKey(lk, "LIST");
-        const exist = new Set(listsBase[canonLk] || []);
-        for (const item of lv) exist.add(String(item));
-        listsBase[canonLk] = Array.from(exist);
-      }
-    }
-  }
-
-  /* 8) 按注册表执行：别名折叠 → 白名单过滤 */
-  const textAliased  = applyAliases(textBase,  ALIASES);
-  const blockAliased = applyAliases(blockBase, ALIASES);
-  const listsAliased: Record<string, string[]> = {};
-  for (const [k, v] of Object.entries(listsBase)) {
-    const mapped = (ALIASES[canonKey(k)] || canonKey(k));
-    const mk = canonKey(mapped);
-    listsAliased[mk] = v;
-  }
-  const iffAliased   = applyAliases(iffRaw,    ALIASES);
-  const resAliased: Record<string, string> = {};
-  for (const [k, v] of Object.entries(resourcesBase)) {
-    const mapped = (ALIASES[canonKey(k)] || canonKey(k));
-    resAliased[canonResKey(mapped)] = v;
-  }
-  const hooksAliased = applyAliases(hooksBase, ALIASES);
-
-  const text  = ALLOW_TEXT.size  ? filterKeys(textAliased,  ALLOW_TEXT)  : textAliased;
-  const block = ALLOW_BLOCK.size ? filterKeys(blockAliased, ALLOW_BLOCK) : blockAliased;
-  const lists = ALLOW_LIST.size  ? filterKeys(listsAliased, ALLOW_LIST)  : listsAliased;
-  const iff   = ALLOW_IF.size    ? filterKeys(iffAliased,   ALLOW_IF)    : iffAliased;
-  const resources = ALLOW_RES.size ? filterKeys(resAliased, ALLOW_RES)   : resAliased;
-  const hooks = ALLOW_HOOK.size  ? filterKeys(hooksAliased, ALLOW_HOOK)  : hooksAliased;
-
-  // 路由相关块（根据 LIST:ROUTES 最终内容补齐一次）
-  const routes = lists["LIST:ROUTES"] || [];
-  for (const r of routes) {
-    const name = String(r).toLowerCase();
-    if (ROUTE_BLOCKS[name]) {
-      for (const b of ROUTE_BLOCKS[name]) {
-        if (!block[b] && (!ALLOW_BLOCK.size || ALLOW_BLOCK.has(b))) block[b] = "";
-      }
-    }
-  }
-
-  /* 9) 伴生文件（仅 B 模式） */
-  const companions =
-    doc.metadata.mode === "B"
-      ? (doc.files || [])
-          .filter((f: any) => f.kind !== "manifest_patch")
-          .map((f: any) => ({
-            path: f.path,
-            content: f.content,
-            encoding: f.encoding || "utf8",
-          }))
-      : [];
-
-  /* 10) 返回计划 */
-  return {
-    meta: {
-      runId: doc.metadata.runId ?? undefined,
-      template: doc.metadata.template,
-      appName: doc.metadata.appName,
-      packageId: pkg,
-      mode: doc.metadata.mode,
-      templateKey: REG.templateKey || "circle-basic",
-      registryVersion: REG.version,
-    },
-    text,
-    block,
-    lists,
-    if: Object.fromEntries(Object.entries(iff).map(([k, v]) => [k, toBool(v)])),
-    resources,
-    hooks,
-    gradle,
-    companions,
-  };
-}
+export default contractV1ToPlan;
