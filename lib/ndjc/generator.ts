@@ -48,7 +48,7 @@ type BuildPlan = {
   // 路由（可以转投 LIST:ROUTES）
   routes?: Array<string | { path: string; name?: string; icon?: string }>;
 
-  // ★ 新增：伴生文件（真正落地到工程路径）
+  // ★ 伴生文件（真正落地到工程路径）
   companions?: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>;
 };
 
@@ -254,7 +254,7 @@ export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]>
   const resRes = await applyResources(appRoot, normalized);
   if (resRes.length) results.push(...resRes);
 
-  // 3) ★ 新增：伴生文件真正落地到工程路径
+  // 3) 伴生文件真正落地到工程路径
   const compRes = await applyCompanions(appRoot, normalized);
   if (compRes.length) results.push(...compRes);
 
@@ -274,6 +274,12 @@ export async function applyPlanDetailed(plan: BuildPlan): Promise<ApplyResult[]>
       results.push({ file: f, changes });
     }
   }
+
+  // 6) ★ 统一调 Sanitizer（单文件），不在这里重复实现归位逻辑
+  const sanReport = await callSanitizerOnce(path.join(workRepoRoot(), 'app')).catch(() => null);
+
+  // 7) ★ 写回 03_apply_result.json（统一统计）
+  await writeApplyResultJson(normalized, results, sanReport || undefined);
 
   return results;
 }
@@ -498,7 +504,7 @@ function guessRawExt(content: string, filename?: string) {
   return '.txt';
 }
 
-// ★ 新增：伴生文件真正写入到 app/src/main/**（并按 package 路径展开）
+// ★ 伴生文件真正写入到 app/src/main/**（并按 package 路径展开）
 async function applyCompanions(appRoot: string, plan: BuildPlan): Promise<ApplyResult[]> {
   const out: ApplyResult[] = [];
   const items = plan.companions || [];
@@ -528,12 +534,7 @@ async function applyCompanions(appRoot: string, plan: BuildPlan): Promise<ApplyR
   return out;
 }
 
-/** 把传入 path 统一映射到工程真实路径
- *  - 支持去掉 'companions/' 或 'app/' 前缀
- *  - 支持 'java/' / 'res/' / 'src/main/...' 直达
- *  - 对于看起来是源码文件且未指定 src 路径的，按 package 展开到 src/main/java/<pkgPath>/
- *  - 占位符支持：{PACKAGE_PATH} / __PKG__
- */
+/** 把传入 path 统一映射到工程真实路径 */
 function normalizeCompanionPath(input: string, pkgPath: string): string {
   let p = String(input || '').replace(/\\/g, '/').replace(/^\/+/, '');
 
@@ -617,10 +618,7 @@ function applyTextAnchors(src: string, plan: BuildPlan) {
     }
   }
 
-  // HOOK：支持三种形式
-  //  A) <!-- HOOK:NAME -->…<!-- END_HOOK -->
-  //  B) // HOOK:NAME
-  //  C) <!-- HOOK:NAME -->
+  // HOOK：支持三种形式（块/单行注释/单点注释）
   for (const [hk, hv] of Object.entries(plan.hooks || {})) {
     const name = hk.startsWith('HOOK:') ? hk : `HOOK:${hk}`;
     const esc = escapeRe(name);
@@ -790,6 +788,73 @@ function genDataTag(urlStr: string) {
   }
 }
 
+/* ========= Sanitizer 调用 & 结果写回 ========= */
+
+// 兼容式动态导入，避免编译期耦合（若未提供 sanitize 模块也不报错）
+async function callSanitizerOnce(appRoot: string): Promise<any | undefined> {
+  try {
+    // 期望 sanitize/index.ts 导出 runSanitizer(root) 或 sanitizeWorkspace(root)
+    const mod: any = await import('./sanitize/index');
+    const fn = mod.runSanitizer || mod.sanitizeWorkspace || mod.default;
+    if (typeof fn === 'function') {
+      return await fn({ root: appRoot });
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+function aggregateChanges(changes: ApplyResult[]) {
+  const filesChanged = new Set<string>();
+  let replaced = 0;
+  for (const r of changes) {
+    if (!r?.file) continue;
+    filesChanged.add(r.file);
+    for (const c of (r.changes || [])) {
+      replaced += (c.replacedCount || 0);
+    }
+  }
+  return { filesChanged: filesChanged.size, replaced };
+}
+
+async function writeApplyResultJson(plan: BuildPlan, results: ApplyResult[], san?: any) {
+  const runId = plan.run_id || 'unknown';
+  const applyPath =
+    process.env.APPLY_JSON ||
+    path.join(process.cwd(), 'requests', runId, '03_apply_result.json');
+
+  await fs.mkdir(path.dirname(applyPath), { recursive: true });
+
+  const { filesChanged, replaced } = aggregateChanges(results);
+
+  const summary = {
+    runId,
+    status: 'pre-ci',
+    template: plan.template_key,
+    appTitle: plan.anchors?.['NDJC:APP_LABEL'] || '',
+    packageName: plan.anchors?.['NDJC:PACKAGE_NAME'] || '',
+    note: 'Apply result will be finalized in CI pipeline.',
+    metrics: {
+      filesChanged,
+      replaced,
+      // sanitizer 回传指标（约定：如果存在就写；没有就为 0/[]）
+      kotlinRenamed: san?.kotlin_renamed ?? san?.renamed ?? 0,
+      packageFixed: san?.package_fixed ?? san?.pkgFixed ?? 0,
+      importsMoved: san?.imports_moved ?? san?.importsMoved ?? 0,
+    },
+    violations: san?.violations || [],
+    // 为了精简，不把所有 diff 都写进去；保留每个文件的 marker 概要
+    changes: results.map(r => ({
+      file: r.file,
+      markers: (r.changes || []).map(c => c.marker),
+    })),
+    warnings: [],
+  };
+
+  await fs.writeFile(applyPath, JSON.stringify(summary, null, 2), 'utf8');
+}
+
 /* ========= 显式命名导出（避免 default 导出覆盖） ========= */
 export type { BuildPlan };
-export { applyTextAnchors }; // 若外部调试需要
+export { applyTextAnchors };
