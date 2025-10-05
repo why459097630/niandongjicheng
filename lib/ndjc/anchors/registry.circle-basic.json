@@ -67,16 +67,16 @@
     "HOOK:AFTER_INSTALL"
   ],
   "resources": [
-    "RES:drawable/app_icon.png",
-    "RES:drawable/empty_illustration.png",
-    "RES:drawable/avatar_placeholder.png",
-    "RES:drawable/brand_cover.png",
-    "RES:drawable/ic_stat_notify.png",
-    "RES:font/primary.ttf",
-    "RES:font/secondary.ttf",
+    "RES:drawable/app_icon.xml",
+    "RES:drawable/empty_illustration.xml",
+    "RES:drawable/avatar_placeholder.xml",
+    "RES:drawable/brand_cover.xml",
+    "RES:drawable/ic_stat_notify.xml",
+    "RES:font/primary.xml",
+    "RES:font/secondary.xml",
     "RES:raw/theme_colors.json",
     "RES:raw/seed_data.json"
-  ],
+  ]
   "aliases": {
     "ROUTES": "LIST:ROUTES",
     "DEEPLINKS": "LIST:DEEPLINK_PATTERNS",
