@@ -76,7 +76,7 @@
     "RES:font/secondary.xml",
     "RES:raw/theme_colors.json",
     "RES:raw/seed_data.json"
-  ]
+  ],
   "aliases": {
     "ROUTES": "LIST:ROUTES",
     "DEEPLINKS": "LIST:DEEPLINK_PATTERNS",
