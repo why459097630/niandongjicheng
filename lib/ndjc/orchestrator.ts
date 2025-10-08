@@ -162,20 +162,31 @@ async function loadRegistry(): Promise<Registry | null> {
   }
 }
 
+function withPrefix(kind: "BLOCK" | "LIST" | "IF" | "HOOK", xs: string[]): string[] {
+  return (xs || []).map((k) => `${kind}:${k}`);
+}
+
 function buildSystemPromptFromRegistry(reg: Registry): string {
+  // 注册表里非 TEXT 键是“去前缀”的；提示里展示为“带前缀”的允许清单，便于 LLM 照着生成。
+  const allowText = reg.text;
+  const allowBlock = withPrefix("BLOCK", reg.block);
+  const allowList = withPrefix("LIST", reg.list);
+  const allowIf = withPrefix("IF", reg.if);
+  const allowHook = withPrefix("HOOK", reg.hook);
+
   const lines: string[] = [];
-  lines.push(`你是“念动即成 NDJC”的模板生成助手。只输出严格 JSON（不要 Markdown 代码块）。`);
+  lines.push(`你是“念动即成 NDJC”的模板生成助手。**只输出严格 JSON**（不要 Markdown 代码块）。`);
   lines.push(`模板：${reg.template}`);
-  lines.push(`允许的锚点键如下（仅可使用这些键名）：`);
-  lines.push(`- Text: ${reg.text.join(", ")}`);
-  lines.push(`- Block: ${reg.block.join(", ")}`);
-  lines.push(`- List: ${reg.list.join(", ")}`);
-  lines.push(`- If: ${reg.if.join(", ")}`);
-  lines.push(`- Hook: ${reg.hook.join(", ")}`);
+  lines.push(`只允许使用以下锚点键：`);
+  lines.push(`- Text: ${allowText.join(", ")}`);
+  lines.push(`- Block: ${allowBlock.join(", ")}`);
+  lines.push(`- List: ${allowList.join(", ")}`);
+  lines.push(`- If: ${allowIf.join(", ")}`);
+  lines.push(`- Hook: ${allowHook.join(", ")}`);
   if (reg.resources?.length) lines.push(`- Resources: ${reg.resources.join(", ")}`);
-  lines.push(`请返回 **Contract v1** 文档，键结构如下（示例）：`);
+  lines.push(`请返回 **Contract v1** 文档，且 **metadata.mode 固定为 "B"**。结构示例如下：`);
   lines.push(`{
-  "metadata": { "template": "${reg.template}", "appName": "...", "packageId": "com.example.app", "mode": "A|B" },
+  "metadata": { "template": "${reg.template}", "appName": "应用名", "packageId": "com.example.app", "mode": "B" },
   "anchors": {
     "text": { "NDJC:PACKAGE_NAME": "com.example.app", "NDJC:APP_LABEL": "示例App", "NDJC:HOME_TITLE": "首页", "NDJC:PRIMARY_BUTTON_TEXT": "开始" },
     "block": { "BLOCK:HOME_HEADER": "<!-- xml or kotlin snippet -->" },
@@ -184,9 +195,12 @@ function buildSystemPromptFromRegistry(reg: Registry): string {
     "hook":  { "HOOK:BEFORE_BUILD": "// gradle snippet" },
     "gradle": { "applicationId": "com.example.app", "resConfigs": ["en","zh-rCN"], "permissions": ["android.permission.POST_NOTIFICATIONS"] }
   },
-  "files": []  // 若 mode=B 且允许伴生文件，可在此给出 path/content
+  "files": []  // 若允许伴生文件，可在此给出 [{path,content}]
 }`);
-  lines.push(`只使用上面列出的锚点键；不要发明新键；空的部分可以给空对象/空数组。`);
+  lines.push(`要求：`);
+  lines.push(`1) 只能使用上面列出的锚点键（Block/List/If/Hook 键名可带前缀，也可不带，推荐带前缀）。`);
+  lines.push(`2) 缺省项请给空对象 {} 或空数组 []，不要发明新键。`);
+  lines.push(`3) 输出必须是可被 JSON.parse 解析的纯 JSON 文本。`);
   return lines.join("\n");
 }
 
@@ -197,7 +211,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     template: "circle-basic",
     text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"],
     block: [],
-    list: ["LIST:ROUTES"],
+    list: ["ROUTES"], // 注意：无前缀
     if: [],
     hook: []
   };
@@ -213,7 +227,8 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   let companions: Companion[] = Array.isArray(input._companions) ? sanitizeCompanions(input._companions) : [];
 
-  const mode: "A" | "B" = input.mode === "B" ? "B" : "A";
+  // ❗强制使用 B 模式（防止前端/上游漂移到 A）
+  const mode: "A" | "B" = "B";
   const allowCompanions = !!input.allowCompanions && mode === "B";
   const template = (input.template as any) || (reg.template || "circle-basic");
 
@@ -230,28 +245,36 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
         { json: true, temperature: 0 }
       );
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
-      _trace = { rawText: text, registryUsed: true };
-      const j = parseJsonSafely(text) as any;
-      // 若能直接抽关键字段，先兜底一下（真正的 v1→plan 在后续阶段）
-      if (j?.metadata) {
-        appName = j.metadata.appName || appName;
-        packageId = ensurePackageId(j.metadata.packageId || packageId, packageId);
+      const parsed = parseJsonSafely(text) as any;
+      _trace = { rawText: text, registryUsed: true, parsedMode: parsed?.metadata?.mode };
+
+      // 只做“提要级兜底”，真正的 v1→plan、白名单、前缀归一化由 sanitize/materialize 负责
+      if (parsed?.metadata) {
+        appName = parsed.metadata.appName || appName;
+        packageId = ensurePackageId(parsed.metadata.packageId || packageId, packageId);
       }
-      if (j?.anchors?.text) {
-        homeTitle = j.anchors.text["NDJC:HOME_TITLE"] || homeTitle;
-        mainButtonText = j.anchors.text["NDJC:PRIMARY_BUTTON_TEXT"] || mainButtonText;
+      const anchors = parsed?.anchors || parsed?.anchorsGrouped || {};
+      if (anchors?.text) {
+        homeTitle = anchors.text["NDJC:HOME_TITLE"] || homeTitle;
+        mainButtonText = anchors.text["NDJC:PRIMARY_BUTTON_TEXT"] || mainButtonText;
       }
-      if (Array.isArray(j?.anchors?.gradle?.resConfigs)) {
-        locales = normalizeLocales(j.anchors.gradle.resConfigs);
+      if (Array.isArray(anchors?.gradle?.resConfigs)) {
+        locales = normalizeLocales(anchors.gradle.resConfigs);
       }
-      if (Array.isArray(j?.anchors?.gradle?.permissions)) {
-        permissions = j.anchors.gradle.permissions;
+      if (Array.isArray(anchors?.gradle?.permissions)) {
+        permissions = anchors.gradle.permissions;
       }
-      if (allowCompanions && Array.isArray(j?.files)) {
-        companions = sanitizeCompanions(j.files);
+      if (allowCompanions && Array.isArray(parsed?.files)) {
+        companions = sanitizeCompanions(parsed.files);
       }
-    } catch {
-      // ignore, fallback to defaults
+
+      // 若 LLM 意外返回了非 B，则记录并“显式覆盖为 B”
+      if (parsed?.metadata?.mode && String(parsed.metadata.mode).toUpperCase() !== "B") {
+        _trace.modeOverriddenToB = true;
+      }
+    } catch (e: any) {
+      _trace = { error: e?.message || String(e), registryUsed: !!reg };
+      // 忽略错误，走默认兜底
     }
   }
 
@@ -262,7 +285,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   const proguardExtra = input.proguardExtra;
   const packagingRules = input.packagingRules;
 
-  // 若需强制 v1，在 _trace.rawText 中放入 v1 文档（便于下游写 01_orchestrator.json）
+  // 若需强制 v1、但上游没给任何可解析文本，则生成最小 v1 供记录（下游 01_xxx.json 可直接使用）
   if (wantV1(input) && (!_trace || !_trace.rawText)) {
     const v1doc = {
       metadata: {
@@ -287,7 +310,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       },
       files: allowCompanions ? companions : []
     };
-    _trace = { rawText: JSON.stringify(v1doc), registryUsed: !!reg };
+    _trace = { rawText: JSON.stringify(v1doc), registryUsed: !!reg, synthesized: true };
   }
 
   return {
