@@ -11,7 +11,7 @@ type Registry = {
   if: string[];
   hook: string[];
   resources?: string[];
-  aliases?: Record<string, string>;
+  aliases?: Record<string, string>; // 形如 "NDJC:MAIN_BUTTON" → "TEXT:NDJC:PRIMARY_BUTTON_TEXT"
 };
 
 type Companion = {
@@ -167,8 +167,8 @@ function withPrefix(kind: "BLOCK" | "LIST" | "IF" | "HOOK", xs: string[]): strin
 }
 
 function buildSystemPromptFromRegistry(reg: Registry): string {
-  // 注册表里非 TEXT 键是“去前缀”的；提示里展示为“带前缀”的允许清单，便于 LLM 照着生成。
-  const allowText = reg.text;
+  // 注册表中的非 TEXT 键在文件里是“去前缀”的；对 LLM，我们展示“带前缀”的完整白名单，禁止输出别名。
+  const allowText = reg.text; // TEXT 锚点本身就是完整键（NDJC:...）
   const allowBlock = withPrefix("BLOCK", reg.block);
   const allowList = withPrefix("LIST", reg.list);
   const allowIf = withPrefix("IF", reg.if);
@@ -177,14 +177,15 @@ function buildSystemPromptFromRegistry(reg: Registry): string {
   const lines: string[] = [];
   lines.push(`你是“念动即成 NDJC”的模板生成助手。**只输出严格 JSON**（不要 Markdown 代码块）。`);
   lines.push(`模板：${reg.template}`);
-  lines.push(`只允许使用以下锚点键：`);
+  lines.push(`只允许使用以下“规范锚点键名”（canonical keys）：`);
   lines.push(`- Text: ${allowText.join(", ")}`);
   lines.push(`- Block: ${allowBlock.join(", ")}`);
   lines.push(`- List: ${allowList.join(", ")}`);
   lines.push(`- If: ${allowIf.join(", ")}`);
   lines.push(`- Hook: ${allowHook.join(", ")}`);
   if (reg.resources?.length) lines.push(`- Resources: ${reg.resources.join(", ")}`);
-  lines.push(`请返回 **Contract v1** 文档，且 **metadata.mode 固定为 "B"**。结构示例如下：`);
+  lines.push(`禁止使用别名或未列出的键名。即使你知道某些别名，也必须将其映射为上面列出的规范键名，仅输出规范键名。`);
+  lines.push(`请返回 **Contract v1** 文档，且 **metadata.mode 固定为 "B"**。结构示例如下（仅示例，注意采用上面的允许清单）：`);
   lines.push(`{
   "metadata": { "template": "${reg.template}", "appName": "应用名", "packageId": "com.example.app", "mode": "B" },
   "anchors": {
@@ -195,13 +196,102 @@ function buildSystemPromptFromRegistry(reg: Registry): string {
     "hook":  { "HOOK:BEFORE_BUILD": "// gradle snippet" },
     "gradle": { "applicationId": "com.example.app", "resConfigs": ["en","zh-rCN"], "permissions": ["android.permission.POST_NOTIFICATIONS"] }
   },
-  "files": []  // 若允许伴生文件，可在此给出 [{path,content}]
+  "files": []
 }`);
-  lines.push(`要求：`);
-  lines.push(`1) 只能使用上面列出的锚点键（Block/List/If/Hook 键名可带前缀，也可不带，推荐带前缀）。`);
-  lines.push(`2) 缺省项请给空对象 {} 或空数组 []，不要发明新键。`);
-  lines.push(`3) 输出必须是可被 JSON.parse 解析的纯 JSON 文本。`);
+  lines.push(`要求：
+1) 只能使用上面列出的规范键名，严禁输出别名或未知键。
+2) 缺省项请给空对象 {} 或空数组 []，不要发明新键。
+3) 输出必须是可被 JSON.parse 解析的纯 JSON 文本。`);
   return lines.join("\n");
+}
+
+/* ----------------- alias & prefix normalization ----------------- */
+
+// 将别名映射到规范键；保持前缀完整（TEXT:/BLOCK:/LIST:/IF:/HOOK:）
+function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>): string {
+  const k = (key || "").trim();
+  if (!k) return k;
+
+  // 若 registry.aliases 提供的 value 已含前缀（如 "TEXT:NDJC:APP_LABEL"），直接使用
+  const direct = aliases?.[k];
+  if (direct) return direct;
+
+  // 对无前缀的情况，尽量补前缀（LLM 偶尔会漏写），仅用于常见类型预测
+  if (/^NDJC:/.test(k)) return `TEXT:${k}`;
+  if (/^BLOCK:/.test(k) || /^LIST:/.test(k) || /^IF:/.test(k) || /^HOOK:/.test(k)) return k;
+
+  // 简单启发：看关键字
+  if (/^ROUTES$|FIELDS$|FLAGS$|STYLES$|PATTERNS$|PROGUARD|SPLITS|STRINGS$/i.test(k)) return `LIST:${k}`;
+  if (/^PERMISSION|INTENT|NETWORK|FILE_PROVIDER/i.test(k)) return `IF:${k}`;
+  if (/^HOME_|^ROUTE_|^NAV_|^SPLASH_|^EMPTY_|^ERROR_|^DEPENDENCY_|^DEBUG_|^BUILD_|^HEADER_|^PROFILE_|^SETTINGS_/i.test(k)) return `BLOCK:${k}`;
+
+  // 默认不加前缀（未知键让 sanitize 丢弃），或由 TEXT 补救
+  return k;
+}
+
+// 将 anchors.* 中的键统一为规范形式，并将列表/布尔值等类型做轻量规整
+function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
+  const out: any = { text: {}, block: {}, list: {}, if: {}, hook: {}, gradle: {} };
+
+  const tryAssign = (dict: any, key: string, val: any) => {
+    if (key.startsWith("TEXT:")) dict.text[key.replace(/^TEXT:/, "") || key] = val;
+    else if (key.startsWith("BLOCK:")) dict.block[key.replace(/^BLOCK:/, "") || key] = val;
+    else if (key.startsWith("LIST:")) dict.list[key.replace(/^LIST:/, "") || key] = Array.isArray(val) ? val : (val == null ? [] : [val]);
+    else if (key.startsWith("IF:")) dict.if[key.replace(/^IF:/, "") || key] = !!val;
+    else if (key.startsWith("HOOK:")) dict.hook[key.replace(/^HOOK:/, "") || key] = Array.isArray(val) ? val.join("\n") : String(val ?? "");
+    // 其他：忽略，交由 sanitize/validator 决定
+  };
+
+  const from = raw || {};
+  const groups = ["text", "block", "list", "if", "hook"];
+  for (const g of groups) {
+    const m = from[g] || {};
+    for (const [k, v] of Object.entries(m)) {
+      const key0 = String(k);
+      // 如果 LLM 已带前缀，则先用原样；否则用 heuristics；最后用 aliases 覆盖
+      let key1 = key0;
+      if (!/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(key1)) {
+        key1 = normalizeKeyWithAliases(key1, reg.aliases);
+      }
+      // 别名映射优先（别名→规范）
+      const mapped = reg.aliases?.[key1] || reg.aliases?.[key0];
+      const key2 = mapped || key1;
+
+      tryAssign(out, key2, v);
+    }
+  }
+
+  // 一些 LLM 可能把 text 键直接放在 anchors 根上（不规范），尝试识别 NDJC: 开头作为 TEXT
+  for (const [k, v] of Object.entries(from)) {
+    if (groups.includes(k)) continue;
+    if (/^NDJC:/.test(k)) {
+      tryAssign(out, `TEXT:${k}`, v);
+    }
+  }
+
+  // gradle 透传（下游 sanitize 再细化）
+  if (from.gradle && typeof from.gradle === "object") {
+    out.gradle = { ...from.gradle };
+  }
+
+  // 把规范键裁剪到 registry 白名单范围（只保留 canonical）
+  const keep = {
+    text: new Set(reg.text), // TEXT 键是带 NDJC: 的“完整键”
+    block: new Set(reg.block),
+    list: new Set(reg.list),
+    if: new Set(reg.if),
+    hook: new Set(reg.hook)
+  };
+  const filterDict = (d: Record<string, any>, allow: Set<string>) =>
+    Object.fromEntries(Object.entries(d).filter(([k]) => allow.has(k)));
+
+  out.text = filterDict(out.text, keep.text);
+  out.block = filterDict(out.block, keep.block);
+  out.list = filterDict(out.list, keep.list);
+  out.if = filterDict(out.if, keep.if);
+  out.hook = filterDict(out.hook, keep.hook);
+
+  return out;
 }
 
 /* ----------------- main orchestrate ----------------- */
@@ -213,7 +303,8 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     block: [],
     list: ["ROUTES"], // 注意：无前缀
     if: [],
-    hook: []
+    hook: [],
+    aliases: {}
   };
 
   let appName = input.appName || "NDJC App";
@@ -246,24 +337,42 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       );
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
       const parsed = parseJsonSafely(text) as any;
-      _trace = { rawText: text, registryUsed: true, parsedMode: parsed?.metadata?.mode };
 
-      // 只做“提要级兜底”，真正的 v1→plan、白名单、前缀归一化由 sanitize/materialize 负责
+      // 归一化 anchors（别名→规范、补前缀），并裁剪到 registry 白名单
+      const rawAnchors = parsed?.anchors || parsed?.anchorsGrouped || {};
+      const normalized = normalizeAnchorsUsingRegistry(rawAnchors, reg);
+
+      _trace = {
+        rawText: text,
+        registryUsed: true,
+        parsedMode: parsed?.metadata?.mode,
+        anchorsBefore: rawAnchors,
+        anchorsAfter: normalized
+      };
+
       if (parsed?.metadata) {
         appName = parsed.metadata.appName || appName;
         packageId = ensurePackageId(parsed.metadata.packageId || packageId, packageId);
       }
-      const anchors = parsed?.anchors || parsed?.anchorsGrouped || {};
-      if (anchors?.text) {
-        homeTitle = anchors.text["NDJC:HOME_TITLE"] || homeTitle;
-        mainButtonText = anchors.text["NDJC:PRIMARY_BUTTON_TEXT"] || mainButtonText;
+
+      // 从规范化后的 text 中取关键 UI 文案
+      if (normalized?.text) {
+        homeTitle = normalized.text["NDJC:HOME_TITLE"] || homeTitle;
+        mainButtonText = normalized.text["NDJC:PRIMARY_BUTTON_TEXT"] || mainButtonText;
+        appName = normalized.text["NDJC:APP_LABEL"] || appName;
+        packageId = ensurePackageId(normalized.text["NDJC:PACKAGE_NAME"] || packageId, packageId);
       }
-      if (Array.isArray(anchors?.gradle?.resConfigs)) {
-        locales = normalizeLocales(anchors.gradle.resConfigs);
+
+      // gradle 补充
+      if (Array.isArray(normalized?.gradle?.resConfigs)) {
+        locales = normalizeLocales(normalized.gradle.resConfigs);
+      } else if (Array.isArray(parsed?.anchors?.gradle?.resConfigs)) {
+        locales = normalizeLocales(parsed.anchors.gradle.resConfigs);
       }
-      if (Array.isArray(anchors?.gradle?.permissions)) {
-        permissions = anchors.gradle.permissions;
+      if (Array.isArray(parsed?.anchors?.gradle?.permissions)) {
+        permissions = parsed.anchors.gradle.permissions;
       }
+
       if (allowCompanions && Array.isArray(parsed?.files)) {
         companions = sanitizeCompanions(parsed.files);
       }
@@ -285,7 +394,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   const proguardExtra = input.proguardExtra;
   const packagingRules = input.packagingRules;
 
-  // 若需强制 v1、但上游没给任何可解析文本，则生成最小 v1 供记录（下游 01_xxx.json 可直接使用）
+  // 若需强制 v1、但上游没给任何可解析文本，则生成最小 v1 供记录（保持与 registry 一致）
   if (wantV1(input) && (!_trace || !_trace.rawText)) {
     const v1doc = {
       metadata: {
