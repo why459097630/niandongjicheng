@@ -78,8 +78,6 @@
     "RES:raw/theme_colors.json",
     "RES:raw/seed_data.json"
   ],
-
-  /* 新增：必填项（required）与默认值（defaults） */
   "required": {
     "text": [
       "NDJC:PACKAGE_NAME",
@@ -106,15 +104,19 @@
       "NDJC:DEBUG_LOG_ENABLED": "true"
     },
     "list": {
-      "ROUTES": ["home"]
+      "ROUTES": [
+        "home"
+      ]
     },
     "gradle": {
-      "resConfigs": ["en", "zh-rCN", "zh-rTW"],
+      "resConfigs": [
+        "en",
+        "zh-rCN",
+        "zh-rTW"
+      ],
       "permissions": []
     }
   },
-
-  /* 仍保留 aliases，但只覆盖常见高频、无歧义别名 */
   "aliases": {
     "ROUTES": "LIST:ROUTES",
     "DEEPLINKS": "LIST:DEEPLINK_PATTERNS",
@@ -122,7 +124,6 @@
     "FEATURE_FLAGS": "LIST:REMOTE_FLAGS",
     "STYLES": "LIST:COMPONENT_STYLES",
     "PROGUARD": "LIST:PROGUARD_EXTRA",
-
     "PERMISSIONS": "IF:PERMISSION",
     "PERMISSION_CAMERA": "IF:PERMISSION.CAMERA",
     "CAMERA_PERMISSION": "IF:PERMISSION.CAMERA",
@@ -140,7 +141,6 @@
     "CLEAR_HTTP": "IF:NETWORK.CLEAR_TEXT",
     "HTTP_CLEAR_TEXT": "IF:NETWORK.CLEAR_TEXT",
     "SHARE_INTENT": "IF:INTENT.SHARE",
-
     "APPLICATION_ID": "TEXT:NDJC:PACKAGE_NAME",
     "NDJC:APPLICATION_ID": "TEXT:NDJC:PACKAGE_NAME",
     "APP_NAME": "TEXT:NDJC:APP_LABEL",
@@ -153,7 +153,6 @@
     "CTA_PRIMARY": "TEXT:NDJC:PRIMARY_BUTTON_TEXT",
     "THEME": "TEXT:NDJC:THEME_NAME",
     "NDJC:THEME": "TEXT:NDJC:THEME_NAME",
-
     "NAV_ANIMATIONS": "BLOCK:NAV_TRANSITIONS",
     "SPLASH": "BLOCK:SPLASH_CONTENT",
     "EMPTY_VIEW": "BLOCK:EMPTY_STATE",
