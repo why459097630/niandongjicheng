@@ -1,17 +1,23 @@
-Your previous reply violated the contract. Fix ALL issues and resend the **entire JSON** with the SAME key set as the SKELETON.
+The previous JSON violates the NDJC Contract v1.
 
-Violations:
-{{VIOLATIONS}}
+Detected issues:
+{{ISSUES}}
 
-Non-negotiable rules to satisfy now:
-1) Return **pure JSON** (no Markdown fences, no comments, no prose).
-2) Use **canonical keys only**; do not rename or add/remove any keys.
-3) Blocks/Hooks MUST be directly-injectable code/XML or raw JSON (NOT escaped JSON; NOT explanations).
-4) `files` MUST be present, with **path/kind/overwrite/content** for each item and **files.length ≥ 2**.
-   - Include at least:
-     - app/src/main/res/raw/theme_colors.json  (kind=json, overwrite=true, with a small JSON object)
-     - app/src/main/res/drawable/ic_stat_notify.xml (kind=xml, overwrite=true, valid VectorDrawable)
-5) Gradle/Kotlin hooks should contain plausible code (e.g., `dependencies {}`, `plugins {}`, `tasks.register(...)`).
-6) Ensure the JSON parses with JSON.parse without any post-processing.
+You must FIX ALL issues and RETURN THE FULL JSON AGAIN.
 
-Resend the full corrected JSON now.
+ABSOLUTE RULES
+- Keep EXACT SAME key set as the SKELETON (no add/remove/rename).
+- Use ONLY canonical keys (no aliases, no extras).
+- Use defaults where data is missing. Do NOT omit required keys.
+- Output RAW JSON ONLY (no Markdown, no code fences, no comments).
+
+STRICT TYPE & FORMAT
+- anchors.text: string
+- anchors.block: string (Kotlin/XML/Gradle snippet), NO code fences/backticks
+- anchors.list: string[] (array of strings only)
+- anchors.if: boolean (true/false literals only)
+- anchors.hook: string (no fences)
+- anchors.gradle: { applicationId: string; resConfigs?: string[]; permissions?: string[] }
+- files: path (project-relative, no "../"), content (string, no fences), overwrite?: boolean, kind?: "kotlin"|"xml"|"json"|"md"|"txt"
+
+DO NOT return a diff or partial fragment — return the FULL corrected JSON object now.
