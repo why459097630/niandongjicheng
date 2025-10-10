@@ -3,7 +3,7 @@ import path from "node:path";
 import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
-/* ---------- types ---------- */
+/* ----------------- types ----------------- */
 
 type Registry = {
   template: string;
@@ -89,7 +89,7 @@ export type OrchestrateOutput = {
   _trace?: any | null;
 };
 
-/* ---------- helpers ---------- */
+/* ----------------- helpers: general ----------------- */
 
 function wantV1(input: Partial<OrchestrateInput>): boolean {
   const envRaw = (process.env.NDJC_CONTRACT_V1 || "").trim().toLowerCase();
@@ -163,17 +163,34 @@ function sanitizeCompanions(list?: Companion[]): Companion[] {
       path: rel,
       content: typeof it.content === "string" ? it.content : "",
       overwrite: !!it.overwrite,
-      kind: it.kind || "txt",
+      kind: it.kind || "txt"
     });
   }
   return out;
 }
 
+async function loadFileTextMaybeJSON(filePath?: string): Promise<string | null> {
+  if (!filePath) return null;
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    // 尝试按 JSON 解析，若含有 { instruction } 字段，用 instruction
+    try {
+      const j = JSON.parse(raw);
+      if (j && typeof j.instruction === "string") return j.instruction;
+    } catch {
+      /* ignore */
+    }
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
 async function loadRegistry(): Promise<Registry | null> {
   const root = process.cwd();
   const hint =
-    process.env.REGISTRY_FILE ||
     process.env.NDJC_REGISTRY_FILE ||
+    process.env.REGISTRY_FILE ||
     path.join(root, "lib/ndjc/anchors/registry.circle-basic.json");
   try {
     const buf = await fs.readFile(hint, "utf8");
@@ -183,37 +200,12 @@ async function loadRegistry(): Promise<Registry | null> {
   }
 }
 
-/* ---------- prompt files (system + retry) ---------- */
-
-async function loadTextFileMaybe(p?: string | null): Promise<string | null> {
-  if (!p) return null;
-  try {
-    return await fs.readFile(p, "utf8");
-  } catch {
-    return null;
-  }
-}
-
-// contract_v1.en.json 可以是：
-// 1) 纯文本 (整文件就是 system prompt)
-// 2) JSON 对象形如 { "system": "..." }
-async function loadSystemPromptFromFile(p?: string | null): Promise<string | null> {
-  const t = await loadTextFileMaybe(p);
-  if (!t) return null;
-  try {
-    const j = JSON.parse(t);
-    if (j && typeof j.system === "string") return j.system;
-  } catch {
-    /* not JSON => treat as raw */
-  }
-  return t;
-}
-
 function withPrefix(kind: "BLOCK" | "LIST" | "IF" | "HOOK", xs: string[]): string[] {
   return (xs || []).map((k) => `${kind}:${k}`);
 }
 
-/** 把注册表变成“可回填骨架表单”：所有 canonical 键都出现，值给空/默认 */
+/* ----------------- skeleton & prompts ----------------- */
+
 function buildSkeletonFromRegistry(
   reg: Registry,
   seed: { appName: string; packageId: string; locales: string[] }
@@ -233,7 +225,7 @@ function buildSkeletonFromRegistry(
   for (const k of reg.block) block[k] = "";
 
   const list: Record<string, string[]> = {};
-  for (const k of reg.list) list[k] = defList[k] ?? [];
+  for (const k of reg.list) list[k] = (defList[k] ?? []);
 
   const iff: Record<string, boolean> = {};
   for (const k of reg.if) iff[k] = false;
@@ -244,74 +236,63 @@ function buildSkeletonFromRegistry(
   const gradle = {
     applicationId: seed.packageId || defGradle.applicationId || "",
     resConfigs: seed.locales.length ? seed.locales : (defGradle.resConfigs || []),
-    permissions: defGradle.permissions || [],
+    permissions: defGradle.permissions || []
   };
 
   return {
     metadata: { template: reg.template, appName: seed.appName, packageId: seed.packageId, mode: "B" },
     anchors: { text, block, list, if: iff, hook, gradle },
-    files: [] as any[],
+    files: [] as any[]
   };
 }
 
-/** 生成“类型与格式规范”文本，用于拼到 system prompt */
-function buildTypeContractText(reg: Registry): string {
-  // 简明的“强约束”规范
-  const lines: string[] = [];
-  lines.push("Return **Contract v1** JSON. Keys are fixed (must match the SKELETON). Value types:");
-  lines.push("- anchors.text: Record<string, string> (pure string; no code fences).");
-  lines.push("- anchors.block: Record<string, string> (Kotlin/XML/Gradle snippet as plain string; **no Markdown fences**).");
-  lines.push("- anchors.list: Record<string, string[]> (array of strings; no objects).");
-  lines.push("- anchors.if: Record<string, boolean> (strict boolean: true/false).");
-  lines.push("- anchors.hook: Record<string, string> (plain string snippet; **no Markdown fences**).");
-  lines.push("- anchors.gradle: { applicationId: string; resConfigs?: string[]; permissions?: string[] }.");
-  lines.push("- files: Companion files array [{path, content, overwrite?, kind?}]. Paths must be project-relative and never escape (no ../).");
-  lines.push("Do not invent new keys. Do not omit required keys. If missing info, use defaults provided above. Output must be raw JSON (no Markdown).");
-  return lines.join("\n");
-}
-
-/** 把 registry + skeleton 等替换进 system prompt 模板（若有） */
-function renderSystemPromptTemplate(tmpl: string, reg: Registry, skeleton: any) {
-  const allowText = reg.text.join(", ");
-  const allowBlock = withPrefix("BLOCK", reg.block).join(", ");
-  const allowList = withPrefix("LIST", reg.list).join(", ");
-  const allowIf = withPrefix("IF", reg.if).join(", ");
-  const allowHook = withPrefix("HOOK", reg.hook).join(", ");
+function fallbackSystemFromRegistry(reg: Registry): string {
+  const allowText = reg.text;
+  const allowBlock = withPrefix("BLOCK", reg.block);
+  const allowList  = withPrefix("LIST",  reg.list);
+  const allowIf    = withPrefix("IF",    reg.if);
+  const allowHook  = withPrefix("HOOK",  reg.hook);
   const required = {
-    text: (reg.required?.text || []).join(", "),
-    list: (reg.required?.list || []).join(", "),
-    block: (reg.required?.block || []).join(", "),
-    if: (reg.required?.if || []).join(", "),
-    hook: (reg.required?.hook || []).join(", "),
-    gradle: (reg.required?.gradle || []).join(", "),
+    text: reg.required?.text || [],
+    list: reg.required?.list || [],
+    block: reg.required?.block || [],
+    if: reg.required?.if || [],
+    hook: reg.required?.hook || [],
+    gradle: reg.required?.gradle || []
   };
-  const defaults = {
-    text: JSON.stringify(reg.defaults?.text || {}),
-    list: JSON.stringify(reg.defaults?.list || {}),
-    gradle: JSON.stringify(reg.defaults?.gradle || {}),
-  };
-
-  return tmpl
-    .replaceAll("{{TEMPLATE}}", reg.template || "circle-basic")
-    .replaceAll("{{CANONICAL_TEXT}}", allowText)
-    .replaceAll("{{CANONICAL_BLOCK}}", allowBlock)
-    .replaceAll("{{CANONICAL_LIST}}", allowList)
-    .replaceAll("{{CANONICAL_IF}}", allowIf)
-    .replaceAll("{{CANONICAL_HOOK}}", allowHook)
-    .replaceAll("{{REQUIRED_TEXT}}", required.text || "(none)")
-    .replaceAll("{{REQUIRED_LIST}}", required.list || "(none)")
-    .replaceAll("{{REQUIRED_BLOCK}}", required.block || "(none)")
-    .replaceAll("{{REQUIRED_IF}}", required.if || "(none)")
-    .replaceAll("{{REQUIRED_HOOK}}", required.hook || "(none)")
-    .replaceAll("{{REQUIRED_GRADLE}}", required.gradle || "(none)")
-    .replaceAll("{{DEFAULTS_TEXT}}", defaults.text)
-    .replaceAll("{{DEFAULTS_LIST}}", defaults.list)
-    .replaceAll("{{DEFAULTS_GRADLE}}", defaults.gradle)
-    .replaceAll("{{SKELETON_JSON}}", JSON.stringify(skeleton, null, 2))
-    .concat("\n\n", buildTypeContractText(reg));
+  const defaults = reg.defaults || {};
+  return [
+    `You are NDJC assistant. Output STRICT JSON only (no code fences).`,
+    `Template: ${reg.template}`,
+    `Allowed anchor keys ONLY (canonical names):`,
+    `- Text: ${allowText.join(", ")}`,
+    `- Block: ${allowBlock.join(", ")}`,
+    `- List: ${allowList.join(", ")}`,
+    `- If: ${allowIf.join(", ")}`,
+    `- Hook: ${allowHook.join(", ")}`,
+    `Required keys:`,
+    `- text.required: ${required.text.join(", ") || "(none)"}`,
+    `- list.required: ${required.list.join(", ") || "(none)"}`,
+    `- gradle.required: ${required.gradle.join(", ") || "(none)"}`,
+    `Defaults to use when info missing:`,
+    `- text.defaults: ${JSON.stringify(defaults.text || {})}`,
+    `- list.defaults: ${JSON.stringify(defaults.list || {})}`,
+    `- gradle.defaults: ${JSON.stringify(defaults.gradle || {})}`,
+    `Return Contract v1 JSON and make sure the key-set exactly matches the provided SKELETON.`
+  ].join("\n");
 }
 
-/* ---------- alias & prefix normalization ---------- */
+function interpolate(str: string, vars: Record<string, string>): string {
+  if (!str) return str;
+  let out = str;
+  for (const [k, v] of Object.entries(vars)) {
+    const re = new RegExp(`{{\\s*${k}\\s*}}`, "g");
+    out = out.replace(re, v);
+  }
+  return out;
+}
+
+/* ----------------- alias & normalization ----------------- */
 
 function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>): string {
   const k = (key || "").trim();
@@ -321,7 +302,7 @@ function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>):
   if (/^NDJC:/.test(k)) return `TEXT:${k}`;
   if (/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k)) return k;
 
-  // 最小宽松推断（几乎不会触发；主要靠 skeleton 锁死）
+  // 最小宽松推断（基本不会触发，因为我们“表单锁死”）
   if (/^ROUTES$|FIELDS$|FLAGS$|STYLES$|PATTERNS$|PROGUARD|SPLITS|STRINGS$/i.test(k)) return `LIST:${k}`;
   if (/^PERMISSION|INTENT|NETWORK|FILE_PROVIDER/i.test(k)) return `IF:${k}`;
   if (/^HOME_|^ROUTE_|^NAV_|^SPLASH_|^EMPTY_|^ERROR_|^DEPENDENCY_|^DEBUG_|^BUILD_|^HEADER_|^PROFILE_|^SETTINGS_/i.test(k)) return `BLOCK:${k}`;
@@ -359,181 +340,170 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
     block: new Set(reg.block),
     list: new Set(reg.list),
     if: new Set(reg.if),
-    hook: new Set(reg.hook),
+    hook: new Set(reg.hook)
   };
   const filterDict = (d: Record<string, any>, allow: Set<string>) =>
     Object.fromEntries(Object.entries(d).filter(([k]) => allow.has(k)));
 
-  out.text = filterDict(out.text, keep.text);
+  out.text  = filterDict(out.text,  keep.text);
   out.block = filterDict(out.block, keep.block);
-  out.list = filterDict(out.list, keep.list);
-  out.if = filterDict(out.if, keep.if);
-  out.hook = filterDict(out.hook, keep.hook);
+  out.list  = filterDict(out.list,  keep.list);
+  out.if    = filterDict(out.if,    keep.if);
+  out.hook  = filterDict(out.hook,  keep.hook);
 
   return out;
 }
 
-/* ---------- type validation & coercion ---------- */
+/* ----------------- value-format validation ----------------- */
 
-function stripCodeFences(s: string): string {
-  const t = (s ?? "").trim();
-  // remove ```...``` fences if present
-  const m = t.match(/^```[a-zA-Z0-9]*\s*([\s\S]*?)\s*```$/);
-  return m ? m[1].trim() : t;
+function isPlaceholderLike(s: string): boolean {
+  const v = (s || "").trim();
+  if (!v) return true;
+  const lower = v.toLowerCase();
+  if (["n/a", "na", "none", "null", "undefined", "tbd", "todo", "example", "sample", "placeholder"].includes(lower)) return true;
+  if (/^\{\{.+\}\}$/.test(v)) return true; // {{var}}
+  if (/^lorem(?:\s|$)/i.test(v)) return true;
+  if (v === "{}" || v === "[]") return true;
+  if (/^<!--.*-->$/.test(v)) return true;
+  return false;
 }
 
-function asString(x: any): string {
-  if (x == null) return "";
-  if (typeof x === "string") return stripCodeFences(x);
-  try { return stripCodeFences(JSON.stringify(x)); } catch { return String(x); }
-}
-function asStringArray(x: any): string[] {
-  if (Array.isArray(x)) return x.map((v) => String(v));
-  if (x == null || x === "") return [];
-  return [String(x)];
-}
-function asBoolean(x: any): boolean {
-  if (typeof x === "boolean") return x;
-  const s = String(x).trim().toLowerCase();
-  return !(s === "" || s === "false" || s === "0" || s === "no" || s === "off" || s === "null" || s === "undefined");
+function looksLikeCodeOrXml(s: string): boolean {
+  const v = (s || "").trim();
+  if (v.length < 4) return false;
+  if (v.startsWith("<") && v.endsWith(">")) return true;          // XML-ish
+  if (/^(import |class |object |fun |val |var |dependencies\s*\{)/m.test(v)) return true; // Kotlin/Gradle hint
+  if (/^\/\/|\/\*|\*\/|<!--/.test(v)) return true;                // comment markers often around code blocks
+  return false; // allow normal text too; we just don't want empty/placeholder
 }
 
-function validateAndCoerce(anchors: any, reg: Registry) {
-  const issues: string[] = [];
-  const coerced = { text: {}, block: {}, list: {}, if: {}, hook: {}, gradle: {} as any } as any;
+type ValidationReport = {
+  missing: string[];
+  badFormat: string[];
+  filledByDefault: { text: string[]; list: string[]; gradle: string[] };
+};
 
-  // text
-  for (const k of reg.text) {
-    const v = anchors?.text?.[k];
-    if (v == null) continue;
-    const sv = asString(v);
-    coerced.text[k] = sv;
-    if (typeof v !== "string") issues.push(`text:${k} expected string; got ${typeof v} -> coerced`);
-  }
-
-  // block
-  for (const k of reg.block) {
-    const v = anchors?.block?.[k];
-    if (v == null) continue;
-    const sv = asString(v);
-    coerced.block[k] = sv;
-    if (typeof v !== "string") issues.push(`block:${k} expected string; got ${typeof v} -> coerced`);
-    if (/^```/.test(String(v).trim())) issues.push(`block:${k} must NOT use Markdown fences -> stripped`);
-  }
-
-  // list
-  for (const k of reg.list) {
-    const v = anchors?.list?.[k];
-    if (v == null) continue;
-    const arr = asStringArray(v);
-    coerced.list[k] = arr;
-    if (!Array.isArray(v)) issues.push(`list:${k} expected string[]; got ${typeof v} -> coerced`);
-  }
-
-  // if
-  for (const k of reg.if) {
-    const v = anchors?.if?.[k];
-    if (v == null) continue;
-    const b = asBoolean(v);
-    coerced.if[k] = b;
-    if (typeof v !== "boolean") issues.push(`if:${k} expected boolean; got ${typeof v} -> coerced`);
-  }
-
-  // hook
-  for (const k of reg.hook) {
-    const v = anchors?.hook?.[k];
-    if (v == null) continue;
-    const sv = asString(v);
-    coerced.hook[k] = sv;
-    if (typeof v !== "string") issues.push(`hook:${k} expected string; got ${typeof v} -> coerced`);
-    if (/^```/.test(String(v).trim())) issues.push(`hook:${k} must NOT use Markdown fences -> stripped`);
-  }
-
-  // gradle
-  const g = anchors?.gradle || {};
-  coerced.gradle = {
-    applicationId: g.applicationId ? ensurePackageId(String(g.applicationId)) : undefined,
-    resConfigs: Array.isArray(g.resConfigs) ? g.resConfigs.map(String) : undefined,
-    permissions: Array.isArray(g.permissions) ? g.permissions.map(String) : undefined,
-  };
-
-  return { anchors: coerced, issues };
-}
-
-/* ---------- required/defaults checking ---------- */
-
-function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
+function validateAndFill(doc: any, reg: Registry): { ok: boolean; report: ValidationReport; doc: any } {
   const req = reg.required || {};
   const def = reg.defaults || {};
-  const report = {
-    filled: { text: [] as string[], list: [] as string[], gradle: [] as string[] },
-    missing: [] as string[],
-  };
+  const report: ValidationReport = { missing: [], badFormat: [], filledByDefault: { text: [], list: [], gradle: [] } };
 
-  // TEXT required
-  for (const k of req.text || []) {
-    if (!doc.text?.[k]) {
-      const dv = def.text?.[k] ?? "";
-      if (dv !== "") {
-        doc.text[k] = dv;
-        report.filled.text.push(k);
-      } else {
-        report.missing.push(`text:${k}`);
+  // ensure containers
+  doc.text  = doc.text  || {};
+  doc.list  = doc.list  || {};
+  doc.block = doc.block || {};
+  doc.if    = doc.if    || {};
+  doc.hook  = doc.hook  || {};
+  doc.gradle = doc.gradle || {};
+
+  // text: string & non-placeholder
+  for (const k of reg.text) {
+    const cur = doc.text[k];
+    if (req.text?.includes(k)) {
+      if (typeof cur !== "string" || isPlaceholderLike(cur)) {
+        const dv = def.text?.[k];
+        if (typeof dv === "string" && !isPlaceholderLike(dv)) {
+          doc.text[k] = dv;
+          report.filledByDefault.text.push(k);
+        } else {
+          report.missing.push(`text:${k}`);
+        }
       }
+    } else if (cur != null && typeof cur !== "string") {
+      report.badFormat.push(`text:${k}:must-string`);
+      doc.text[k] = String(cur ?? "");
     }
   }
 
-  // LIST required
-  for (const k of req.list || []) {
-    const cur = doc.list?.[k];
-    if (!Array.isArray(cur) || cur.length === 0) {
-      const dv = def.list?.[k] ?? [];
-      if (dv.length) {
-        doc.list[k] = dv;
-        report.filled.list.push(k);
+  // list: string[]
+  for (const k of reg.list) {
+    const cur = doc.list[k];
+    const asArr = Array.isArray(cur) ? cur.map(String).filter((s) => !isPlaceholderLike(s)) : [];
+    if (req.list?.includes(k)) {
+      if (asArr.length === 0) {
+        const dv = def.list?.[k] || [];
+        if (dv.length) {
+          doc.list[k] = dv;
+          report.filledByDefault.list.push(k);
+        } else {
+          report.missing.push(`list:${k}`);
+        }
       } else {
-        report.missing.push(`list:${k}`);
-      }
-    }
-  }
-
-  // GRADLE required
-  if (!doc.gradle) doc.gradle = {};
-  for (const k of req.gradle || []) {
-    if (k === "applicationId") {
-      let appId =
-        doc.gradle.applicationId ||
-        doc.text?.["NDJC:PACKAGE_NAME"] ||
-        def.text?.["NDJC:PACKAGE_NAME"] ||
-        def.gradle?.applicationId;
-      appId = ensurePackageId(appId, "com.ndjc.demo.core");
-      if (!appId) report.missing.push("gradle:applicationId");
-      else {
-        doc.gradle.applicationId = appId;
-        if (!doc.text["NDJC:PACKAGE_NAME"]) doc.text["NDJC:PACKAGE_NAME"] = appId;
-        report.filled.gradle.push("applicationId");
+        doc.list[k] = asArr;
       }
     } else {
-      if (doc.gradle[k] == null && (def.gradle as any)?.[k] != null) {
-        (doc.gradle as any)[k] = (def.gradle as any)[k];
-        report.filled.gradle.push(k);
-      }
+      doc.list[k] = asArr; // normalize
     }
   }
 
-  // 额外：resConfigs/permissions 默认
-  if (!Array.isArray(doc.gradle.resConfigs) && Array.isArray(def.gradle?.resConfigs)) {
-    doc.gradle.resConfigs = def.gradle!.resConfigs;
-  }
-  if (!Array.isArray(doc.gradle.permissions) && Array.isArray(def.gradle?.permissions)) {
-    doc.gradle.permissions = def.gradle!.permissions;
+  // if: boolean
+  for (const k of reg.if) {
+    const cur = doc.if[k];
+    if (typeof cur !== "boolean") {
+      // not required, but normalize
+      doc.if[k] = !!cur;
+    }
   }
 
-  const ok = report.missing.length === 0;
+  // block/hook: non-empty string (not placeholder)
+  for (const k of reg.block) {
+    const cur = doc.block[k];
+    if (cur == null) continue; // optional unless在 required.block 中
+    const s = String(cur);
+    if (req.block?.includes(k)) {
+      if (isPlaceholderLike(s)) {
+        report.missing.push(`block:${k}`);
+      }
+    } else if (isPlaceholderLike(s)) {
+      // 留空也可，但如果模型给了占位符，提示为 badFormat 以便重试修正
+      report.badFormat.push(`block:${k}:placeholder`);
+    }
+    // 允许代码/XML/普通文字，不强制 looksLikeCodeOrXml，只要非占位
+  }
+  for (const k of reg.hook) {
+    const cur = doc.hook[k];
+    if (cur == null) continue;
+    const s = String(cur);
+    if (req.hook?.includes(k)) {
+      if (isPlaceholderLike(s)) {
+        report.missing.push(`hook:${k}`);
+      }
+    } else if (isPlaceholderLike(s)) {
+      report.badFormat.push(`hook:${k}:placeholder`);
+    }
+  }
+
+  // gradle required (applicationId etc.)
+  if (req.gradle?.includes("applicationId")) {
+    let appId =
+      doc.gradle.applicationId ||
+      doc.text["NDJC:PACKAGE_NAME"] ||
+      reg.defaults?.text?.["NDJC:PACKAGE_NAME"] ||
+      reg.defaults?.gradle?.applicationId ||
+      "";
+    appId = ensurePackageId(appId, "com.ndjc.demo.core");
+    if (!appId) report.missing.push("gradle:applicationId");
+    else {
+      doc.gradle.applicationId = appId;
+      if (!doc.text["NDJC:PACKAGE_NAME"]) doc.text["NDJC:PACKAGE_NAME"] = appId;
+      report.filledByDefault.gradle.push("applicationId");
+    }
+  }
+  // normalize gradle extras
+  if (!Array.isArray(doc.gradle.resConfigs) && Array.isArray(reg.defaults?.gradle?.resConfigs)) {
+    doc.gradle.resConfigs = reg.defaults!.gradle!.resConfigs;
+    report.filledByDefault.gradle.push("resConfigs");
+  }
+  if (!Array.isArray(doc.gradle.permissions) && Array.isArray(reg.defaults?.gradle?.permissions)) {
+    doc.gradle.permissions = reg.defaults!.gradle!.permissions;
+    report.filledByDefault.gradle.push("permissions");
+  }
+
+  const ok = report.missing.length === 0 && report.badFormat.length === 0;
   return { ok, report, doc };
 }
 
-/* ---------- main orchestrate ---------- */
+/* ----------------- main orchestrate ----------------- */
 
 export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateOutput> {
   const reg =
@@ -545,168 +515,115 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       if: [],
       hook: [],
       aliases: {},
-      required: {
-        text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"],
-        list: ["ROUTES"],
-        gradle: ["applicationId"],
-      },
-      defaults: {
-        text: {
-          "NDJC:PACKAGE_NAME": "com.ndjc.demo.core",
-          "NDJC:APP_LABEL": "NDJC App",
-          "NDJC:HOME_TITLE": "Home",
-          "NDJC:PRIMARY_BUTTON_TEXT": "Start",
-        },
-        list: { ROUTES: ["home"] },
-        gradle: { resConfigs: ["en", "zh-rCN", "zh-rTW"], permissions: [] },
-      },
+      required: { text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"], list: ["ROUTES"], gradle: ["applicationId"] },
+      defaults: { text: { "NDJC:PACKAGE_NAME": "com.ndjc.demo.core", "NDJC:APP_LABEL": "NDJC App", "NDJC:HOME_TITLE": "Home", "NDJC:PRIMARY_BUTTON_TEXT": "Start" }, list: { "ROUTES": ["home"] }, gradle: { resConfigs: ["en", "zh-rCN", "zh-rTW"], permissions: [] } }
     };
 
   let appName = input.appName || reg.defaults?.text?.["NDJC:APP_LABEL"] || "NDJC App";
   let homeTitle = input.homeTitle || reg.defaults?.text?.["NDJC:HOME_TITLE"] || "Home";
   let mainButtonText = input.mainButtonText || reg.defaults?.text?.["NDJC:PRIMARY_BUTTON_TEXT"] || "Start";
-  let packageId = ensurePackageId(
-    input.packageId || input.packageName || reg.defaults?.text?.["NDJC:PACKAGE_NAME"],
-    "com.ndjc.demo.core"
-  );
+  let packageId = ensurePackageId(input.packageId || input.packageName || reg.defaults?.text?.["NDJC:PACKAGE_NAME"], "com.ndjc.demo.core");
 
   let permissions = input.permissions || [];
   let intentHost = input.intentHost ?? null;
   let locales = normalizeLocales(input.locales);
+
   let companions: Companion[] = Array.isArray(input._companions) ? sanitizeCompanions(input._companions) : [];
 
   const mode: "A" | "B" = "B";
   const allowCompanions = !!input.allowCompanions && mode === "B";
-  const template = (input.template as any) || reg.template || "circle-basic";
+  const template = (input.template as any) || (reg.template || "circle-basic");
 
   let _trace: any | null = { retries: [] };
 
-  // Build skeleton and system prompt (from file or fallback builder)
-  const skeleton = buildSkeletonFromRegistry(reg, { appName, packageId, locales });
-  const sysFile = process.env.NDJC_PROMPT_SYSTEM_FILE || "lib/ndjc/prompts/contract_v1.en.json";
-  let system = (await loadSystemPromptFromFile(sysFile)) || "";
-  if (system) {
-    system = renderSystemPromptTemplate(system, reg, skeleton);
-  } else {
-    // fallback inline system prompt
-    const allowText = reg.text.join(", ");
-    const allowBlock = withPrefix("BLOCK", reg.block).join(", ");
-    const allowList = withPrefix("LIST", reg.list).join(", ");
-    const allowIf = withPrefix("IF", reg.if).join(", ");
-    const allowHook = withPrefix("HOOK", reg.hook).join(", ");
+  // ---------- load external prompts (system & retry) ----------
+  const systemFile = process.env.NDJC_PROMPT_SYSTEM_FILE || "lib/ndjc/prompts/contract_v1.en.json";
+  const retryFile  = process.env.NDJC_PROMPT_RETRY_FILE  || "lib/ndjc/prompts/contract_v1.retry.en.txt";
+  const systemRaw  = (await loadFileTextMaybeJSON(systemFile)) || "";
+  const retryRaw   = (await loadFileTextMaybeJSON(retryFile))  || "";
 
-    const lines: string[] = [];
-    lines.push(`You are NDJC's contract generator. Output raw JSON only (no Markdown fences). Template: ${reg.template}`);
-    lines.push(`Allowed canonical keys:`);
-    lines.push(`- Text: ${allowText}`);
-    lines.push(`- Block: ${allowBlock}`);
-    lines.push(`- List: ${allowList}`);
-    lines.push(`- If: ${allowIf}`);
-    lines.push(`- Hook: ${allowHook}`);
-    lines.push(`Required: text=[${(reg.required?.text || []).join(", ")}], list=[${(reg.required?.list || []).join(", ")}], gradle=[${(reg.required?.gradle || []).join(", ")}]`);
-    lines.push(`Defaults: text=${JSON.stringify(reg.defaults?.text || {})}, list=${JSON.stringify(reg.defaults?.list || {})}, gradle=${JSON.stringify(reg.defaults?.gradle || {})}`);
-    lines.push(buildTypeContractText(reg));
-    lines.push(`SKELETON:\n${JSON.stringify(skeleton, null, 2)}`);
-    system = lines.join("\n");
-  }
+  // Build skeleton + system prompt (interpolate)
+  const skeleton = buildSkeletonFromRegistry(reg, { appName, packageId, locales });
+  const allowText = reg.text.join(", ");
+  const allowBlock = withPrefix("BLOCK", reg.block).join(", ");
+  const allowList  = withPrefix("LIST",  reg.list ).join(", ");
+  const allowIf    = withPrefix("IF",    reg.if   ).join(", ");
+  const allowHook  = withPrefix("HOOK",  reg.hook ).join(", ");
+  const requiredText = (reg.required?.text || []).join(", ");
+  const requiredList = (reg.required?.list || []).join(", ");
+  const requiredGradle = (reg.required?.gradle || []).join(", ");
+
+  const system = (systemRaw || fallbackSystemFromRegistry(reg));
+  const systemInterpolated = interpolate(system, {
+    TEMPLATE: reg.template,
+    ALLOWED_TEXT: allowText,
+    ALLOWED_BLOCK: allowBlock,
+    ALLOWED_LIST: allowList,
+    ALLOWED_IF: allowIf,
+    ALLOWED_HOOK: allowHook,
+    REQUIRED_TEXT: requiredText || "(none)",
+    REQUIRED_LIST: requiredList || "(none)",
+    REQUIRED_GRADLE: requiredGradle || "(none)",
+    DEFAULTS_TEXT_JSON: JSON.stringify(reg.defaults?.text || {}),
+    DEFAULTS_LIST_JSON: JSON.stringify(reg.defaults?.list || {}),
+    DEFAULTS_GRADLE_JSON: JSON.stringify(reg.defaults?.gradle || {})
+  });
 
   const baseUser = [
-    `Strictly fill every field in the SKELETON without adding/removing keys.`,
-    `If data is missing, use the declared defaults. Return raw JSON only.`,
-    input.requirement?.trim() ? `User requirement: ${input.requirement!.trim()}` : ``,
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `STRICTLY fill the following SKELETON and return **JSON only** (no explanations, no code fences).`,
+    `Rules:`,
+    `- Do NOT add or remove any key;`,
+    `- Use defaults when info is missing;`,
+    `- Types: text=string (non-placeholder), block/hook=string (non-placeholder), list=string[], if=boolean, gradle per example;`,
+    `SKELETON:`,
+    JSON.stringify(skeleton, null, 2),
+    (input.requirement?.trim() ? `Extra requirement: ${input.requirement!.trim()}` : ``)
+  ].filter(Boolean).join("\n");
 
-  const retryFile = process.env.NDJC_PROMPT_RETRY_FILE || "lib/ndjc/prompts/contract_v1.retry.en.txt";
-  const retryTemplate = (await loadTextFileMaybe(retryFile)) || `The previous JSON violated constraints.\nMissing/invalid:\n{{ISSUES}}\nPlease fix and return the full JSON again (same keys as SKELETON).`;
-
-  // Generate + validate + retry loop
+  // ---------- generate + validate + retry ----------
   const maxRetries = 2;
   let parsed: any = null;
   let lastText = "";
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const msgs: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-        { role: "system", content: system },
-        { role: "user", content: baseUser },
+      const msgs: any[] = [
+        { role: "system", content: systemInterpolated },
+        { role: "user", content: baseUser }
       ];
       if (attempt > 0 && lastText) {
         msgs.push({ role: "assistant", content: lastText });
       }
+      if (attempt > 0 && _trace.retries?.[attempt - 1]?.feedback) {
+        const retryPrompt = interpolate(
+          retryRaw ||
+            "Missing:\n{{missing}}\nBad format:\n{{bad}}\nReturn full JSON again with same key-set.",
+          {
+            missing: (_trace.retries[attempt - 1].report?.missing || []).join("\n- "),
+            bad: (_trace.retries[attempt - 1].report?.badFormat || []).join("\n- ")
+          }
+        );
+        msgs.push({ role: "user", content: retryPrompt });
+      }
+
       const r = await callGroqChat(msgs, { json: true, temperature: 0 });
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
       lastText = text;
       const maybe = parseJsonSafely(text) as any;
 
-      // 归一化 + 类型校验&纠偏 + 必填/defaults
       const normalized = normalizeAnchorsUsingRegistry(maybe?.anchors || maybe?.anchorsGrouped || {}, reg);
-      const { anchors: coerced, issues: typeIssues } = validateAndCoerce(normalized, reg);
-      const { ok, report, doc } = applyDefaultsAndCheckRequired(
-        { ...coerced, gradle: maybe?.anchors?.gradle || maybe?.gradle || coerced.gradle || {} },
-        reg
-      );
+      const { ok, report, doc } = validateAndFill({ ...normalized, gradle: maybe?.anchors?.gradle || maybe?.gradle || {} }, reg);
 
-      parsed = {
-        metadata: maybe?.metadata || {},
-        anchors: doc,
-        _raw: maybe,
-        _text: text,
-        _report: report,
-        _typeIssues: typeIssues,
-        _ok: ok,
-      };
-
-      const problems = [
-        ...typeIssues,
-        ...(report.missing || []),
-      ];
-      _trace.retries.push({ attempt, ok, typeIssues, missing: report.missing });
+      parsed = { metadata: maybe?.metadata || {}, anchors: doc, _raw: maybe, _text: text, _report: report, _ok: ok };
+      _trace.retries.push({ attempt, ok, report });
 
       if (ok) break;
-
-      if (attempt < maxRetries) {
-        const feedback = retryTemplate.replace("{{ISSUES}}", problems.map((s) => `- ${s}`).join("\n") || "- (unspecified)");
-        // 覆盖 baseUser，用“纠偏指令”再来一轮
-        const rr = await callGroqChat(
-          [
-            { role: "system", content: system },
-            { role: "assistant", content: lastText },
-            { role: "user", content: feedback },
-          ],
-          { json: true, temperature: 0 }
-        );
-        const text2 = typeof rr === "string" ? rr : (rr as any)?.text ?? "";
-        lastText = text2;
-        const maybe2 = parseJsonSafely(text2) as any;
-
-        const normalized2 = normalizeAnchorsUsingRegistry(maybe2?.anchors || maybe2?.anchorsGrouped || {}, reg);
-        const { anchors: coerced2, issues: typeIssues2 } = validateAndCoerce(normalized2, reg);
-        const { ok: ok2, report: report2, doc: doc2 } = applyDefaultsAndCheckRequired(
-          { ...coerced2, gradle: maybe2?.anchors?.gradle || maybe2?.gradle || coerced2.gradle || {} },
-          reg
-        );
-
-        parsed = {
-          metadata: maybe2?.metadata || {},
-          anchors: doc2,
-          _raw: maybe2,
-          _text: text2,
-          _report: report2,
-          _typeIssues: typeIssues2,
-          _ok: ok2,
-        };
-        _trace.retries.push({ attempt: attempt + 0.5, ok: ok2, typeIssues: typeIssues2, missing: report2.missing });
-
-        if (ok2) break;
-      }
     } catch (e: any) {
       _trace.retries.push({ attempt, error: e?.message || String(e) });
     }
   }
 
-  // 抽取关键值
+  // ---------- extract key values ----------
   if (parsed?.metadata) {
     appName = parsed.metadata.appName || appName;
     packageId = ensurePackageId(parsed.metadata.packageId || packageId, packageId);
@@ -729,7 +646,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     companions = sanitizeCompanions(parsed._raw.files);
   }
 
-  // 兜底：若必须 v1 且完全无返回，则合成最小 v1
+  // ---------- fallback minimal v1 if nothing ----------
   if (wantV1(input) && (!parsed || !parsed._text)) {
     const v1doc = {
       metadata: { runId: (input as any).runId || undefined, template, appName, packageId, mode },
@@ -738,15 +655,15 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
           "NDJC:PACKAGE_NAME": packageId,
           "NDJC:APP_LABEL": appName,
           "NDJC:HOME_TITLE": homeTitle,
-          "NDJC:PRIMARY_BUTTON_TEXT": mainButtonText,
+          "NDJC:PRIMARY_BUTTON_TEXT": mainButtonText
         },
         block: {},
-        list: { ROUTES: ["home"] },
+        list: { "LIST:ROUTES": ["home"] },
         if: {},
         hook: {},
-        gradle: { applicationId: packageId, resConfigs: locales, permissions },
+        gradle: { applicationId: packageId, resConfigs: locales, permissions }
       },
-      files: allowCompanions ? companions : [],
+      files: allowCompanions ? companions : []
     };
     _trace.synthesized = true;
     _trace.rawText = JSON.stringify(v1doc);
@@ -782,6 +699,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     themeOverridesXml,
 
     companions: allowCompanions ? companions : [],
-    _trace,
+    _trace
   };
 }
