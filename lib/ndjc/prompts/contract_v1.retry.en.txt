@@ -1,0 +1,32 @@
+You MUST fix the previous JSON and return a SINGLE strict JSON object (no markdown, no prose).
+
+Issues detected:
+${violations}
+
+Missing required fields (must be present; use defaults if silent):
+- text.required: ${required.text}
+- list.required: ${required.list}
+- block.required: ${required.block}
+- if.required: ${required.if}
+- hook.required: ${required.hook}
+- gradle.required: ${required.gradle}
+
+Canonical keys (use EXACTLY these; no aliases, no extra keys):
+- Text: ${allowed.text}
+- Block: ${allowed.block}
+- List: ${allowed.list}
+- If: ${allowed.if}
+- Hook: ${allowed.hook}
+
+Defaults you may use:
+- text.defaults: ${defaults.text}
+- list.defaults: ${defaults.list}
+- gradle.defaults: ${defaults.gradle}
+
+Companion files (files[]) are REQUIRED:
+- Path starts with app/, no ../, no URLs; allowed ext: .kt .kts .xml .json .txt .md
+- Content must be directly writable source/resource (no Base64, no explanations)
+- Add "overwrite": true
+- At least one resource to avoid empty UI (e.g., values/strings.xml or values/colors.xml)
+
+Return ONLY the corrected JSON object. No extra text.
