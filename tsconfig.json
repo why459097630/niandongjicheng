@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "lib": ["ES2020", "DOM"],
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM"],
     "jsx": "preserve",
     "module": "ESNext",
     "moduleResolution": "Bundler",
@@ -17,9 +17,7 @@
     "allowJs": true,
     "incremental": true,
     "isolatedModules": true,
-    "plugins": [
-      { "name": "next" }
-    ],
+    "plugins": [{ "name": "next" }],
     "types": ["node"]
   },
   "include": [
