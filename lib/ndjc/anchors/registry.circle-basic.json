@@ -91,7 +91,7 @@
     "gradle": [
       "applicationId"
     ]
-  },
+  ],
   "defaults": {
     "text": {
       "NDJC:PACKAGE_NAME": "com.ndjc.demo.core",
