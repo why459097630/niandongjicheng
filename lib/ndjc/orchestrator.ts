@@ -196,7 +196,6 @@ function buildSkeletonFromRegistry(reg: Registry, seed: {
 
   const text: Record<string, string> = {};
   for (const k of reg.text) {
-    // 关键四项用已有信息兜底；其余按默认或空串
     if (k === "NDJC:APP_LABEL") text[k] = seed.appName || defText[k] || "";
     else if (k === "NDJC:PACKAGE_NAME") text[k] = seed.packageId || defText[k] || "";
     else text[k] = defText[k] ?? "";
@@ -460,7 +459,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
         msgs.push({ role: "user", content: _trace.retries[attempt - 1].feedback });
       }
       if (attempt > 0 && lastText) {
-        // 把上一轮不合格全文也贴回去，让模型“改正后重发”
         msgs.push({ role: "assistant", content: lastText });
         msgs.push({ role: "user", content: "上面的内容不合规。请根据反馈修正并重新返回完整 JSON（同样的键集合）。" });
       }
