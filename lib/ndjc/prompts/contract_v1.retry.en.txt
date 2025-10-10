@@ -1,23 +1,19 @@
-The previous JSON violates the NDJC Contract v1.
+The previous JSON did not fully comply.
 
-Detected issues:
-{{ISSUES}}
+Please FIX the following and RETURN FULL JSON again (same key-set and structure as SKELETON):
 
-You must FIX ALL issues and RETURN THE FULL JSON AGAIN.
+Missing required keys/values:
+- {{missing}}
 
-ABSOLUTE RULES
-- Keep EXACT SAME key set as the SKELETON (no add/remove/rename).
-- Use ONLY canonical keys (no aliases, no extras).
-- Use defaults where data is missing. Do NOT omit required keys.
-- Output RAW JSON ONLY (no Markdown, no code fences, no comments).
+Bad or placeholder formats:
+- {{bad}}
 
-STRICT TYPE & FORMAT
-- anchors.text: string
-- anchors.block: string (Kotlin/XML/Gradle snippet), NO code fences/backticks
-- anchors.list: string[] (array of strings only)
-- anchors.if: boolean (true/false literals only)
-- anchors.hook: string (no fences)
-- anchors.gradle: { applicationId: string; resConfigs?: string[]; permissions?: string[] }
-- files: path (project-relative, no "../"), content (string, no fences), overwrite?: boolean, kind?: "kotlin"|"xml"|"json"|"md"|"txt"
-
-DO NOT return a diff or partial fragment — return the FULL corrected JSON object now.
+Rules reminder:
+- Use ONLY canonical keys; do not add/remove/rename keys.
+- text: non-empty, non-placeholder strings.
+- list: array of non-placeholder strings (≥1 item if required).
+- if: booleans only.
+- block/hook: non-placeholder strings (code/XML/plain allowed).
+- gradle: correct types (e.g. applicationId string; resConfigs[], permissions[]).
+- Use provided defaults when info is missing.
+- Output STRICT JSON only (no prose, no code fences).
