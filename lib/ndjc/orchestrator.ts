@@ -3,6 +3,8 @@ import path from "node:path";
 import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
+/* ----------------- types ----------------- */
+
 type Registry = {
   template: string;
   schemaVersion?: string;
@@ -143,7 +145,15 @@ function parseJsonSafely(text: string): any | null {
   try {
     return JSON.parse(raw);
   } catch {
-    return null;
+    try {
+      // 再赌一把：常见的尾逗号/非严格 JSON 清洗
+      const cleaned = raw
+        .replace(/,(\s*[}\]])/g, "$1")
+        .replace(/([\{\[,]\s*)"(\w+)"\s*:\s*([a-zA-Z_][a-zA-Z0-9_]*)/g, '$1"$2":"$3"');
+      return JSON.parse(cleaned);
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -167,9 +177,10 @@ function sanitizeCompanions(list?: Companion[]): Companion[] {
   return out;
 }
 
+/* ----------------- registry & prompts ----------------- */
+
 async function loadRegistry(): Promise<Registry | null> {
   const root = process.cwd();
-  // 支持两种环境变量名：REGISTRY_FILE 优先，其次 NDJC_REGISTRY_FILE
   const hint =
     process.env.REGISTRY_FILE ||
     process.env.NDJC_REGISTRY_FILE ||
@@ -182,14 +193,92 @@ async function loadRegistry(): Promise<Registry | null> {
   }
 }
 
+async function loadPromptFiles() {
+  const sysPath =
+    process.env.NDJC_PROMPT_SYSTEM_FILE ||
+    ""; // e.g. lib/ndjc/prompts/contract_v1.en.json
+  const retryPath =
+    process.env.NDJC_PROMPT_RETRY_FILE ||
+    ""; // e.g. lib/ndjc/prompts/contract_v1.retry.en.txt
+
+  let systemFromFile: string | null = null;
+  let retryFromFile: string | null = null;
+
+  if (sysPath) {
+    try {
+      const txt = await fs.readFile(sysPath, "utf8");
+      // 约定 system 文件是 JSON；可直接是字符串或 {prompt:""} 或 {system:""}
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(txt);
+      } catch {
+        parsed = null;
+      }
+      if (typeof parsed === "string") systemFromFile = parsed;
+      else if (parsed && typeof parsed.prompt === "string") systemFromFile = parsed.prompt;
+      else if (parsed && typeof parsed.system === "string") systemFromFile = parsed.system;
+      else systemFromFile = txt.trim(); // 容忍：当作纯文本
+    } catch {
+      systemFromFile = null;
+    }
+  }
+
+  if (retryPath) {
+    try {
+      const txt = await fs.readFile(retryPath, "utf8");
+      retryFromFile = txt.trim();
+    } catch {
+      retryFromFile = null;
+    }
+  }
+
+  return { systemFromFile, retryFromFile, sysPath, retryPath };
+}
+
 function withPrefix(kind: "BLOCK" | "LIST" | "IF" | "HOOK", xs: string[]): string[] {
   return (xs || []).map((k) => `${kind}:${k}`);
 }
 
-/** 把注册表变成“可回填的骨架表单”：所有规范键都出现，值给空/默认 */
-function buildSkeletonFromRegistry(reg: Registry, seed: {
-  appName: string; packageId: string; locales: string[];
-}) {
+/** 作为后备：把注册表压成系统提示 */
+function buildSystemPromptFromRegistry(reg: Registry): string {
+  const allowText = reg.text;
+  const allowBlock = withPrefix("BLOCK", reg.block);
+  const allowList = withPrefix("LIST", reg.list);
+  const allowIf = withPrefix("IF", reg.if);
+  const allowHook = withPrefix("HOOK", reg.hook);
+
+  const required = {
+    text: reg.required?.text || [],
+    list: reg.required?.list || [],
+    block: reg.required?.block || [],
+    if: reg.required?.if || [],
+    hook: reg.required?.hook || [],
+    gradle: reg.required?.gradle || []
+  };
+  const defaults = reg.defaults || {};
+
+  const lines: string[] = [];
+  lines.push(`You are NDJC's contract generator. **Return strict JSON only** (no Markdown code fences).`);
+  lines.push(`Template: ${reg.template}`);
+  lines.push(`Allowed canonical keys:`);
+  lines.push(`- Text: ${allowText.join(", ")}`);
+  lines.push(`- Block: ${allowBlock.join(", ")}`);
+  lines.push(`- List: ${allowList.join(", ")}`);
+  lines.push(`- If: ${allowIf.join(", ")}`);
+  lines.push(`- Hook: ${allowHook.join(", ")}`);
+  if (reg.resources?.length) lines.push(`- Resources: ${reg.resources.join(", ")}`);
+  lines.push(`**Do not invent or rename keys; only use the above canonical set.**`);
+  lines.push(`Required keys: text=[${required.text.join(", ")}], list=[${required.list.join(", ")}], gradle=[${required.gradle.join(", ")}]`);
+  lines.push(`Defaults: text=${JSON.stringify(defaults.text || {})}, list=${JSON.stringify(defaults.list || {})}, gradle=${JSON.stringify(defaults.gradle || {})}`);
+  lines.push(`Return Contract v1 JSON whose key set exactly matches the provided SKELETON structure.`);
+  return lines.join("\n");
+}
+
+/** 基于注册表构造“可回填的骨架表单” */
+function buildSkeletonFromRegistry(
+  reg: Registry,
+  seed: { appName: string; packageId: string; locales: string[] }
+) {
   const defText = reg.defaults?.text || {};
   const defList = reg.defaults?.list || {};
   const defGradle = reg.defaults?.gradle || {};
@@ -205,7 +294,7 @@ function buildSkeletonFromRegistry(reg: Registry, seed: {
   for (const k of reg.block) block[k] = "";
 
   const list: Record<string, string[]> = {};
-  for (const k of reg.list) list[k] = (defList[k] ?? []);
+  for (const k of reg.list) list[k] = defList[k] ?? [];
 
   const iff: Record<string, boolean> = {};
   for (const k of reg.if) iff[k] = false;
@@ -226,49 +315,6 @@ function buildSkeletonFromRegistry(reg: Registry, seed: {
   };
 }
 
-function buildSystemPromptFromRegistry(reg: Registry): string {
-  const allowText = reg.text;
-  const allowBlock = withPrefix("BLOCK", reg.block);
-  const allowList = withPrefix("LIST", reg.list);
-  const allowIf = withPrefix("IF", reg.if);
-  const allowHook = withPrefix("HOOK", reg.hook);
-
-  const required = {
-    text: reg.required?.text || [],
-    list: reg.required?.list || [],
-    block: reg.required?.block || [],
-    if: reg.required?.if || [],
-    hook: reg.required?.hook || [],
-    gradle: reg.required?.gradle || []
-  };
-  const defaults = reg.defaults || {};
-
-  const lines: string[] = [];
-  lines.push(`你是“念动即成 NDJC”的模板生成助手。**只输出严格 JSON**（不要 Markdown 代码块）。`);
-  lines.push(`模板：${reg.template}`);
-  lines.push(`只允许使用以下“规范锚点键名”（canonical keys）：`);
-  lines.push(`- Text: ${allowText.join(", ")}`);
-  lines.push(`- Block: ${allowBlock.join(", ")}`);
-  lines.push(`- List: ${allowList.join(", ")}`);
-  lines.push(`- If: ${allowIf.join(", ")}`);
-  lines.push(`- Hook: ${allowHook.join(", ")}`);
-  if (reg.resources?.length) lines.push(`- Resources: ${reg.resources.join(", ")}`);
-  lines.push(`**禁止新增或删除任何键名；禁止使用别名或未列出的键名。**`);
-  lines.push(`必填项（缺少不允许返回）：`);
-  lines.push(`- text.required: ${required.text.join(", ") || "(none)"}`);
-  lines.push(`- list.required: ${required.list.join(", ") || "(none)"}`);
-  lines.push(`- gradle.required: ${required.gradle.join(", ") || "(none)"}`);
-  if (required.block.length) lines.push(`- block.required: ${required.block.join(", ")}`);
-  if (required.if.length) lines.push(`- if.required: ${required.if.join(", ")}`);
-  if (required.hook.length) lines.push(`- hook.required: ${required.hook.join(", ")}`);
-  lines.push(`默认值（缺信息请使用下列默认）：`);
-  lines.push(`- text.defaults: ${JSON.stringify(defaults.text || {})}`);
-  lines.push(`- list.defaults: ${JSON.stringify(defaults.list || {})}`);
-  lines.push(`- gradle.defaults: ${JSON.stringify(defaults.gradle || {})}`);
-  lines.push(`输出必须为 **Contract v1** JSON，且键集合与“回填骨架(SKELETON)”完全一致。`);
-  return lines.join("\n");
-}
-
 /* ---------- alias & prefix normalization ---------- */
 
 function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>): string {
@@ -279,7 +325,7 @@ function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>):
   if (/^NDJC:/.test(k)) return `TEXT:${k}`;
   if (/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k)) return k;
 
-  // 宽松推断（极少用到；主要靠 registry+表单锁死）
+  // 宽松推断（不理想，仅作为兜底）
   if (/^ROUTES$|FIELDS$|FLAGS$|STYLES$|PATTERNS$|PROGUARD|SPLITS|STRINGS$/i.test(k)) return `LIST:${k}`;
   if (/^PERMISSION|INTENT|NETWORK|FILE_PROVIDER/i.test(k)) return `IF:${k}`;
   if (/^HOME_|^ROUTE_|^NAV_|^SPLASH_|^EMPTY_|^ERROR_|^DEPENDENCY_|^DEBUG_|^BUILD_|^HEADER_|^PROFILE_|^SETTINGS_/i.test(k)) return `BLOCK:${k}`;
@@ -293,9 +339,11 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
     if (key.startsWith("TEXT:")) dict.text[key.replace(/^TEXT:/, "") || key] = String(val ?? "");
     else if (key.startsWith("BLOCK:")) dict.block[key.replace(/^BLOCK:/, "") || key] = String(val ?? "");
     else if (key.startsWith("LIST:"))
-      dict.list[key.replace(/^LIST:/, "") || key] = Array.isArray(val) ? val.map(String) : (val == null ? [] : [String(val)]);
+      dict.list[key.replace(/^LIST:/, "") || key] =
+        Array.isArray(val) ? val.map(String) : (val == null ? [] : [String(val)]);
     else if (key.startsWith("IF:")) dict.if[key.replace(/^IF:/, "") || key] = !!val;
-    else if (key.startsWith("HOOK:")) dict.hook[key.replace(/^HOOK:/, "") || key] = Array.isArray(val) ? val.join("\n") : String(val ?? "");
+    else if (key.startsWith("HOOK:"))
+      dict.hook[key.replace(/^HOOK:/, "") || key] = Array.isArray(val) ? val.join("\n") : String(val ?? "");
   };
 
   const groups = ["text", "block", "list", "if", "hook"];
@@ -311,7 +359,7 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
   }
   if (from.gradle && typeof from.gradle === "object") out.gradle = { ...from.gradle };
 
-  // 白名单裁剪（canonical）
+  // 白名单过滤为 canonical
   const keep = {
     text: new Set(reg.text),
     block: new Set(reg.block),
@@ -336,7 +384,10 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
 function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
   const req = reg.required || {};
   const def = reg.defaults || {};
-  const report = { filled: { text: [] as string[], list: [] as string[], gradle: [] as string[] }, missing: [] as string[] };
+  const report = {
+    filled: { text: [] as string[], list: [] as string[], gradle: [] as string[] },
+    missing: [] as string[],
+  };
 
   // TEXT required
   for (const k of req.text || []) {
@@ -369,7 +420,11 @@ function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
   if (!doc.gradle) doc.gradle = {};
   for (const k of req.gradle || []) {
     if (k === "applicationId") {
-      let appId = doc.gradle.applicationId || doc.text?.["NDJC:PACKAGE_NAME"] || def.text?.["NDJC:PACKAGE_NAME"] || def.gradle?.applicationId;
+      let appId =
+        doc.gradle.applicationId ||
+        doc.text?.["NDJC:PACKAGE_NAME"] ||
+        def.text?.["NDJC:PACKAGE_NAME"] ||
+        def.gradle?.applicationId;
       appId = ensurePackageId(appId, "com.ndjc.demo.core");
       if (!appId) report.missing.push("gradle:applicationId");
       else {
@@ -385,7 +440,7 @@ function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
     }
   }
 
-  // 额外：resConfigs/permissions 默认
+  // 额外：resConfigs / permissions 默认
   if (!Array.isArray(doc.gradle.resConfigs) && Array.isArray(def.gradle?.resConfigs)) {
     doc.gradle.resConfigs = def.gradle!.resConfigs;
   }
@@ -409,39 +464,63 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       if: [],
       hook: [],
       aliases: {},
-      required: { text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"], list: ["ROUTES"], gradle: ["applicationId"] },
-      defaults: { text: { "NDJC:PACKAGE_NAME": "com.ndjc.demo.core", "NDJC:APP_LABEL": "NDJC App", "NDJC:HOME_TITLE": "Home", "NDJC:PRIMARY_BUTTON_TEXT": "Start" }, list: { "ROUTES": ["home"] }, gradle: { resConfigs: ["en", "zh-rCN", "zh-rTW"], permissions: [] } }
+      required: {
+        text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"],
+        list: ["ROUTES"],
+        gradle: ["applicationId"],
+      },
+      defaults: {
+        text: {
+          "NDJC:PACKAGE_NAME": "com.ndjc.demo.core",
+          "NDJC:APP_LABEL": "NDJC App",
+          "NDJC:HOME_TITLE": "Home",
+          "NDJC:PRIMARY_BUTTON_TEXT": "Start",
+        },
+        list: { ROUTES: ["home"] },
+        gradle: { resConfigs: ["en", "zh-rCN", "zh-rTW"], permissions: [] },
+      },
     };
 
   let appName = input.appName || reg.defaults?.text?.["NDJC:APP_LABEL"] || "NDJC App";
   let homeTitle = input.homeTitle || reg.defaults?.text?.["NDJC:HOME_TITLE"] || "Home";
   let mainButtonText = input.mainButtonText || reg.defaults?.text?.["NDJC:PRIMARY_BUTTON_TEXT"] || "Start";
-  let packageId = ensurePackageId(input.packageId || input.packageName || reg.defaults?.text?.["NDJC:PACKAGE_NAME"], "com.ndjc.demo.core");
+  let packageId = ensurePackageId(
+    input.packageId || input.packageName || reg.defaults?.text?.["NDJC:PACKAGE_NAME"],
+    "com.ndjc.demo.core"
+  );
 
   let permissions = input.permissions || [];
   let intentHost = input.intentHost ?? null;
   let locales = normalizeLocales(input.locales);
 
-  let companions: Companion[] = Array.isArray(input._companions) ? sanitizeCompanions(input._companions) : [];
+  let companions: Companion[] = Array.isArray(input._companions)
+    ? sanitizeCompanions(input._companions)
+    : [];
 
+  // 固定 B 模式
   const mode: "A" | "B" = "B";
   const allowCompanions = !!input.allowCompanions && mode === "B";
   const template = (input.template as any) || (reg.template || "circle-basic");
 
-  let _trace: any | null = { retries: [] };
+  let _trace: any | null = { retries: [], promptSource: {} };
 
-  const system = buildSystemPromptFromRegistry(reg);
+  // 加载提示词文件（若有）
+  const { systemFromFile, retryFromFile, sysPath, retryPath } = await loadPromptFiles();
+  _trace.promptSource.system = systemFromFile ? sysPath : "built-from-registry";
+  _trace.promptSource.retry = retryFromFile ? retryPath : "inline-generated";
+
+  const system = systemFromFile || buildSystemPromptFromRegistry(reg);
   const skeleton = buildSkeletonFromRegistry(reg, { appName, packageId, locales });
 
-  // “表单回填”指令：请严格把 SKELETON 中的值回填完毕并返回同结构 JSON
+  // 组装“表单回填”的用户消息
   const baseUser = [
-    `请**严格**按下述 SKELETON 的键集合回填所有值（不要新增/删除键）。`,
-    `- 若缺数据：使用系统提示中给定的默认值；`,
-    `- 类型要求：text=string，block/hook=string（代码或 XML 片段），list=string[]，if=boolean，gradle 字段按示例；`,
-    `- 只返回 JSON（不要解释文字）。`,
+    `Please STRICTLY fill values into the following SKELETON without adding/removing any keys.`,
+    `- Use defaults where information is missing (as provided in the system prompt).`,
+    `- Types: text=string; block/hook=string (code or XML); list=string[]; if=boolean; gradle as exemplified.`,
+    `- Return JSON only (no extra text).`,
     `SKELETON:`,
     JSON.stringify(skeleton, null, 2),
-    (input.requirement?.trim() ? `需求补充：${input.requirement!.trim()}` : ``)
+    (input.requirement?.trim() ? `User requirement: ${input.requirement!.trim()}` : ``)
   ].filter(Boolean).join("\n");
 
   // 生成 + 校验→重试
@@ -452,7 +531,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     try {
       const msgs = [
         { role: "system", content: system },
-        { role: "user", content: baseUser }
+        { role: "user", content: baseUser },
       ] as any[];
 
       if (attempt > 0 && _trace.retries?.[attempt - 1]?.feedback) {
@@ -460,7 +539,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       }
       if (attempt > 0 && lastText) {
         msgs.push({ role: "assistant", content: lastText });
-        msgs.push({ role: "user", content: "上面的内容不合规。请根据反馈修正并重新返回完整 JSON（同样的键集合）。" });
+        msgs.push({ role: "user", content: "The above is non-compliant. Fix and resend full JSON with the SAME key set." });
       }
 
       const r = await callGroqChat(msgs, { json: true, temperature: 0 });
@@ -468,23 +547,40 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       lastText = text;
       const maybe = parseJsonSafely(text) as any;
 
-      const normalized = normalizeAnchorsUsingRegistry(maybe?.anchors || maybe?.anchorsGrouped || {}, reg);
-      const { ok, report, doc } = applyDefaultsAndCheckRequired({ ...normalized, gradle: maybe?.anchors?.gradle || maybe?.gradle || {} }, reg);
+      const normalized = normalizeAnchorsUsingRegistry(
+        maybe?.anchors || maybe?.anchorsGrouped || {},
+        reg
+      );
+      const { ok, report, doc } = applyDefaultsAndCheckRequired(
+        { ...normalized, gradle: maybe?.anchors?.gradle || maybe?.gradle || {} },
+        reg
+      );
 
-      parsed = { metadata: maybe?.metadata || {}, anchors: doc, _raw: maybe, _text: text, _report: report, _ok: ok };
-      _trace.retries.push({
-        attempt,
-        ok,
-        report,
-        feedback: ok
-          ? undefined
-          : [
-              "你没有满足以下必填项，请补齐并仅使用允许的规范键：",
-              ...report.missing.map((m: string) => `- 缺失：${m}`),
-              "若缺数据请使用默认值（上文已提供）。",
-              "请重新返回完整 JSON。"
-            ].join("\n")
-      });
+      parsed = {
+        metadata: maybe?.metadata || {},
+        anchors: doc,
+        _raw: maybe,
+        _text: text,
+        _report: report,
+        _ok: ok,
+      };
+
+      let feedbackText: string | undefined;
+      if (!ok) {
+        // 优先使用外部重试提示
+        const baseRetry = retryFromFile || [
+          `Your previous JSON missed the following REQUIRED fields.`,
+          `Fill them using only the allowed canonical keys. Use defaults if necessary.`,
+          `Return FULL JSON again (same key set as SKELETON).`
+        ].join("\n");
+
+        feedbackText = [
+          baseRetry,
+          ...report.missing.map((m: string) => `- missing: ${m}`)
+        ].join("\n");
+      }
+
+      _trace.retries.push({ attempt, ok, report, feedback: feedbackText });
 
       if (ok) break;
     } catch (e: any) {
@@ -524,15 +620,15 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
           "NDJC:PACKAGE_NAME": packageId,
           "NDJC:APP_LABEL": appName,
           "NDJC:HOME_TITLE": homeTitle,
-          "NDJC:PRIMARY_BUTTON_TEXT": mainButtonText
+          "NDJC:PRIMARY_BUTTON_TEXT": mainButtonText,
         },
         block: {},
         list: { "LIST:ROUTES": ["home"] },
         if: {},
         hook: {},
-        gradle: { applicationId: packageId, resConfigs: locales, permissions }
+        gradle: { applicationId: packageId, resConfigs: locales, permissions },
       },
-      files: allowCompanions ? companions : []
+      files: allowCompanions ? companions : [],
     };
     _trace.synthesized = true;
     _trace.rawText = JSON.stringify(v1doc);
@@ -568,6 +664,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     themeOverridesXml,
 
     companions: allowCompanions ? companions : [],
-    _trace
+    _trace,
   };
 }
