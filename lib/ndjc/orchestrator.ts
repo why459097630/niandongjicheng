@@ -186,6 +186,47 @@ function withPrefix(kind: "BLOCK" | "LIST" | "IF" | "HOOK", xs: string[]): strin
   return (xs || []).map((k) => `${kind}:${k}`);
 }
 
+/** 把注册表变成“可回填的骨架表单”：所有规范键都出现，值给空/默认 */
+function buildSkeletonFromRegistry(reg: Registry, seed: {
+  appName: string; packageId: string; locales: string[];
+}) {
+  const defText = reg.defaults?.text || {};
+  const defList = reg.defaults?.list || {};
+  const defGradle = reg.defaults?.gradle || {};
+
+  const text: Record<string, string> = {};
+  for (const k of reg.text) {
+    // 关键四项用已有信息兜底；其余按默认或空串
+    if (k === "NDJC:APP_LABEL") text[k] = seed.appName || defText[k] || "";
+    else if (k === "NDJC:PACKAGE_NAME") text[k] = seed.packageId || defText[k] || "";
+    else text[k] = defText[k] ?? "";
+  }
+
+  const block: Record<string, string> = {};
+  for (const k of reg.block) block[k] = "";
+
+  const list: Record<string, string[]> = {};
+  for (const k of reg.list) list[k] = (defList[k] ?? []);
+
+  const iff: Record<string, boolean> = {};
+  for (const k of reg.if) iff[k] = false;
+
+  const hook: Record<string, string> = {};
+  for (const k of reg.hook) hook[k] = "";
+
+  const gradle = {
+    applicationId: seed.packageId || defGradle.applicationId || "",
+    resConfigs: seed.locales.length ? seed.locales : (defGradle.resConfigs || []),
+    permissions: defGradle.permissions || []
+  };
+
+  return {
+    metadata: { template: reg.template, appName: seed.appName, packageId: seed.packageId, mode: "B" },
+    anchors: { text, block, list, if: iff, hook, gradle },
+    files: [] as any[]
+  };
+}
+
 function buildSystemPromptFromRegistry(reg: Registry): string {
   const allowText = reg.text;
   const allowBlock = withPrefix("BLOCK", reg.block);
@@ -213,7 +254,7 @@ function buildSystemPromptFromRegistry(reg: Registry): string {
   lines.push(`- If: ${allowIf.join(", ")}`);
   lines.push(`- Hook: ${allowHook.join(", ")}`);
   if (reg.resources?.length) lines.push(`- Resources: ${reg.resources.join(", ")}`);
-  lines.push(`**禁止**使用别名或未列出的键名；键名必须完全匹配。`);
+  lines.push(`**禁止新增或删除任何键名；禁止使用别名或未列出的键名。**`);
   lines.push(`必填项（缺少不允许返回）：`);
   lines.push(`- text.required: ${required.text.join(", ") || "(none)"}`);
   lines.push(`- list.required: ${required.list.join(", ") || "(none)"}`);
@@ -225,22 +266,7 @@ function buildSystemPromptFromRegistry(reg: Registry): string {
   lines.push(`- text.defaults: ${JSON.stringify(defaults.text || {})}`);
   lines.push(`- list.defaults: ${JSON.stringify(defaults.list || {})}`);
   lines.push(`- gradle.defaults: ${JSON.stringify(defaults.gradle || {})}`);
-  lines.push(`返回 **Contract v1** JSON，键结构如下（仅示例）：{
-  "metadata": { "template": "${reg.template}", "appName": "应用名", "packageId": "com.example.app", "mode": "B" },
-  "anchors": {
-    "text": { "NDJC:PACKAGE_NAME": "com.example.app", "NDJC:APP_LABEL": "示例App", "NDJC:HOME_TITLE": "首页", "NDJC:PRIMARY_BUTTON_TEXT": "开始" },
-    "block": { "BLOCK:HOME_HEADER": "<!-- xml or kotlin snippet -->" },
-    "list":  { "LIST:ROUTES": ["home"] },
-    "if":    { "IF:PERMISSION.NOTIFICATION": true },
-    "hook":  { "HOOK:BEFORE_BUILD": "// gradle snippet" },
-    "gradle": { "applicationId": "com.example.app", "resConfigs": ["en","zh-rCN"], "permissions": [] }
-  },
-  "files": []
-}
-要求：
-1) 只能使用上面列出的规范键名（Block/List/If/Hook 键名需带前缀）。
-2) 所有“必填项”必须给出值；缺数据时使用默认值并写入相应字段。
-3) 输出必须是可被 JSON.parse 解析的纯 JSON 文本（不要包 Markdown 代码块）。`);
+  lines.push(`输出必须为 **Contract v1** JSON，且键集合与“回填骨架(SKELETON)”完全一致。`);
   return lines.join("\n");
 }
 
@@ -254,6 +280,7 @@ function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>):
   if (/^NDJC:/.test(k)) return `TEXT:${k}`;
   if (/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k)) return k;
 
+  // 宽松推断（极少用到；主要靠 registry+表单锁死）
   if (/^ROUTES$|FIELDS$|FLAGS$|STYLES$|PATTERNS$|PROGUARD|SPLITS|STRINGS$/i.test(k)) return `LIST:${k}`;
   if (/^PERMISSION|INTENT|NETWORK|FILE_PROVIDER/i.test(k)) return `IF:${k}`;
   if (/^HOME_|^ROUTE_|^NAV_|^SPLASH_|^EMPTY_|^ERROR_|^DEPENDENCY_|^DEBUG_|^BUILD_|^HEADER_|^PROFILE_|^SETTINGS_/i.test(k)) return `BLOCK:${k}`;
@@ -348,7 +375,6 @@ function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
       if (!appId) report.missing.push("gradle:applicationId");
       else {
         doc.gradle.applicationId = appId;
-        // 同步 TEXT 包名
         if (!doc.text["NDJC:PACKAGE_NAME"]) doc.text["NDJC:PACKAGE_NAME"] = appId;
         report.filled.gradle.push("applicationId");
       }
@@ -399,7 +425,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   let companions: Companion[] = Array.isArray(input._companions) ? sanitizeCompanions(input._companions) : [];
 
-  // 强制 B 模式
   const mode: "A" | "B" = "B";
   const allowCompanions = !!input.allowCompanions && mode === "B";
   const template = (input.template as any) || (reg.template || "circle-basic");
@@ -407,48 +432,69 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   let _trace: any | null = { retries: [] };
 
   const system = buildSystemPromptFromRegistry(reg);
+  const skeleton = buildSkeletonFromRegistry(reg, { appName, packageId, locales });
 
-  // 基础生成 + 校验→重试闭环（最多 2 次重试）
+  // “表单回填”指令：请严格把 SKELETON 中的值回填完毕并返回同结构 JSON
+  const baseUser = [
+    `请**严格**按下述 SKELETON 的键集合回填所有值（不要新增/删除键）。`,
+    `- 若缺数据：使用系统提示中给定的默认值；`,
+    `- 类型要求：text=string，block/hook=string（代码或 XML 片段），list=string[]，if=boolean，gradle 字段按示例；`,
+    `- 只返回 JSON（不要解释文字）。`,
+    `SKELETON:`,
+    JSON.stringify(skeleton, null, 2),
+    (input.requirement?.trim() ? `需求补充：${input.requirement!.trim()}` : ``)
+  ].filter(Boolean).join("\n");
+
+  // 生成 + 校验→重试
   const maxRetries = 2;
   let parsed: any = null;
+  let lastText = "";
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const r = await callGroqChat(
-        [
-          { role: "system", content: system },
-          { role: "user", content: (input.requirement || "").trim() || "为 circle-basic 生成最小可用的 Contract v1。" }
-        ],
-        { json: true, temperature: 0 }
-      );
+      const msgs = [
+        { role: "system", content: system },
+        { role: "user", content: baseUser }
+      ] as any[];
+
+      if (attempt > 0 && _trace.retries?.[attempt - 1]?.feedback) {
+        msgs.push({ role: "user", content: _trace.retries[attempt - 1].feedback });
+      }
+      if (attempt > 0 && lastText) {
+        // 把上一轮不合格全文也贴回去，让模型“改正后重发”
+        msgs.push({ role: "assistant", content: lastText });
+        msgs.push({ role: "user", content: "上面的内容不合规。请根据反馈修正并重新返回完整 JSON（同样的键集合）。" });
+      }
+
+      const r = await callGroqChat(msgs, { json: true, temperature: 0 });
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
+      lastText = text;
       const maybe = parseJsonSafely(text) as any;
 
       const normalized = normalizeAnchorsUsingRegistry(maybe?.anchors || maybe?.anchorsGrouped || {}, reg);
       const { ok, report, doc } = applyDefaultsAndCheckRequired({ ...normalized, gradle: maybe?.anchors?.gradle || maybe?.gradle || {} }, reg);
 
       parsed = { metadata: maybe?.metadata || {}, anchors: doc, _raw: maybe, _text: text, _report: report, _ok: ok };
-      _trace.retries.push({ attempt, ok, report });
+      _trace.retries.push({
+        attempt,
+        ok,
+        report,
+        feedback: ok
+          ? undefined
+          : [
+              "你没有满足以下必填项，请补齐并仅使用允许的规范键：",
+              ...report.missing.map((m: string) => `- 缺失：${m}`),
+              "若缺数据请使用默认值（上文已提供）。",
+              "请重新返回完整 JSON。"
+            ].join("\n")
+      });
 
       if (ok) break;
-
-      // 准备下一次重试的“差异反馈”
-      const feedback = [
-        "你没有满足以下必填项，请补齐并仅使用允许的规范键：",
-        ...report.missing.map((m: string) => `- 缺失：${m}`),
-        "若缺数据请使用默认值（上文已提供）。"
-      ].join("\n");
-
-      // 追加一条“批注消息”给模型再来一轮
-      if (attempt < maxRetries) {
-        // 在下一轮循环继续生成（这里不需要额外调用；我们将在下一轮重新发送相同 system+新的 user）
-        (input as any).__retryFeedback = feedback;
-      }
     } catch (e: any) {
       _trace.retries.push({ attempt, error: e?.message || String(e) });
     }
   }
 
-  // 从最终 parsed 中抽取关键值
+  // 抽取关键值
   if (parsed?.metadata) {
     appName = parsed.metadata.appName || appName;
     packageId = ensurePackageId(parsed.metadata.packageId || packageId, packageId);
@@ -471,7 +517,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     companions = sanitizeCompanions(parsed._raw.files);
   }
 
-  // 若需要 v1 且完全没返回，则合成最小 v1 以便下游继续
+  // 兜底：若必须 v1 且完全无返回，则合成最小 v1
   if (wantV1(input) && (!parsed || !parsed._text)) {
     const v1doc = {
       metadata: { runId: (input as any).runId || undefined, template, appName, packageId, mode },
