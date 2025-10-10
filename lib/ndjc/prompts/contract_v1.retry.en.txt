@@ -1,32 +1,17 @@
-You MUST fix the previous JSON and return a SINGLE strict JSON object (no markdown, no prose).
+Your previous reply violated the contract. Fix ALL issues and resend the **entire JSON** with the SAME key set as the SKELETON.
 
-Issues detected:
-${violations}
+Violations:
+{{VIOLATIONS}}
 
-Missing required fields (must be present; use defaults if silent):
-- text.required: ${required.text}
-- list.required: ${required.list}
-- block.required: ${required.block}
-- if.required: ${required.if}
-- hook.required: ${required.hook}
-- gradle.required: ${required.gradle}
+Non-negotiable rules to satisfy now:
+1) Return **pure JSON** (no Markdown fences, no comments, no prose).
+2) Use **canonical keys only**; do not rename or add/remove any keys.
+3) Blocks/Hooks MUST be directly-injectable code/XML or raw JSON (NOT escaped JSON; NOT explanations).
+4) `files` MUST be present, with **path/kind/overwrite/content** for each item and **files.length ≥ 2**.
+   - Include at least:
+     - app/src/main/res/raw/theme_colors.json  (kind=json, overwrite=true, with a small JSON object)
+     - app/src/main/res/drawable/ic_stat_notify.xml (kind=xml, overwrite=true, valid VectorDrawable)
+5) Gradle/Kotlin hooks should contain plausible code (e.g., `dependencies {}`, `plugins {}`, `tasks.register(...)`).
+6) Ensure the JSON parses with JSON.parse without any post-processing.
 
-Canonical keys (use EXACTLY these; no aliases, no extra keys):
-- Text: ${allowed.text}
-- Block: ${allowed.block}
-- List: ${allowed.list}
-- If: ${allowed.if}
-- Hook: ${allowed.hook}
-
-Defaults you may use:
-- text.defaults: ${defaults.text}
-- list.defaults: ${defaults.list}
-- gradle.defaults: ${defaults.gradle}
-
-Companion files (files[]) are REQUIRED:
-- Path starts with app/, no ../, no URLs; allowed ext: .kt .kts .xml .json .txt .md
-- Content must be directly writable source/resource (no Base64, no explanations)
-- Add "overwrite": true
-- At least one resource to avoid empty UI (e.g., values/strings.xml or values/colors.xml)
-
-Return ONLY the corrected JSON object. No extra text.
+Resend the full corrected JSON now.
