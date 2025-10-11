@@ -1,19 +1,9 @@
-The previous JSON did not fully comply.
+Your previous JSON violated the required keys and/or value formats.
 
-Please FIX the following and RETURN FULL JSON again (same key-set and structure as SKELETON):
+Fix strictly and resend the **full JSON**:
+- Use exactly the same key set and structure as the SKELETON (no additions, no deletions).
+- For every anchor, if not applicable, fill with its placeholder (per the rules).
+- Respect all type/enum/pattern constraints in the value rules.
 
-Missing required keys/values:
-- {{missing}}
-
-Bad or placeholder formats:
-- {{bad}}
-
-Rules reminder:
-- Use ONLY canonical keys; do not add/remove/rename keys.
-- text: non-empty, non-placeholder strings.
-- list: array of non-placeholder strings (≥1 item if required).
-- if: booleans only.
-- block/hook: non-placeholder strings (code/XML/plain allowed).
-- gradle: correct types (e.g. applicationId string; resConfigs[], permissions[]).
-- Use provided defaults when info is missing.
-- Output STRICT JSON only (no prose, no code fences).
+Missing/invalid last time: {{MISSING}}
+Hint: Respect placeholders for Block/Hook/List/If and Gradle fields as described in the rules.
