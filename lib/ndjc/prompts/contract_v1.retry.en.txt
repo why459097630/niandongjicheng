@@ -1,9 +1,12 @@
-Your previous JSON violated the required keys and/or value formats.
+Your previous JSON violated the requirements. Please FIX and resend the FULL JSON (same keys as the SKELETON):
 
-Fix strictly and resend the **full JSON**:
-- Use exactly the same key set and structure as the SKELETON (no additions, no deletions).
-- For every anchor, if not applicable, fill with its placeholder (per the rules).
-- Respect all type/enum/pattern constraints in the value rules.
+- All anchors must be present and filled. If a key is not required by the business need, fill with the correct placeholder per value rules.
+- Follow value formats strictly:
+  * text: string (e.g., NDJC:PACKAGE_NAME matches ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$)
+  * block/hook: string (code/XML snippet; minimal & compilable where possible)
+  * list: string[] (e.g., ROUTES must have >=1 item)
+  * if: boolean
+  * gradle: { applicationId: string; resConfigs: string[]; permissions: string[] }
+- Do not add or remove keys. Do not return Markdown fences. Return only JSON.
 
-Missing/invalid last time: {{MISSING}}
-Hint: Respect placeholders for Block/Hook/List/If and Gradle fields as described in the rules.
+Now resend the corrected JSON.
