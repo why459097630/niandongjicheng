@@ -3,31 +3,40 @@ import path from "node:path";
 import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
-/** ---------------- types ---------------- */
+/** ---------------- Registry / Rules ---------------- */
 
 type ValueRule =
-  | { type: "string"; placeholder?: string; regex?: string; minLength?: number; enum?: string[] }
-  | { type: "string[]"; placeholderItem?: string; minItems?: number }
-  | { type: "boolean"; placeholder?: boolean };
+  | { type: "string"; placeholder?: string; examples?: string[] }
+  | { type: "boolean"; default?: boolean }
+  | { type: "string[]"; examples?: string[] }
+  | { type: "json"; schemaHint?: string; placeholder?: string };
 
 type Registry = {
   template: string;
   schemaVersion?: string;
-  text: string[];
-  block: string[];
-  list: string[];
-  if: string[];
-  hook: string[];
-  resources?: string[];
+
+  // 锚点清单（显式在循环时断言为 string[] 使用）
+  text: readonly string[];
+  block: readonly string[];
+  list: readonly string[];
+  if: readonly string[];
+  hook: readonly string[];
+  resources?: readonly string[];
+
+  // 别名
   aliases?: Record<string, string>;
+
+  // 必填项
   required?: {
-    text?: string[];
-    block?: string[];
-    list?: string[];
-    if?: string[];
-    hook?: string[];
-    gradle?: string[];
+    text?: readonly string[];
+    block?: readonly string[];
+    list?: readonly string[];
+    if?: readonly string[];
+    hook?: readonly string[];
+    gradle?: readonly string[];
   };
+
+  // 默认值
   defaults?: {
     text?: Record<string, string>;
     list?: Record<string, string[]>;
@@ -37,13 +46,14 @@ type Registry = {
       permissions?: string[];
     };
   };
+
+  // 值约束（可选）
   valueRules?: {
-    text?: Record<string, ValueRule> & { ["*"]?: ValueRule };
-    block?: Record<string, ValueRule> & { ["*"]?: ValueRule };
-    list?: Record<string, ValueRule> & { ["*"]?: ValueRule };
-    if?: Record<string, ValueRule> & { ["*"]?: ValueRule };
-    hook?: Record<string, ValueRule> & { ["*"]?: ValueRule };
-    gradle?: Record<string, ValueRule>;
+    text?: Record<string, ValueRule>;
+    block?: Record<string, ValueRule>;
+    list?: Record<string, ValueRule>;
+    if?: Record<string, ValueRule>;
+    hook?: Record<string, ValueRule>;
   };
 };
 
@@ -182,22 +192,6 @@ function sanitizeCompanions(list?: Companion[]): Companion[] {
   return out;
 }
 
-async function readTextOrJsonPrompt(p?: string): Promise<string | null> {
-  if (!p) return null;
-  try {
-    const raw = await fs.readFile(p, "utf8");
-    try {
-      const j = JSON.parse(raw);
-      if (typeof j.prompt === "string") return j.prompt;
-    } catch {
-      /* not json */
-    }
-    return raw;
-  } catch {
-    return null;
-  }
-}
-
 async function loadRegistry(): Promise<Registry | null> {
   const root = process.cwd();
   const hint =
@@ -212,11 +206,28 @@ async function loadRegistry(): Promise<Registry | null> {
   }
 }
 
-function withPrefix(kind: "BLOCK" | "LIST" | "IF" | "HOOK", xs: string[]): string[] {
-  return (xs || []).map((k) => `${kind}:${k}`);
+function withPrefix(kind: "BLOCK" | "LIST" | "IF" | "HOOK", xs: readonly string[]): string[] {
+  return (xs as string[]).map((k) => `${kind}:${k}`);
 }
 
-/** 生成回填骨架（所有规范键齐全，值先以默认/占位符填好） */
+/** 获取某键的约束 */
+function getRule(
+  group:
+    | "text"
+    | "block"
+    | "list"
+    | "if"
+    | "hook",
+  key: string,
+  reg?: Registry
+): ValueRule | undefined {
+  const r = reg?.valueRules?.[group as keyof NonNullable<Registry["valueRules"]>] as
+    | Record<string, ValueRule>
+    | undefined;
+  return r?.[key];
+}
+
+/** 构建“回填骨架表单” */
 function buildSkeletonFromRegistry(
   reg: Registry,
   seed: { appName: string; packageId: string; locales: string[] }
@@ -224,57 +235,30 @@ function buildSkeletonFromRegistry(
   const defText = reg.defaults?.text || {};
   const defList = reg.defaults?.list || {};
   const defGradle = reg.defaults?.gradle || {};
-  const rules = reg.valueRules || {};
-
-  const getRule = (cat: keyof Registry["valueRules"], key: string): ValueRule | undefined => {
-    const g = (rules as any)?.[cat] || {};
-    return (g[key] as ValueRule) || (g["*"] as ValueRule) || undefined;
-  };
 
   const text: Record<string, string> = {};
-  for (const k of reg.text) {
-    const r = getRule("text", k) as Extract<ValueRule, { type: "string" }> | undefined;
-    let v =
-      (k === "NDJC:APP_LABEL" && (seed.appName || defText[k])) ||
-      (k === "NDJC:PACKAGE_NAME" && (seed.packageId || defText[k])) ||
-      defText[k] ||
-      (r?.placeholder ?? "");
-    text[k] = String(v ?? "");
+  for (const k of reg.text as string[]) {
+    const key = String(k);
+    if (key === "NDJC:APP_LABEL") text[key] = seed.appName || defText[key] || "";
+    else if (key === "NDJC:PACKAGE_NAME") text[key] = seed.packageId || defText[key] || "";
+    else text[key] = defText[key] ?? "";
   }
 
   const block: Record<string, string> = {};
-  for (const k of reg.block) {
-    const r = getRule("block", k) as Extract<ValueRule, { type: "string" }> | undefined;
-    block[k] = String((r?.placeholder ?? "") ?? "");
-  }
+  for (const k of reg.block as string[]) block[String(k)] = "";
 
   const list: Record<string, string[]> = {};
-  for (const k of reg.list) {
-    const r = getRule("list", k) as Extract<ValueRule, { type: "string[]" }> | undefined;
-    const dv = defList[k];
-    if (dv && dv.length) {
-      list[k] = dv.slice();
-    } else {
-      const item = r?.placeholderItem ?? "";
-      list[k] = item ? [item] : [];
-    }
-  }
+  for (const k of reg.list as string[]) list[String(k)] = defList[String(k)] ?? [];
 
   const iff: Record<string, boolean> = {};
-  for (const k of reg.if) {
-    const r = getRule("if", k) as Extract<ValueRule, { type: "boolean" }> | undefined;
-    iff[k] = (typeof r?.placeholder === "boolean" ? r!.placeholder! : false);
-  }
+  for (const k of reg.if as string[]) iff[String(k)] = false;
 
   const hook: Record<string, string> = {};
-  for (const k of reg.hook) {
-    const r = getRule("hook", k) as Extract<ValueRule, { type: "string" }> | undefined;
-    hook[k] = String((r?.placeholder ?? "") ?? "");
-  }
+  for (const k of reg.hook as string[]) hook[String(k)] = "";
 
   const gradle = {
-    applicationId: seed.packageId || defGradle.applicationId || "com.example.app",
-    resConfigs: seed.locales.length ? seed.locales : (defGradle.resConfigs || ["en"]),
+    applicationId: seed.packageId || defGradle.applicationId || "",
+    resConfigs: seed.locales.length ? seed.locales : (defGradle.resConfigs || []),
     permissions: defGradle.permissions || []
   };
 
@@ -285,6 +269,51 @@ function buildSkeletonFromRegistry(
   };
 }
 
+function buildSystemPromptFromRegistry(reg: Registry): string {
+  const allowText = reg.text as string[];
+  const allowBlock = withPrefix("BLOCK", reg.block);
+  const allowList = withPrefix("LIST", reg.list);
+  const allowIf = withPrefix("IF", reg.if);
+  const allowHook = withPrefix("HOOK", reg.hook);
+
+  const required = {
+    text: (reg.required?.text as string[]) || [],
+    list: (reg.required?.list as string[]) || [],
+    block: (reg.required?.block as string[]) || [],
+    if: (reg.required?.if as string[]) || [],
+    hook: (reg.required?.hook as string[]) || [],
+    gradle: (reg.required?.gradle as string[]) || []
+  };
+  const defaults = reg.defaults || {};
+
+  const lines: string[] = [];
+  lines.push(`You are NDJC's template assistant. **Return strict JSON only** (no markdown).`);
+  lines.push(`Template: ${reg.template}`);
+  lines.push(`Allowed canonical keys only:`);
+  lines.push(`- Text: ${allowText.join(", ")}`);
+  lines.push(`- Block: ${allowBlock.join(", ")}`);
+  lines.push(`- List: ${allowList.join(", ")}`);
+  lines.push(`- If: ${allowIf.join(", ")}`);
+  lines.push(`- Hook: ${allowHook.join(", ")}`);
+  if (reg.resources?.length) lines.push(`- Resources: ${(reg.resources as string[]).join(", ")}`);
+  lines.push(`**Do not add or remove keys; do not use aliases.**`);
+  lines.push(`Required:`);
+  lines.push(`- text.required: ${required.text.join(", ") || "(none)"}`);
+  lines.push(`- list.required: ${required.list.join(", ") || "(none)"}`);
+  lines.push(`- gradle.required: ${required.gradle.join(", ") || "(none)"}`);
+  if (required.block.length) lines.push(`- block.required: ${required.block.join(", ")}`);
+  if (required.if.length) lines.push(`- if.required: ${required.if.join(", ")}`);
+  if (required.hook.length) lines.push(`- hook.required: ${required.hook.join(", ")}`);
+  lines.push(`Defaults:`);
+  lines.push(`- text.defaults: ${JSON.stringify(defaults.text || {})}`);
+  lines.push(`- list.defaults: ${JSON.stringify(defaults.list || {})}`);
+  lines.push(`- gradle.defaults: ${JSON.stringify(defaults.gradle || {})}`);
+  lines.push(`Output must be **Contract v1** JSON and keep the same keys as the SKELETON.`);
+  return lines.join("\n");
+}
+
+/** ---------- alias & prefix normalization ---------- */
+
 function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>): string {
   const k = (key || "").trim();
   if (!k) return k;
@@ -292,6 +321,8 @@ function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>):
   if (direct) return direct;
   if (/^NDJC:/.test(k)) return `TEXT:${k}`;
   if (/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k)) return k;
+
+  // 宽松推断（尽量少触发；主靠 registry 锁死）
   if (/^ROUTES$|FIELDS$|FLAGS$|STYLES$|PATTERNS$|PROGUARD|SPLITS|STRINGS$/i.test(k)) return `LIST:${k}`;
   if (/^PERMISSION|INTENT|NETWORK|FILE_PROVIDER/i.test(k)) return `IF:${k}`;
   if (/^HOME_|^ROUTE_|^NAV_|^SPLASH_|^EMPTY_|^ERROR_|^DEPENDENCY_|^DEBUG_|^BUILD_|^HEADER_|^PROFILE_|^SETTINGS_/i.test(k)) return `BLOCK:${k}`;
@@ -300,6 +331,7 @@ function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>):
 
 function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
   const out: any = { text: {}, block: {}, list: {}, if: {}, hook: {}, gradle: {} };
+
   const tryAssign = (dict: any, key: string, val: any) => {
     if (key.startsWith("TEXT:")) dict.text[key.replace(/^TEXT:/, "") || key] = String(val ?? "");
     else if (key.startsWith("BLOCK:")) dict.block[key.replace(/^BLOCK:/, "") || key] = String(val ?? "");
@@ -309,26 +341,25 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
     else if (key.startsWith("HOOK:")) dict.hook[key.replace(/^HOOK:/, "") || key] = Array.isArray(val) ? val.join("\n") : String(val ?? "");
   };
 
-  const groups = ["text", "block", "list", "if", "hook"];
+  const groups = ["text", "block", "list", "if", "hook"] as const;
   const from = raw || {};
   for (const g of groups) {
     const m = from[g] || {};
     for (const [k, v] of Object.entries(m)) {
-      let key1 = /^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k) ? k : normalizeKeyWithAliases(k, reg.aliases);
-      const mapped = reg.aliases?.[key1] || reg.aliases?.[k];
-      const key2 = mapped || key1;
-      tryAssign(out, key2, v);
+      const mapped = reg.aliases?.[k] || reg.aliases?.[String(k)];
+      const key1 = mapped || (/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k) ? k : normalizeKeyWithAliases(String(k), reg.aliases));
+      tryAssign(out, key1, v);
     }
   }
   if (from.gradle && typeof from.gradle === "object") out.gradle = { ...from.gradle };
 
-  // Canonical whitelist
+  // 白名单裁剪（canonical）
   const keep = {
-    text: new Set(reg.text),
-    block: new Set(reg.block),
-    list: new Set(reg.list),
-    if: new Set(reg.if),
-    hook: new Set(reg.hook)
+    text: new Set(reg.text as string[]),
+    block: new Set(reg.block as string[]),
+    list: new Set(reg.list as string[]),
+    if: new Set(reg.if as string[]),
+    hook: new Set(reg.hook as string[])
   };
   const filterDict = (d: Record<string, any>, allow: Set<string>) =>
     Object.fromEntries(Object.entries(d).filter(([k]) => allow.has(k)));
@@ -342,180 +373,102 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
   return out;
 }
 
-/** 校验与占位回填：按 valueRules 约束逐项检查；缺失或不合规→占位符回填，并记录 violation */
-function validateAndFill(
-  doc: any,
-  reg: Registry
-): { ok: boolean; violations: string[]; doc: any } {
-  const violations: string[] = [];
-  const rules = reg.valueRules || {};
+/** ---------- required/defaults checking ---------- */
 
-  const getRule = (cat: keyof Registry["valueRules"], key: string): ValueRule | undefined => {
-    const g = (rules as any)?.[cat] || {};
-    return (g[key] as ValueRule) || (g["*"] as ValueRule) || undefined;
-  };
+function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
+  const req = reg.required || {};
+  const def = reg.defaults || {};
+  const report = { filled: { text: [] as string[], list: [] as string[], gradle: [] as string[] }, missing: [] as string[] };
 
-  // helper: enforce one key
-  const ensureString = (obj: any, k: string, r?: Extract<ValueRule, { type: "string" }>) => {
-    let v = obj[k];
-    if (typeof v !== "string") {
-      v = r?.placeholder ?? "";
-      obj[k] = v;
-      violations.push(`text:${k} -> filled placeholder`);
-    }
-    if (r?.minLength && v.length < r.minLength) {
-      obj[k] = r.placeholder ?? v;
-      violations.push(`text:${k} -> minLength`);
-    }
-    if (r?.enum && !r.enum.includes(v)) {
-      obj[k] = r.placeholder ?? (r.enum[0] ?? v);
-      violations.push(`text:${k} -> enum`);
-    }
-    if (r?.regex) {
-      try {
-        const re = new RegExp(r.regex);
-        if (!re.test(obj[k])) {
-          obj[k] = r.placeholder ?? obj[k];
-          violations.push(`text:${k} -> regex`);
-        }
-      } catch {
-        /* ignore bad regex */
+  // TEXT required
+  for (const k of ((req.text as string[]) || [])) {
+    const key = String(k);
+    if (!doc.text?.[key]) {
+      const dv = def.text?.[key] ?? "";
+      if (dv !== "") {
+        doc.text[key] = dv;
+        report.filled.text.push(key);
+      } else {
+        report.missing.push(`text:${key}`);
       }
     }
-  };
+  }
 
-  const ensureStringArray = (obj: any, k: string, r?: Extract<ValueRule, { type: "string[]" }>) => {
-    let v = obj[k];
-    if (!Array.isArray(v)) v = [];
-    v = v.map((x: any) => String(x));
-    if ((r?.minItems ?? 0) > 0 && v.length < (r!.minItems!)) {
-      const toAdd = (r!.minItems! - v.length);
-      for (let i = 0; i < toAdd; i++) v.push(r?.placeholderItem ?? "");
-      violations.push(`list:${k} -> minItems`);
+  // LIST required
+  for (const k of ((req.list as string[]) || [])) {
+    const key = String(k);
+    const cur = doc.list?.[key];
+    if (!Array.isArray(cur) || cur.length === 0) {
+      const dv = def.list?.[key] ?? [];
+      if (dv.length) {
+        doc.list[key] = dv;
+        report.filled.list.push(key);
+      } else {
+        report.missing.push(`list:${key}`);
+      }
     }
-    if (v.length === 0 && r?.placeholderItem != null) {
-      v.push(r.placeholderItem);
-      violations.push(`list:${k} -> placeholderItem`);
+  }
+
+  // GRADLE required
+  if (!doc.gradle) doc.gradle = {};
+  for (const k of ((req.gradle as string[]) || [])) {
+    const key = String(k);
+    if (key === "applicationId") {
+      let appId =
+        doc.gradle.applicationId ||
+        doc.text?.["NDJC:PACKAGE_NAME"] ||
+        def.text?.["NDJC:PACKAGE_NAME"] ||
+        def.gradle?.applicationId;
+      appId = ensurePackageId(appId, "com.ndjc.demo.core");
+      if (!appId) report.missing.push("gradle:applicationId");
+      else {
+        doc.gradle.applicationId = appId;
+        if (!doc.text["NDJC:PACKAGE_NAME"]) doc.text["NDJC:PACKAGE_NAME"] = appId;
+        report.filled.gradle.push("applicationId");
+      }
+    } else {
+      if (doc.gradle[key] == null && (def.gradle as any)?.[key] != null) {
+        (doc.gradle as any)[key] = (def.gradle as any)[key];
+        report.filled.gradle.push(key);
+      }
     }
-    obj[k] = v;
-  };
-
-  const ensureBoolean = (obj: any, k: string, r?: Extract<ValueRule, { type: "boolean" }>) => {
-    let v = obj[k];
-    if (typeof v !== "boolean") {
-      obj[k] = (typeof r?.placeholder === "boolean" ? r!.placeholder! : false);
-      violations.push(`if:${k} -> placeholder`);
-    }
-  };
-
-  // text
-  doc.text = doc.text || {};
-  for (const k of reg.text) {
-    const r = getRule("text", k) as Extract<ValueRule, { type: "string" }> | undefined;
-    if (!(k in doc.text)) doc.text[k] = r?.placeholder ?? "";
-    ensureString(doc.text, k, r);
   }
 
-  // block
-  doc.block = doc.block || {};
-  for (const k of reg.block) {
-    const r = getRule("block", k) as Extract<ValueRule, { type: "string" }> | undefined;
-    if (!(k in doc.block)) doc.block[k] = r?.placeholder ?? "";
-    ensureString(doc.block, k, r);
+  // 兜底默认
+  if (!Array.isArray(doc.gradle.resConfigs) && Array.isArray(reg.defaults?.gradle?.resConfigs)) {
+    doc.gradle.resConfigs = reg.defaults!.gradle!.resConfigs;
+  }
+  if (!Array.isArray(doc.gradle.permissions) && Array.isArray(reg.defaults?.gradle?.permissions)) {
+    doc.gradle.permissions = reg.defaults!.gradle!.permissions;
   }
 
-  // list
-  doc.list = doc.list || {};
-  for (const k of reg.list) {
-    const r = getRule("list", k) as Extract<ValueRule, { type: "string[]" }> | undefined;
-    if (!(k in doc.list)) {
-      const item = r?.placeholderItem ?? "";
-      doc.list[k] = item ? [item] : [];
-    }
-    ensureStringArray(doc.list, k, r);
-  }
-
-  // if
-  doc.if = doc.if || {};
-  for (const k of reg.if) {
-    const r = getRule("if", k) as Extract<ValueRule, { type: "boolean" }> | undefined;
-    if (!(k in doc.if)) doc.if[k] = (typeof r?.placeholder === "boolean" ? r!.placeholder! : false);
-    ensureBoolean(doc.if, k, r);
-  }
-
-  // hook
-  doc.hook = doc.hook || {};
-  for (const k of reg.hook) {
-    const r = getRule("hook", k) as Extract<ValueRule, { type: "string" }> | undefined;
-    if (!(k in doc.hook)) doc.hook[k] = r?.placeholder ?? "";
-    ensureString(doc.hook, k, r);
-  }
-
-  // gradle
-  doc.gradle = doc.gradle || {};
-  const grules = rules.gradle || {};
-  const ga = grules["applicationId"] as Extract<ValueRule, { type: "string" }> | undefined;
-  const grc = grules["resConfigs"] as Extract<ValueRule, { type: "string[]" }> | undefined;
-  const gperm = grules["permissions"] as Extract<ValueRule, { type: "string[]" }> | undefined;
-
-  if (!("applicationId" in doc.gradle)) doc.gradle.applicationId = (ga?.placeholder ?? "com.example.app");
-  ensureString(doc.gradle, "applicationId", ga);
-
-  if (!Array.isArray(doc.gradle.resConfigs)) doc.gradle.resConfigs = [];
-  ensureStringArray(doc.gradle, "resConfigs", grc);
-
-  if (!Array.isArray(doc.gradle.permissions)) doc.gradle.permissions = [];
-  ensureStringArray(doc.gradle, "permissions", gperm);
-
-  // required presence (now they are all filled by the above; ensure again)
-  const missing: string[] = [];
-  const req = reg.required || {};
-  for (const k of (req.text || [])) if (!(k in doc.text)) missing.push(`text:${k}`);
-  for (const k of (req.list || [])) if (!(k in doc.list)) missing.push(`list:${k}`);
-  for (const k of (req.block || [])) if (!(k in doc.block)) missing.push(`block:${k}`);
-  for (const k of (req.if || [])) if (!(k in doc.if)) missing.push(`if:${k}`);
-  for (const k of (req.hook || [])) if (!(k in doc.hook)) missing.push(`hook:${k}`);
-  for (const k of (req.gradle || [])) if (!(k in doc.gradle)) missing.push(`gradle:${k}`);
-
-  if (missing.length) violations.push(`missing:${missing.join(",")}`);
-
-  return { ok: violations.length === 0, violations, doc };
+  const ok = report.missing.length === 0;
+  return { ok, report, doc };
 }
 
-function buildSystemPrompt(reg: Registry, androidNote: string): string {
-  const allowText = reg.text;
-  const allowBlock = withPrefix("BLOCK", reg.block);
-  const allowList = withPrefix("LIST", reg.list);
-  const allowIf = withPrefix("IF", reg.if);
-  const allowHook = withPrefix("HOOK", reg.hook);
-  const lines: string[] = [];
-  lines.push(androidNote);
-  lines.push(`Template: ${reg.template}`);
-  lines.push(`Allowed keys (canonical):`);
-  lines.push(`- Text: ${allowText.join(", ")}`);
-  lines.push(`- Block: ${allowBlock.join(", ")}`);
-  lines.push(`- List: ${allowList.join(", ")}`);
-  lines.push(`- If: ${allowIf.join(", ")}`);
-  lines.push(`- Hook: ${allowHook.join(", ")}`);
-  lines.push(`Return pure JSON only.`);
-  return lines.join("\n");
-}
+/** ---------------- main orchestrate ---------------- */
 
-/** ---------------- main ---------------- */
-
-export async function orchestrate(input: OrchestrateInput) {
+export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateOutput> {
   const reg =
     (await loadRegistry()) || {
       template: "circle-basic",
-      text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"],
-      block: [],
-      list: ["ROUTES"],
-      if: [],
-      hook: [],
+      text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"] as const,
+      block: [] as const,
+      list: ["ROUTES"] as const,
+      if: [] as const,
+      hook: [] as const,
       aliases: {},
-      required: { text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"], list: ["ROUTES"], gradle: ["applicationId", "resConfigs", "permissions"] },
-      defaults: { text: { "NDJC:PACKAGE_NAME": "com.ndjc.demo.core", "NDJC:APP_LABEL": "NDJC App", "NDJC:HOME_TITLE": "Home", "NDJC:PRIMARY_BUTTON_TEXT": "Start" }, list: { "ROUTES": ["home"] }, gradle: { applicationId: "com.ndjc.demo.core", resConfigs: ["en", "zh-rCN", "zh-rTW"], permissions: [] } },
-      valueRules: { text: { "*": { type: "string", placeholder: "" } }, list: { "*": { type: "string[]", placeholderItem: "" } }, if: { "*": { type: "boolean", placeholder: false } }, block: { "*": { type: "string", placeholder: "<!-- NDJC:BLOCK -->" } }, hook: { "*": { type: "string", placeholder: "// NDJC:HOOK" } }, gradle: { applicationId: { type: "string", placeholder: "com.example.app" }, resConfigs: { type: "string[]", minItems: 1, placeholderItem: "en" }, permissions: { type: "string[]", placeholderItem: "" } } }
+      required: { text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"], list: ["ROUTES"], gradle: ["applicationId"] },
+      defaults: {
+        text: {
+          "NDJC:PACKAGE_NAME": "com.ndjc.demo.core",
+          "NDJC:APP_LABEL": "NDJC App",
+          "NDJC:HOME_TITLE": "Home",
+          "NDJC:PRIMARY_BUTTON_TEXT": "Start"
+        },
+        list: { "ROUTES": ["home"] },
+        gradle: { resConfigs: ["en", "zh-rCN", "zh-rTW"], permissions: [] }
+      }
     };
 
   let appName = input.appName || reg.defaults?.text?.["NDJC:APP_LABEL"] || "NDJC App";
@@ -535,26 +488,21 @@ export async function orchestrate(input: OrchestrateInput) {
 
   let _trace: any | null = { retries: [] };
 
-  // Build skeleton and prompts
+  const system = buildSystemPromptFromRegistry(reg);
   const skeleton = buildSkeletonFromRegistry(reg, { appName, packageId, locales });
-  const sysFromFile = await readTextOrJsonPrompt(process.env.NDJC_PROMPT_SYSTEM_FILE);
-  const retryFromFile = await readTextOrJsonPrompt(process.env.NDJC_PROMPT_RETRY_FILE);
-  const androidNote =
-    (sysFromFile && sysFromFile.trim()) ||
-    "You are generating Contract v1 JSON used to build a native Android APK. Fill every anchor; use placeholders if business need is none. Keep compilable where applicable. Output pure JSON.";
 
-  const system = buildSystemPrompt(reg, androidNote);
-
+  // 用户消息
   const baseUser = [
-    `Strictly fill the following SKELETON keys (no add/remove). If a key is not needed, use the proper placeholder per value rules. Output JSON only.`,
+    `请**严格**按下述 SKELETON 的键集合回填所有值（不要新增/删除键）。`,
+    `- 若缺数据：使用系统提示中给定的默认值；`,
+    `- 类型要求：text=string，block/hook=string（可放 XML/代码片段），list=string[]，if=boolean；`,
+    `- 只返回 JSON（不要解释文字）。`,
     `SKELETON:`,
     JSON.stringify(skeleton, null, 2),
-    (input.requirement?.trim() ? `User requirement: ${input.requirement!.trim()}` : ``)
-  ]
-    .filter(Boolean)
-    .join("\n");
+    (input.requirement?.trim() ? `需求补充：${input.requirement!.trim()}` : ``)
+  ].filter(Boolean).join("\n");
 
-  // Generate + validate + retry
+  // 生成 + 校验→重试
   const maxRetries = 2;
   let parsed: any = null;
   let lastText = "";
@@ -570,7 +518,7 @@ export async function orchestrate(input: OrchestrateInput) {
       }
       if (attempt > 0 && lastText) {
         msgs.push({ role: "assistant", content: lastText });
-        msgs.push({ role: "user", content: (retryFromFile || "Please correct the JSON per rules and resend full JSON.") });
+        msgs.push({ role: "user", content: "上面的内容不合规。请根据反馈修正并重新返回完整 JSON（同样的键集合）。" });
       }
 
       const r = await callGroqChat(msgs, { json: true, temperature: 0 });
@@ -579,52 +527,20 @@ export async function orchestrate(input: OrchestrateInput) {
       const maybe = parseJsonSafely(text) as any;
 
       const normalized = normalizeAnchorsUsingRegistry(maybe?.anchors || maybe?.anchorsGrouped || {}, reg);
+      const { ok, report, doc } = applyDefaultsAndCheckRequired({ ...normalized, gradle: maybe?.anchors?.gradle || maybe?.gradle || {} }, reg);
 
-      // 先按 required/defaults 兜底
-      const applyDefaults = (doc: any) => {
-        const req = reg.required || {};
-        const def = reg.defaults || {};
-        doc.text = doc.text || {};
-        doc.list = doc.list || {};
-        doc.gradle = doc.gradle || {};
-        for (const k of req.text || []) {
-          if (!doc.text[k]) doc.text[k] = def.text?.[k] ?? doc.text[k] ?? "";
-        }
-        for (const k of req.list || []) {
-          if (!Array.isArray(doc.list[k]) || doc.list[k].length === 0) {
-            doc.list[k] = (def.list?.[k] ?? []);
-          }
-        }
-        if (!doc.gradle.applicationId) {
-          doc.gradle.applicationId =
-            doc.text?.["NDJC:PACKAGE_NAME"] ||
-            def.gradle?.applicationId ||
-            "com.example.app";
-        }
-        if (!Array.isArray(doc.gradle.resConfigs)) {
-          doc.gradle.resConfigs = def.gradle?.resConfigs || ["en"];
-        }
-        if (!Array.isArray(doc.gradle.permissions)) {
-          doc.gradle.permissions = def.gradle?.permissions || [];
-        }
-        return doc;
-      };
-
-      const seeded = applyDefaults({ ...normalized, gradle: maybe?.anchors?.gradle || maybe?.gradle || {} });
-
-      // 严格值格式校验 + 占位回填
-      const { ok, violations, doc } = validateAndFill(seeded, reg);
-
-      parsed = { metadata: maybe?.metadata || {}, anchors: doc, _raw: maybe, _text: text, _violations: violations, _ok: ok };
+      parsed = { metadata: maybe?.metadata || {}, anchors: doc, _raw: maybe, _text: text, _report: report, _ok: ok };
       _trace.retries.push({
         attempt,
         ok,
-        violations,
+        report,
         feedback: ok
           ? undefined
           : [
-              "The JSON failed value-format checks. Fix the following and resend FULL JSON:",
-              ...violations.map((v: string) => `- ${v}`)
+              "你没有满足以下必填项，请补齐并仅使用允许的规范键：",
+              ...report.missing.map((m: string) => `- 缺失：${m}`),
+              "若缺数据请使用默认值（上文已提供）。",
+              "请重新返回完整 JSON。"
             ].join("\n")
       });
 
@@ -634,7 +550,7 @@ export async function orchestrate(input: OrchestrateInput) {
     }
   }
 
-  // Extract final values
+  // 抽取关键值
   if (parsed?.metadata) {
     appName = parsed.metadata.appName || appName;
     packageId = ensurePackageId(parsed.metadata.packageId || packageId, packageId);
@@ -657,7 +573,7 @@ export async function orchestrate(input: OrchestrateInput) {
     companions = sanitizeCompanions(parsed._raw.files);
   }
 
-  // Safety fallback
+  // 兜底：若必须 v1 且完全无返回，则合成最小 v1
   if (wantV1(input) && (!parsed || !parsed._text)) {
     const v1doc = {
       metadata: { runId: (input as any).runId || undefined, template, appName, packageId, mode },
@@ -669,7 +585,7 @@ export async function orchestrate(input: OrchestrateInput) {
           "NDJC:PRIMARY_BUTTON_TEXT": mainButtonText
         },
         block: {},
-        list: { "ROUTES": ["home"] },
+        list: { "LIST:ROUTES": ["home"] },
         if: {},
         hook: {},
         gradle: { applicationId: packageId, resConfigs: locales, permissions }
