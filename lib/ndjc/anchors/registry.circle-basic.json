@@ -1,37 +1,70 @@
 {
   "template": "circle-basic",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
+  "description": "NDJC circle-basic • 全量锚点清单 + 值格式约束（Contract/Plan/Materialize 单一真相源）",
+
+  /* 1) 允许的锚点键集合（canonical keys） */
   "text": [
     "NDJC:PACKAGE_NAME",
     "NDJC:APP_LABEL",
     "NDJC:HOME_TITLE",
     "NDJC:PRIMARY_BUTTON_TEXT",
     "NDJC:THEME_NAME",
+
+    "NDJC:DARK_MODE",
+    "NDJC:FONT_FAMILY_PRIMARY",
+    "NDJC:FONT_FAMILY_SECONDARY",
+    "NDJC:I18N_ENABLED",
+    "NDJC:ANIM_ENABLED",
+    "NDJC:ANIM_DURATION_MS",
+    "NDJC:LAYOUT_DENSITY",
+
+    "NDJC:DATA_SOURCE",
+    "NDJC:SEED_ENABLED",
+    "NDJC:FEED_SORT",
+    "NDJC:PAGING_SIZE",
+    "NDJC:OFFLINE_POLICY",
+    "NDJC:PRIVACY_POLICY",
+    "NDJC:DRAFT_ENABLED",
+
+    "NDJC:USE_APP_BUNDLE",
+    "NDJC:BUILD_META_RUNID",
+    "NDJC:FEATURE_TOGGLE_MIN",
+
     "NDJC:RUN_ID",
     "NDJC:LOG_LEVEL",
-    "NDJC:DEBUG_LOG_ENABLED"
+    "NDJC:METRICS_ENABLED",
+    "NDJC:CRASHLYTICS_ENABLED",
+
+    "NDJC:EXPERIMENT_BUCKET"
   ],
   "block": [
     "HOME_HEADER",
     "HOME_BODY",
     "HOME_ACTIONS",
+
     "THEME_COLORS",
     "TYPOCASE_OVERRIDES",
     "STRINGS_EXTRA",
+
     "ROUTE_HOME",
     "ROUTE_DETAIL",
     "ROUTE_POST",
     "NAV_TRANSITIONS",
+
     "SPLASH_CONTENT",
     "EMPTY_STATE",
     "ERROR_STATE",
+
     "DEPENDENCY_SNIPPETS",
     "DEBUG_PANEL",
     "BUILD_SUMMARY",
+
     "HEADER_AD_SLOT",
     "FEED_ITEM_BADGES",
     "USER_PROFILE_CARD",
     "SPONSORED_CARD",
+
     "PROFILE_SECTION",
     "SETTINGS_SECTION"
   ],
@@ -68,30 +101,32 @@
     "AFTER_INSTALL"
   ],
   "resources": [
-    "RES:drawable/app_icon.xml",
-    "RES:drawable/empty_illustration.xml",
-    "RES:drawable/avatar_placeholder.xml",
-    "RES:drawable/brand_cover.xml",
-    "RES:drawable/ic_stat_notify.xml",
-    "RES:font/primary.xml",
-    "RES:font/secondary.xml",
+    "RES:drawable/app_icon.png",
+    "RES:drawable/empty_illustration.png",
+    "RES:drawable/avatar_placeholder.png",
+    "RES:drawable/brand_cover.png",
+    "RES:drawable/ic_stat_notify.png",
+    "RES:font/primary.ttf",
+    "RES:font/secondary.ttf",
     "RES:raw/theme_colors.json",
     "RES:raw/seed_data.json"
   ],
+
+  /* 2) 必填项（缺失不可返回） */
   "required": {
     "text": [
       "NDJC:PACKAGE_NAME",
       "NDJC:APP_LABEL",
       "NDJC:HOME_TITLE",
-      "NDJC:PRIMARY_BUTTON_TEXT"
+      "NDJC:PRIMARY_BUTTON_TEXT",
+      "NDJC:THEME_NAME",
+      "NDJC:LOG_LEVEL"
     ],
-    "list": [
-      "ROUTES"
-    ],
-    "gradle": [
-      "applicationId"
-    ]
-  ],
+    "list": ["ROUTES"],
+    "gradle": ["applicationId"]
+  },
+
+  /* 3) 默认值（无值时自动补） */
   "defaults": {
     "text": {
       "NDJC:PACKAGE_NAME": "com.ndjc.demo.core",
@@ -99,24 +134,51 @@
       "NDJC:HOME_TITLE": "Home",
       "NDJC:PRIMARY_BUTTON_TEXT": "Start",
       "NDJC:THEME_NAME": "NDJCTheme",
+
+      "NDJC:DARK_MODE": "system",
+      "NDJC:FONT_FAMILY_PRIMARY": "sans-serif",
+      "NDJC:FONT_FAMILY_SECONDARY": "sans-serif-medium",
+      "NDJC:I18N_ENABLED": "true",
+      "NDJC:ANIM_ENABLED": "true",
+      "NDJC:ANIM_DURATION_MS": "300",
+      "NDJC:LAYOUT_DENSITY": "normal",
+
+      "NDJC:DATA_SOURCE": "remote",
+      "NDJC:SEED_ENABLED": "false",
+      "NDJC:FEED_SORT": "latest",
+      "NDJC:PAGING_SIZE": "20",
+      "NDJC:OFFLINE_POLICY": "cache-first",
+      "NDJC:PRIVACY_POLICY": "https://example.com/privacy",
+      "NDJC:DRAFT_ENABLED": "false",
+
+      "NDJC:USE_APP_BUNDLE": "false",
+      "NDJC:BUILD_META_RUNID": "",
+      "NDJC:FEATURE_TOGGLE_MIN": "0",
+
       "NDJC:RUN_ID": "",
       "NDJC:LOG_LEVEL": "DEBUG",
-      "NDJC:DEBUG_LOG_ENABLED": "true"
+      "NDJC:METRICS_ENABLED": "true",
+      "NDJC:CRASHLYTICS_ENABLED": "true",
+
+      "NDJC:EXPERIMENT_BUCKET": ""
     },
     "list": {
-      "ROUTES": [
-        "home"
-      ]
+      "ROUTES": ["home", "detail", "post"],
+      "POST_FIELDS": ["title", "description", "price"],
+      "COMMENT_FIELDS": ["rating", "comment"],
+      "ABI_SPLITS": [],
+      "PLURAL_STRINGS": [],
+      "COMPONENT_STYLES": [],
+      "REMOTE_FLAGS": [],
+      "DEEPLINK_PATTERNS": []
     },
     "gradle": {
-      "resConfigs": [
-        "en",
-        "zh-rCN",
-        "zh-rTW"
-      ],
+      "resConfigs": ["en", "zh-rCN", "zh-rTW"],
       "permissions": []
     }
   },
+
+  /* 4) 键别名（入参宽容，最终一律规范键输出） */
   "aliases": {
     "ROUTES": "LIST:ROUTES",
     "DEEPLINKS": "LIST:DEEPLINK_PATTERNS",
@@ -124,6 +186,7 @@
     "FEATURE_FLAGS": "LIST:REMOTE_FLAGS",
     "STYLES": "LIST:COMPONENT_STYLES",
     "PROGUARD": "LIST:PROGUARD_EXTRA",
+
     "PERMISSIONS": "IF:PERMISSION",
     "PERMISSION_CAMERA": "IF:PERMISSION.CAMERA",
     "CAMERA_PERMISSION": "IF:PERMISSION.CAMERA",
@@ -141,6 +204,7 @@
     "CLEAR_HTTP": "IF:NETWORK.CLEAR_TEXT",
     "HTTP_CLEAR_TEXT": "IF:NETWORK.CLEAR_TEXT",
     "SHARE_INTENT": "IF:INTENT.SHARE",
+
     "APPLICATION_ID": "TEXT:NDJC:PACKAGE_NAME",
     "NDJC:APPLICATION_ID": "TEXT:NDJC:PACKAGE_NAME",
     "APP_NAME": "TEXT:NDJC:APP_LABEL",
@@ -153,6 +217,7 @@
     "CTA_PRIMARY": "TEXT:NDJC:PRIMARY_BUTTON_TEXT",
     "THEME": "TEXT:NDJC:THEME_NAME",
     "NDJC:THEME": "TEXT:NDJC:THEME_NAME",
+
     "NAV_ANIMATIONS": "BLOCK:NAV_TRANSITIONS",
     "SPLASH": "BLOCK:SPLASH_CONTENT",
     "EMPTY_VIEW": "BLOCK:EMPTY_STATE",
@@ -161,5 +226,38 @@
     "ADS_HEADER": "BLOCK:HEADER_AD_SLOT",
     "PROFILE": "BLOCK:PROFILE_SECTION",
     "SETTINGS": "BLOCK:SETTINGS_SECTION"
+  },
+
+  /* 5) 值类型规则（大类默认 + 单点覆盖） */
+  "valueTypes": {
+    "text": { "type": "string", "allowEmpty": true, "placeholder": "{{TEXT}}" },
+    "block": { "type": "string", "allowEmpty": true, "placeholder": "<!-- {{BLOCK}} -->" },
+    "list": { "type": "string[]", "allowEmpty": true, "placeholder": "__NDJC_LIST_EMPTY__" },
+    "if": { "type": "boolean", "allowEmpty": true, "placeholder": false },
+    "hook": { "type": "string", "allowEmpty": true, "placeholder": "// {{HOOK}}" },
+    "resources": { "type": "base64|string", "allowEmpty": true, "placeholder": "__NDJC_RES_PLACEHOLDER__" },
+    "gradle": {
+      "applicationId": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+$", "placeholder": "com.example.app" },
+      "resConfigs": { "type": "string[]", "placeholder": ["en"] },
+      "permissions": { "type": "string[]", "placeholder": [] }
+    }
+  },
+
+  /* 6) 单锚点覆盖（示例） */
+  "fieldSchemas": {
+    "text": {
+      "NDJC:LOG_LEVEL": { "enum": ["VERBOSE", "DEBUG", "INFO", "WARN", "ERROR"], "placeholder": "DEBUG" },
+      "NDJC:DARK_MODE": { "enum": ["system", "light", "dark"], "placeholder": "system" },
+      "NDJC:I18N_ENABLED": { "enum": ["true", "false"], "placeholder": "true" },
+      "NDJC:ANIM_ENABLED": { "enum": ["true", "false"], "placeholder": "true" },
+      "NDJC:ANIM_DURATION_MS": { "type": "string", "pattern": "^[0-9]{2,4}$", "placeholder": "300" },
+      "NDJC:PAGING_SIZE": { "type": "string", "pattern": "^[0-9]{1,3}$", "placeholder": "20" },
+      "NDJC:USE_APP_BUNDLE": { "enum": ["true", "false"], "placeholder": "false" },
+      "NDJC:METRICS_ENABLED": { "enum": ["true", "false"], "placeholder": "true" },
+      "NDJC:CRASHLYTICS_ENABLED": { "enum": ["true", "false"], "placeholder": "true" }
+    },
+    "list": {
+      "ROUTES": { "minItems": 1, "placeholder": ["home", "detail", "post"] }
+    }
   }
 }
