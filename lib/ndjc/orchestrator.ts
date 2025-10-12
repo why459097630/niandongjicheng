@@ -1,102 +1,28 @@
 // lib/ndjc/orchestrator.ts
-// - 仅从文件读取 system / retry 提示词（不再内置任何提示词文本）
-// - 写入 requests/<RUN_ID>/01_contract.json，并在其中附带 meta._trace
-// - LLM 失败或解析失败时，走 offlineContract 兜底生成最小可用契约
-
+// - 仅从文件读取 system / retry 提示词（不内置任何提示词文本）
+// - 成功时写入 requests/<RUN_ID>/01_contract.json，附带 meta._trace
+// - 失败（读不到文件 / LLM 错 / 非 JSON）直接抛错 -> 构建失败
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 
-import type { NdjcRequest } from "./types";
-import { groqChat as callGroqChat } from "@/lib/ndjc/groq";      // 你项目现有的 LLM 适配
-import { offlineContract } from "@/lib/ndjc/offline";            // 你项目现有的离线兜底
+type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 
-/* ======================== types ======================== */
+type OrchestrateParams = {
+  runId: string;
+  requirement: string;
+  outDir?: string;
 
-type Registry = {
-  template: string;
-  schemaVersion?: string;
-
-  text: string[];
-  block: string[];
-  list: string[];
-  if: string[];
-  hook: string[];
-  resources?: string[];
-
-  aliases?: Record<string, string>;
-  required?: {
-    text?: string[];
-    block?: string[];
-    list?: string[];
-    if?: string[];
-    hook?: string[];
-    gradle?: string[];
-  };
-  defaults?: {
-    text?: Record<string, string>;
-    list?: Record<string, string[]>;
-    gradle?: {
-      applicationId?: string;
-      resConfigs?: string[];
-      permissions?: string[];
-    };
-  };
-  valueRules?: {
-    text?: Record<string, { type: "string"; placeholder?: string }>;
-    block?: Record<string, { type: "string"; placeholder?: string }>;
-    list?: Record<string, { type: "string[]"; placeholder?: string[] }>;
-    if?: Record<string, { type: "boolean"; placeholder?: boolean }>;
-    hook?: Record<string, { type: "string"; placeholder?: string }>;
-  };
-};
-
-export type OrchestrateInput = NdjcRequest & {
-  /** 自然语言需求（通常由前端传入） */
-  requirement?: string;
-
-  /** 运行模式（保持你现有字段，便于兼容） */
-  mode?: "A" | "B";
-  allowCompanions?: boolean;
-
-  /** 透传给 LLM/契约的可选字段（不强制） */
-  appName?: string;
-  homeTitle?: string;
-  mainButtonText?: string;
-  packageId?: string;
-  packageName?: string;
-
-  permissions?: string[];
-  intentHost?: string | null;
-  locales?: string[];
-  resConfigs?: string;
-  proguardExtra?: string;
-  packagingRules?: string;
-
-  developerNotes?: string;
-
-  contract?: "v1" | "legacy";
-  contractV1?: boolean;
-
-  // 覆盖提示词/注册表文件（可用 env 替代）
+  // 可覆盖默认文件路径（也可用环境变量）
   promptSystemFile?: string;
   promptRetryFile?: string;
   registryFile?: string;
 
-  // LLM 配置
+  // LLM
   model?: string;
   maxRetry?: number;
   temperature?: number;
-};
-
-export type OrchestrateOutput = {
-  run_id: string;
-  ok: boolean;
-  contract_path: string;
-  model: string;
-  meta: {
-    trace: MetaTrace;
-  };
 };
 
 type MetaTrace = {
@@ -110,30 +36,33 @@ type MetaTrace = {
   attempts: number;
   timestamp: string;
   errors: string[];
-  // 需要的话可以追加更多字段（如耗时、token 用量等）
 };
 
-/* ======================== helpers ======================== */
+export type OrchestrateOutput = {
+  run_id: string;
+  ok: true;
+  contract_path: string;
+  model: string;
+  meta: { trace: MetaTrace };
+};
 
-function parseJsonSafely(text: string): any | null {
-  if (!text) return null;
-  const m =
-    text.match(/```json\s*([\s\S]*?)```/i) ||
-    text.match(/```\s*([\s\S]*?)```/) ||
-    null;
-  const raw = m ? m[1] : text;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
+// ------- 默认配置（仅路径与数值；不含任何提示词文本） -------
+const DEFAULT_SYSTEM_FILE =
+  process.env.NDJC_PROMPT_SYSTEM_FILE || "lib/ndjc/prompts/contract_v1.en.json";
+const DEFAULT_RETRY_FILE =
+  process.env.NDJC_PROMPT_RETRY_FILE || "lib/ndjc/prompts/contract_v1.retry.en.txt";
+const DEFAULT_REGISTRY_FILE =
+  process.env.NDJC_REGISTRY_FILE || "lib/ndjc/anchors/registry.circle-basic.json";
 
+const DEFAULT_MODEL = process.env.NDJC_LLM_MODEL || "gpt-4o-mini";
+const DEFAULT_MAX_RETRY = Number(process.env.NDJC_LLM_MAX_RETRY || 2);
+const DEFAULT_TEMPERATURE = Number(process.env.NDJC_LLM_TEMPERATURE || 0);
+
+// -------------------- helpers --------------------
 async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });
 }
-
-async function readFileMaybe(filePath: string | undefined): Promise<{
+async function readFileMaybe(filePath?: string): Promise<{
   ok: boolean; absPath?: string; text?: string; sha1?: string; err?: string;
 }> {
   if (!filePath) return { ok: false, err: "empty_path" };
@@ -146,8 +75,7 @@ async function readFileMaybe(filePath: string | undefined): Promise<{
     return { ok: false, err: `read_failed:${e?.message || String(e)}` };
   }
 }
-
-async function readJsonMaybe<T = any>(filePath: string | undefined): Promise<{
+async function readJsonMaybe<T = any>(filePath?: string): Promise<{
   ok: boolean; absPath?: string; data?: T; sha1?: string; err?: string;
 }> {
   const r = await readFileMaybe(filePath);
@@ -159,42 +87,29 @@ async function readJsonMaybe<T = any>(filePath: string | undefined): Promise<{
     return { ok: false, absPath: r.absPath, sha1: r.sha1, err: `json_parse_failed:${e?.message || String(e)}` };
   }
 }
-
-async function loadRegistry(override?: string): Promise<{
-  reg: Registry | null; file?: string; sha1?: string; err?: string;
-}> {
-  const cwd = process.cwd();
-  const hint =
-    override ||
-    process.env.REGISTRY_FILE ||
-    process.env.NDJC_REGISTRY_FILE ||
-    path.join(cwd, "lib/ndjc/anchors/registry.circle-basic.json");
-
-  const r = await readJsonMaybe<Registry>(hint);
-  if (r.ok && r.data) {
-    console.log("[orchestrator] registry loaded:", { file: r.absPath, template: r.data.template, schemaVersion: r.data.schemaVersion });
-    return { reg: r.data, file: r.absPath, sha1: r.sha1 };
+function extractJsonObject(text: string): any | null {
+  if (!text) return null;
+  const m =
+    text.match(/```json\s*([\s\S]*?)```/i) ||
+    text.match(/```\s*([\s\S]*?)```/) ||
+    null;
+  const raw = m ? m[1] : text;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
-  console.log("[orchestrator] registry load failed, fallback minimal:", r.err);
-  return { reg: null, file: r.absPath, sha1: r.sha1, err: r.err };
 }
-
-async function loadPromptsFromFiles(systemOverride?: string, retryOverride?: string) {
-  const cwd = process.cwd();
+async function loadPrompts(systemOverride?: string, retryOverride?: string) {
   const systemFile =
-    systemOverride ||
-    process.env.NDJC_PROMPT_SYSTEM_FILE ||
-    path.join(cwd, "lib/ndjc/prompts/contract_v1.en.json");
+    systemOverride || process.env.NDJC_PROMPT_SYSTEM_FILE || DEFAULT_SYSTEM_FILE;
   const retryFile =
-    retryOverride ||
-    process.env.NDJC_PROMPT_RETRY_FILE ||
-    path.join(cwd, "lib/ndjc/prompts/contract_v1.retry.en.txt");
+    retryOverride || process.env.NDJC_PROMPT_RETRY_FILE || DEFAULT_RETRY_FILE;
 
   const sys = await readFileMaybe(systemFile);
   const rty = await readFileMaybe(retryFile);
 
-  // 仅记录来源；**不内置任何提示词文本**（文件读不到就没有）
-  console.log("[orchestrator] prompt sources:", {
+  console.log("[orchestrator] prompt sources", {
     systemFile,
     systemRead: !!sys.text,
     retryFile,
@@ -214,38 +129,49 @@ async function loadPromptsFromFiles(systemOverride?: string, retryOverride?: str
     ],
   };
 }
+async function loadRegistry(registryOverride?: string) {
+  const file =
+    registryOverride || process.env.NDJC_REGISTRY_FILE || DEFAULT_REGISTRY_FILE;
+  const r = await readJsonMaybe<any>(file);
+  if (!r.ok) {
+    console.log("[orchestrator] registry load failed", r.err);
+  } else {
+    console.log("[orchestrator] registry loaded", { file: r.absPath });
+  }
+  return r;
+}
 
-/* ======================== main ======================== */
-
-export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateOutput> {
+// -------------------- main --------------------
+export async function orchestrate(params: OrchestrateParams): Promise<OrchestrateOutput> {
   const {
     runId,
-    requirement = "",
-    outDir = "requests",       // NdjcRequest 里通常含有 outDir/runId 等，沿用你的项目结构
+    requirement,
+    outDir = "requests",
     promptSystemFile,
     promptRetryFile,
     registryFile,
-    model = process.env.NDJC_LLM_MODEL || "gpt-4o-mini",
-    maxRetry = Number(process.env.NDJC_LLM_MAX_RETRY || 2),
-    temperature = Number(process.env.NDJC_LLM_TEMPERATURE || 0),
-  } = input as any;
+    model = DEFAULT_MODEL,
+    maxRetry = DEFAULT_MAX_RETRY,
+    temperature = DEFAULT_TEMPERATURE,
+  } = params;
 
-  const reqDir = path.join(outDir || "requests", String(runId));
+  const reqDir = path.join(outDir, String(runId));
   await ensureDir(reqDir);
 
-  // 1) 加载注册表 + 提示词（仅从文件）
-  const [{ reg, file: regFile, sha1: regSha1, err: regErr }, prompts] = await Promise.all([
-    loadRegistry(registryFile),
-    loadPromptsFromFiles(promptSystemFile, promptRetryFile),
-  ]);
+  const [{ ok: regOk, absPath: regPath, sha1: regSha1, err: regErr }, prompts] =
+    await Promise.all([loadRegistry(registryFile), loadPrompts(promptSystemFile, promptRetryFile)]);
 
-  // 2) 组装 meta.trace
+  // 仅记录来源；不内置任何提示词文本
+  const baseMsgs: ChatMsg[] = [];
+  if (prompts.systemText) baseMsgs.push({ role: "system", content: prompts.systemText });
+  baseMsgs.push({ role: "user", content: requirement || "" });
+
   const metaTrace: MetaTrace = {
     prompt_file: prompts.systemFile,
     prompt_sha1: prompts.systemSha1,
     retry_file: prompts.retryFile,
     retry_sha1: prompts.retrySha1,
-    registry_file: regFile,
+    registry_file: regPath,
     registry_sha1: regSha1,
     model,
     attempts: 0,
@@ -253,13 +179,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     errors: [...prompts.errors, ...(regErr ? [`registry:${regErr}`] : [])],
   };
 
-  // 3) 准备消息（仅当“文件中读到了内容”才加入 system / retry）
-  const baseUser = requirement || (input as any).input || "";
-  const baseMsgs: any[] = [];
-  if (prompts.systemText) baseMsgs.push({ role: "system", content: prompts.systemText });
-  baseMsgs.push({ role: "user", content: baseUser });
-
-  // 4) 调 LLM：生成契约（失败则兜底）
+  // LLM 调用（失败/非 JSON -> 抛错）
   let contractObj: any | null = null;
   let lastErr: any = null;
   const tries = Math.max(1, maxRetry);
@@ -267,19 +187,18 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   for (let attempt = 1; attempt <= tries; attempt++) {
     metaTrace.attempts = attempt;
 
-    let msgs = baseMsgs;
+    let messages = baseMsgs;
     if (attempt > 1 && prompts.retryText) {
-      // 仅当存在 retry 提示词文件时，重试才追加一条 system
-      msgs = [{ role: "system", content: prompts.retryText }, ...baseMsgs];
+      messages = [{ role: "system", content: prompts.retryText }, ...baseMsgs];
     }
 
     try {
       console.log("[orchestrator] callGroqChat.start", { attempt, withSystem: !!prompts.systemText, withRetrySystem: attempt > 1 && !!prompts.retryText });
-      const r = await callGroqChat(msgs, { json: true, temperature });
+      const r = await callGroqChat(messages, { json: true, temperature });
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
       console.log("[orchestrator] callGroqChat.done", { attempt, textLen: text.length });
 
-      const parsed = parseJsonSafely(text);
+      const parsed = extractJsonObject(text);
       if (parsed && typeof parsed === "object") {
         contractObj = parsed;
         break;
@@ -292,13 +211,16 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   }
 
   if (!contractObj) {
-    // 5) 兜底：基于注册表最小化生成
-    metaTrace.errors.push(`llm_failed:${lastErr?.message || String(lastErr) || "unknown"}`);
-    const registryData = reg || {};
-    contractObj = await offlineContract({ userInput: baseUser, registry: registryData });
+    // 不兜底：让构建失败（同时带上我们记录的错误与来源）
+    const info = {
+      reason: lastErr?.message || String(lastErr) || "unknown",
+      trace: metaTrace,
+    };
+    console.error("[orchestrator] LLM failed (no contract)", info);
+    throw new Error(`orchestrate_failed: ${info.reason}`);
   }
 
-  // 6) 写入 01_contract.json，并附带 meta._trace
+  // 写入 01_contract.json + meta._trace
   if (!contractObj.meta) contractObj.meta = {};
   contractObj.meta._trace = metaTrace;
 
