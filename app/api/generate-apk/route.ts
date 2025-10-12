@@ -16,12 +16,14 @@ const CORS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
-export function OPTIONS() {
+
+export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
 /* -------------- 小工具 -------------- */
 function newRunId() {
+  // next/server 下可用的 web crypto
   const r = crypto.getRandomValues(new Uint8Array(6));
   const hex = Array.from(r).map((b) => b.toString(16).padStart(2, "0")).join("");
   return `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}-${hex}`;
@@ -30,6 +32,8 @@ function b64(str: string) {
   const bytes = new TextEncoder().encode(str);
   let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  // Web 环境下有 btoa
+  // @ts-ignore
   return btoa(bin);
 }
 function normalizeWorkflowId(wf: string) {
@@ -122,6 +126,7 @@ async function ensureRunBranchAndCommitFiles(args: {
     }
     await gh(headers, "PUT", url, {
       message: `NDJC: materialize ${runBranch} -> ${f.path}`,
+      // @ts-ignore
       content: btoa(unescape(encodeURIComponent(f.content))), // utf8 -> base64
       branch: runBranch,
       sha,
@@ -250,6 +255,30 @@ export async function POST(req: NextRequest) {
     step = "contract-to-plan";
     const planV1 = contractV1ToPlan(parsed.data);
 
+    // —— 合成带 trace 的 01（可控开关）——
+    const includeTrace = (process.env.NDJC_TRACE_IN_CONTRACT || "1").trim() === "1";
+    const trace = o?._trace || {};
+    const promptFile = trace?.source?.prompt_file || null;
+    const promptSha = trace?.source?.prompt_sha256 || null;
+    const promptFromEnv = trace?.source?.loaded_from_env ?? null;
+
+    const contractOut = includeTrace
+      ? {
+          ...parsed.data,
+          // 把来源打点塞进 metadata，便于肉眼查看；同时保留完整 _trace
+          metadata: {
+            ...(parsed.data?.metadata || {}),
+            trace: {
+              prompt_file: promptFile,
+              prompt_sha256: promptSha,
+              prompt_loaded_from_env: promptFromEnv,
+              model_mode: o?._mode || null,
+            },
+          },
+          _trace: trace,
+        }
+      : parsed.data;
+
     // —— 先把 01/02/03 提交到 run 分支（严格守卫所需）——
     step = "commit-requests";
     const owner = process.env.GH_OWNER!;
@@ -267,7 +296,7 @@ export async function POST(req: NextRequest) {
 
     const applyStub = {
       runId,
-      status: "pre-ci", // 让严格守卫先通过；CI 内继续物化与补全
+      status: "pre-ci",
       template: o?.template || planV1?.meta?.template || input?.template || "circle-basic",
       appTitle: o?.appName || planV1?.meta?.appName,
       packageName: o?.packageId || planV1?.meta?.packageId,
@@ -276,6 +305,14 @@ export async function POST(req: NextRequest) {
       warnings: [],
     };
 
+    // 生成一个可读的 summary，带上提示词来源
+    const summaryLines = [
+      `created by api; mode=${o?._mode || "unknown"}`,
+      includeTrace ? `prompt_file=${promptFile || ""}` : "",
+      includeTrace ? `prompt_sha256=${promptSha || ""}` : "",
+      includeTrace ? `prompt_loaded_from_env=${promptFromEnv}` : "",
+    ].filter(Boolean);
+
     await ensureRunBranchAndCommitFiles({
       owner,
       repo,
@@ -283,10 +320,10 @@ export async function POST(req: NextRequest) {
       runBranch: branch,
       token,
       files: [
-        { path: `${runDir}/01_contract.json`, content: JSON.stringify(parsed.data, null, 2) },
+        { path: `${runDir}/01_contract.json`, content: JSON.stringify(contractOut, null, 2) },
         { path: `${runDir}/02_plan.json`, content: JSON.stringify(planV1, null, 2) },
         { path: `${runDir}/03_apply_result.json`, content: JSON.stringify(applyStub, null, 2) },
-        { path: `${runDir}/actions-summary.txt`, content: `created by api; mode=${o?._mode || "unknown"}` },
+        { path: `${runDir}/actions-summary.txt`, content: summaryLines.join("\n") },
       ],
     });
 
