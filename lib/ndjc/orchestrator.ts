@@ -6,6 +6,46 @@ import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
 /** ---------------- types ---------------- */
+type ValueSchema =
+  | {
+      valueType: "string";
+      valueFormat?: string; // regex
+      enum?: string[];
+      min?: number;
+      max?: number;
+      placeholder?: string;
+      examples?: string[];
+    }
+  | {
+      valueType: "int";
+      min?: number;
+      max?: number;
+      placeholder?: string;
+      examples?: string[];
+    }
+  | {
+      valueType: "enum";
+      enum: string[];
+      placeholder?: string;
+      examples?: string[];
+    }
+  | {
+      // code/file/array/boolean 这些在具体分支处理
+      valueType: "code" | "file" | "array" | "boolean";
+      itemType?: "string";
+      itemFormat?: string; // regex for array items
+      placeholder?: any;
+      examples?: any[];
+      mime?: string;
+      languageHint?: string;
+    }
+  | {
+      // 未知/兜底
+      valueType: string;
+      placeholder?: any;
+      [k: string]: any;
+    };
+
 type Registry = {
   template: string;
   schemaVersion?: string;
@@ -33,6 +73,15 @@ type Registry = {
       resConfigs?: string[];
       permissions?: string[];
     };
+  };
+  valueSchemas?: {
+    text?: Record<string, ValueSchema>;
+    block?: Record<string, ValueSchema> | { ["*"]?: ValueSchema };
+    list?: Record<string, ValueSchema> | { ["*"]?: ValueSchema };
+    if?: Record<string, ValueSchema> | { ["*"]?: ValueSchema };
+    hook?: Record<string, ValueSchema> | { ["*"]?: ValueSchema };
+    resources?: Record<string, ValueSchema>;
+    gradle?: Record<string, ValueSchema>;
   };
 };
 
@@ -210,7 +259,7 @@ async function loadSystemPrompt() {
   try {
     const { abs, raw, sha, size } = await readTextAndHash(hint);
     let text = raw;
-    // 允许 .json 或 .txt；如果是 json 里含字段 { "system": "..." }
+    // allow .json or .txt; if json with { "system": "..." }
     try {
       const maybe = JSON.parse(raw);
       if (maybe && typeof maybe.system === "string") {
@@ -251,7 +300,7 @@ async function loadRetryPrompt() {
   }
 }
 
-/** ----- canonicalization / defaults / required ----- */
+/** ----- normalization / whitelist / defaults / required ----- */
 
 function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>): string {
   const k = (key || "").trim();
@@ -261,11 +310,15 @@ function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>):
   if (/^NDJC:/.test(k)) return `TEXT:${k}`;
   if (/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k)) return k;
 
-  // 宽松推断（兜底）
+  // Fallback guess
   if (/^ROUTES$|FIELDS$|FLAGS$|STYLES$|PATTERNS$|PROGUARD|SPLITS|STRINGS$/i.test(k)) return `LIST:${k}`;
   if (/^PERMISSION|INTENT|NETWORK|FILE_PROVIDER/i.test(k)) return `IF:${k}`;
   if (/^HOME_|^ROUTE_|^NAV_|^SPLASH_|^EMPTY_|^ERROR_|^DEPENDENCY_|^DEBUG_|^BUILD_|^HEADER_|^PROFILE_|^SETTINGS_/i.test(k)) return `BLOCK:${k}`;
   return k;
+}
+
+function setOf<T = string>(arr?: T[]) {
+  return new Set(Array.isArray(arr) ? (arr as any[]) : []);
 }
 
 function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
@@ -280,6 +333,31 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
     else if (key.startsWith("HOOK:")) dict.hook[key.replace(/^HOOK:/, "") || key] = Array.isArray(val) ? val.join("\n") : String(val ?? "");
   };
 
+  // collect potential extra keys before whitelist
+  const extra_keys: string[] = [];
+  const collect = (obj: any, group: string) => {
+    if (!obj) return;
+    for (const [k, _] of Object.entries(obj)) {
+      const k1 = /^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k) ? k : normalizeKeyWithAliases(k, reg.aliases);
+      const mapped = reg.aliases?.[k1] || reg.aliases?.[k];
+      const key2 = (mapped || k1);
+      const groupName = key2.split(":")[0];
+      const pure = key2.replace(/^(TEXT|BLOCK|LIST|IF|HOOK):/, "");
+      const allow =
+        (groupName === "TEXT" && (reg.text || []).includes(pure)) ||
+        (groupName === "BLOCK" && (reg.block || []).includes(pure)) ||
+        (groupName === "LIST" && (reg.list || []).includes(pure)) ||
+        (groupName === "IF" && (reg.if || []).includes(pure)) ||
+        (groupName === "HOOK" && (reg.hook || []).includes(pure));
+      if (!allow) extra_keys.push(`${group}:${k}`);
+    }
+  };
+  collect(raw?.text, "text");
+  collect(raw?.block, "block");
+  collect(raw?.list, "list");
+  collect(raw?.if, "if");
+  collect(raw?.hook, "hook");
+
   const groups = ["text", "block", "list", "if", "hook"];
   const from = raw || {};
   for (const g of groups) {
@@ -293,13 +371,13 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
   }
   if (from.gradle && typeof from.gradle === "object") out.gradle = { ...from.gradle };
 
-  // 白名单裁剪
+  // whitelist trim
   const keep = {
-    text: new Set(reg.text),
-    block: new Set(reg.block),
-    list: new Set(reg.list),
-    if: new Set(reg.if),
-    hook: new Set(reg.hook),
+    text: setOf(reg.text),
+    block: setOf(reg.block),
+    list: setOf(reg.list),
+    if: setOf(reg.if),
+    hook: setOf(reg.hook),
   };
   const filterDict = (d: Record<string, any>, allow: Set<string>) =>
     Object.fromEntries(Object.entries(d).filter(([k]) => allow.has(k)));
@@ -310,13 +388,17 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
   out.if = filterDict(out.if, keep.if);
   out.hook = filterDict(out.hook, keep.hook);
 
+  (out as any)._extra_keys = extra_keys;
   return out;
 }
 
 function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
   const req = reg.required || {};
   const def = reg.defaults || {};
-  const report = { filled: { text: [] as string[], list: [] as string[], gradle: [] as string[] }, missing: [] as string[] };
+  const report = {
+    filled: { text: [] as string[], list: [] as string[], gradle: [] as string[] },
+    missing: [] as string[],
+  };
 
   // TEXT required
   for (const k of req.text || []) {
@@ -349,7 +431,11 @@ function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
   if (!doc.gradle) doc.gradle = {};
   for (const k of req.gradle || []) {
     if (k === "applicationId") {
-      let appId = doc.gradle.applicationId || doc.text?.["NDJC:PACKAGE_NAME"] || def.text?.["NDJC:PACKAGE_NAME"] || def.gradle?.applicationId;
+      let appId =
+        doc.gradle.applicationId ||
+        doc.text?.["NDJC:PACKAGE_NAME"] ||
+        def.text?.["NDJC:PACKAGE_NAME"] ||
+        def.gradle?.applicationId;
       appId = ensurePackageId(appId, "com.ndjc.demo.core");
       if (!appId) report.missing.push("gradle:applicationId");
       else {
@@ -365,7 +451,7 @@ function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
     }
   }
 
-  // 兜底：resConfigs/permissions 默认
+  // fallback: resConfigs/permissions defaults
   if (!Array.isArray(doc.gradle.resConfigs) && Array.isArray(def.gradle?.resConfigs)) {
     doc.gradle.resConfigs = def.gradle!.resConfigs;
   }
@@ -375,6 +461,271 @@ function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
 
   const ok = report.missing.length === 0;
   return { ok, report, doc };
+}
+
+/** ----- inline validators & placeholders (方案A) ----- */
+
+const PLACEHOLDERS = {
+  text: "__NDJC_PLACEHOLDER_TEXT__",
+  listItem: "__NDJC_PLACEHOLDER_ITEM__",
+  blockXml: "<!-- __NDJC_PLACEHOLDER_BLOCK__ -->",
+  hookCode: "// __NDJC_PLACEHOLDER_HOOK__",
+};
+
+function isString(x: any): x is string {
+  return typeof x === "string";
+}
+function isBoolean(x: any): x is boolean {
+  return typeof x === "boolean";
+}
+function isArray(x: any): x is any[] {
+  return Array.isArray(x);
+}
+function isIntStr(x: any) {
+  if (!isString(x)) return false;
+  if (!/^-?\d+$/.test(x)) return false;
+  return true;
+}
+function matchRegex(s: string, pattern?: string) {
+  if (!pattern) return true;
+  try {
+    const re = new RegExp(pattern);
+    return re.test(s);
+  } catch {
+    return true; // invalid regex in schema -> ignore
+  }
+}
+
+type ValidationReport = {
+  violations: { key: string; reason: string; got?: any; expect?: any }[];
+  placeholders_filled: { key: string; from?: any; placeholder: any }[];
+  required_missing: string[];
+  extra_keys: string[];
+};
+
+function pickSchema(group: keyof Registry["valueSchemas"], key: string, reg: Registry): ValueSchema | undefined {
+  const vs = reg.valueSchemas || {};
+  const map = (vs as any)[group] || {};
+  return map[key] || map["*"];
+}
+
+function placeholderFor(group: "text" | "block" | "list" | "if" | "hook" | "resources" | "gradle", key: string, reg: Registry) {
+  const sch = pickSchema(group as any, key, reg);
+  if (sch && (sch as any).placeholder != null) return (sch as any).placeholder;
+
+  switch (group) {
+    case "text":
+      return PLACEHOLDERS.text;
+    case "block":
+      return PLACEHOLDERS.blockXml;
+    case "list":
+      return [PLACEHOLDERS.listItem];
+    case "if":
+      return false;
+    case "hook":
+      return PLACEHOLDERS.hookCode;
+    case "resources":
+      return key; // 资源占位：返回其标识，物化阶段可忽略/查找
+    case "gradle":
+      if (key === "applicationId") return "com.ndjc.demo.core";
+      if (key === "resConfigs") return ["en", "zh-rCN", "zh-rTW"];
+      if (key === "permissions") return [];
+      return "";
+    default:
+      return "";
+  }
+}
+
+function validateAndFix(doc: any, reg: Registry): ValidationReport {
+  const rep: ValidationReport = {
+    violations: [],
+    placeholders_filled: [],
+    required_missing: [],
+    extra_keys: Array.isArray(doc?._extra_keys) ? doc._extra_keys : [],
+  };
+
+  // ensure groups exist
+  doc.text ||= {};
+  doc.block ||= {};
+  doc.list ||= {};
+  doc.if ||= {};
+  doc.hook ||= {};
+  doc.gradle ||= {};
+
+  // 1) 覆盖率：所有白名单键都要存在；缺失→占位
+  for (const k of reg.text || []) {
+    if (!isString(doc.text[k]) || doc.text[k] === "") {
+      const ph = placeholderFor("text", k, reg);
+      rep.placeholders_filled.push({ key: `text:${k}`, from: doc.text[k], placeholder: ph });
+      doc.text[k] = String(ph);
+    }
+  }
+  for (const k of reg.block || []) {
+    if (!isString(doc.block[k]) || doc.block[k] === "") {
+      const ph = placeholderFor("block", k, reg);
+      rep.placeholders_filled.push({ key: `block:${k}`, from: doc.block[k], placeholder: ph });
+      doc.block[k] = String(ph);
+    }
+  }
+  for (const k of reg.list || []) {
+    if (!isArray(doc.list[k]) || doc.list[k].length === 0) {
+      const ph = placeholderFor("list", k, reg);
+      rep.placeholders_filled.push({ key: `list:${k}`, from: doc.list[k], placeholder: ph });
+      doc.list[k] = Array.isArray(ph) ? ph : [String(ph)];
+    } else {
+      doc.list[k] = doc.list[k].map((s: any) => String(s));
+    }
+  }
+  for (const k of reg.if || []) {
+    if (!isBoolean(doc.if[k])) {
+      const ph = placeholderFor("if", k, reg);
+      rep.placeholders_filled.push({ key: `if:${k}`, from: doc.if[k], placeholder: ph });
+      doc.if[k] = !!ph;
+    }
+  }
+  for (const k of reg.hook || []) {
+    if (!isString(doc.hook[k]) || doc.hook[k] === "") {
+      const ph = placeholderFor("hook", k, reg);
+      rep.placeholders_filled.push({ key: `hook:${k}`, from: doc.hook[k], placeholder: ph });
+      doc.hook[k] = String(ph);
+    }
+  }
+  doc.gradle.applicationId = ensurePackageId(doc.gradle.applicationId || doc.text?.["NDJC:PACKAGE_NAME"], "com.ndjc.demo.core");
+  if (!isArray(doc.gradle.resConfigs)) doc.gradle.resConfigs = placeholderFor("gradle", "resConfigs", reg);
+  if (!isArray(doc.gradle.permissions)) doc.gradle.permissions = placeholderFor("gradle", "permissions", reg);
+
+  // 2) 值合规：按 valueSchemas 校验，非法→占位并记录 violations
+  const checkTextKey = (k: string) => {
+    const v = doc.text[k];
+    const sch = pickSchema("text", k, reg);
+    if (!sch) return;
+    if ((sch as any).enum && Array.isArray((sch as any).enum)) {
+      if (!(sch as any).enum.includes(String(v))) {
+        rep.violations.push({ key: `text:${k}`, reason: "enum", got: v, expect: (sch as any).enum });
+        const ph = placeholderFor("text", k, reg);
+        if (v !== ph) {
+          doc.text[k] = String(ph);
+          rep.placeholders_filled.push({ key: `text:${k}`, from: v, placeholder: ph });
+        }
+      }
+    } else if ((sch as any).valueType === "int") {
+      if (!isIntStr(String(v))) {
+        rep.violations.push({ key: `text:${k}`, reason: "type:int", got: v });
+        const ph = placeholderFor("text", k, reg);
+        doc.text[k] = String(ph);
+        rep.placeholders_filled.push({ key: `text:${k}`, from: v, placeholder: ph });
+      } else {
+        const n = parseInt(String(v), 10);
+        const min = (sch as any).min ?? -Infinity;
+        const max = (sch as any).max ?? Infinity;
+        if (n < min || n > max) {
+          rep.violations.push({ key: `text:${k}`, reason: "range", got: n, expect: { min, max } });
+          const ph = placeholderFor("text", k, reg);
+          doc.text[k] = String(ph);
+          rep.placeholders_filled.push({ key: `text:${k}`, from: v, placeholder: ph });
+        }
+      }
+    } else {
+      // string with regex
+      if (!isString(v) || !matchRegex(String(v), (sch as any).valueFormat)) {
+        rep.violations.push({ key: `text:${k}`, reason: "format", got: v, expect: (sch as any).valueFormat });
+        const ph = placeholderFor("text", k, reg);
+        doc.text[k] = String(ph);
+        rep.placeholders_filled.push({ key: `text:${k}`, from: v, placeholder: ph });
+      }
+    }
+  };
+  for (const k of reg.text || []) checkTextKey(k);
+
+  const checkListKey = (k: string) => {
+    const v = doc.list[k];
+    const sch = pickSchema("list", k, reg);
+    const itemFmt = (sch as any)?.itemFormat;
+    if (!Array.isArray(v) || v.length === 0) {
+      const ph = placeholderFor("list", k, reg);
+      rep.violations.push({ key: `list:${k}`, reason: "empty" });
+      doc.list[k] = Array.isArray(ph) ? ph : [String(ph)];
+      rep.placeholders_filled.push({ key: `list:${k}`, from: v, placeholder: doc.list[k] });
+    } else if (itemFmt) {
+      const fixed: string[] = [];
+      let changed = false;
+      for (const it of v) {
+        const s = String(it);
+        if (matchRegex(s, itemFmt)) fixed.push(s);
+        else {
+          changed = true;
+          fixed.push(String(PLACEHOLDERS.listItem));
+          rep.violations.push({ key: `list:${k}`, reason: "item_format", got: s, expect: itemFmt });
+        }
+      }
+      if (changed) {
+        doc.list[k] = fixed;
+        rep.placeholders_filled.push({ key: `list:${k}`, placeholder: fixed });
+      }
+    }
+  };
+  for (const k of reg.list || []) checkListKey(k);
+
+  const checkIfKey = (k: string) => {
+    const v = doc.if[k];
+    if (typeof v !== "boolean") {
+      rep.violations.push({ key: `if:${k}`, reason: "type:boolean", got: v });
+      const ph = placeholderFor("if", k, reg);
+      doc.if[k] = !!ph;
+      rep.placeholders_filled.push({ key: `if:${k}`, from: v, placeholder: ph });
+    }
+  };
+  for (const k of reg.if || []) checkIfKey(k);
+
+  const checkBlockKey = (k: string) => {
+    const v = doc.block[k];
+    if (!isString(v) || v.trim() === "") {
+      rep.violations.push({ key: `block:${k}`, reason: "empty" });
+      const ph = placeholderFor("block", k, reg);
+      doc.block[k] = String(ph);
+      rep.placeholders_filled.push({ key: `block:${k}`, from: v, placeholder: ph });
+    }
+  };
+  for (const k of reg.block || []) checkBlockKey(k);
+
+  const checkHookKey = (k: string) => {
+    const v = doc.hook[k];
+    if (!isString(v) || v.trim() === "") {
+      rep.violations.push({ key: `hook:${k}`, reason: "empty" });
+      const ph = placeholderFor("hook", k, reg);
+      doc.hook[k] = String(ph);
+      rep.placeholders_filled.push({ key: `hook:${k}`, from: v, placeholder: ph });
+    }
+  };
+  for (const k of reg.hook || []) checkHookKey(k);
+
+  // gradle
+  const gschApp = reg.valueSchemas?.gradle?.applicationId as ValueSchema | undefined;
+  if (gschApp && gschApp.valueType === "string" && (gschApp as any).valueFormat) {
+    const ok = matchRegex(String(doc.gradle.applicationId || ""), (gschApp as any).valueFormat);
+    if (!ok) {
+      rep.violations.push({
+        key: "gradle:applicationId",
+        reason: "format",
+        got: doc.gradle.applicationId,
+        expect: (gschApp as any).valueFormat,
+      });
+      const ph = placeholderFor("gradle", "applicationId", reg);
+      doc.gradle.applicationId = String(ph);
+      rep.placeholders_filled.push({ key: "gradle:applicationId", from: doc.gradle.applicationId, placeholder: ph });
+    }
+  }
+
+  // required_missing（最终兜底再检查一次）
+  const req = reg.required || {};
+  for (const k of req.text || []) if (!doc.text?.[k]) rep.required_missing.push(`text:${k}`);
+  for (const k of req.block || []) if (!doc.block?.[k]) rep.required_missing.push(`block:${k}`);
+  for (const k of req.list || []) if (!isArray(doc.list?.[k]) || doc.list[k].length === 0) rep.required_missing.push(`list:${k}`);
+  for (const k of req.if || []) if (typeof doc.if?.[k] !== "boolean") rep.required_missing.push(`if:${k}`);
+  for (const k of req.hook || []) if (!doc.hook?.[k]) rep.required_missing.push(`hook:${k}`);
+  for (const k of req.gradle || []) if (doc.gradle?.[k] == null) rep.required_missing.push(`gradle:${k}`);
+
+  return rep;
 }
 
 /** ---------------- main orchestrate ---------------- */
@@ -474,10 +825,12 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     rtyPrompt.size
   );
 
-  // 生成 + 校验→重试
+  // 生成 + 机器校验→重试
   const maxRetries = 2;
   let parsed: any = null;
   let lastText = "";
+  let lastReport: ValidationReport | null = null;
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const msgs: any[] = [
@@ -486,18 +839,29 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       ];
 
       if (attempt > 0) {
-        // 把上一轮不合格的全文贴回去，并附上 retry 指令
-        if (lastText) {
-          msgs.push({ role: "assistant", content: lastText });
-        }
-        const feedback = _trace.retries?.[attempt - 1]?.feedback || "";
+        // 上一轮的全文 + 具体问题清单回灌
+        if (lastText) msgs.push({ role: "assistant", content: lastText });
         const retryText =
           (rtyPrompt.text || "").trim() ||
           "Fix mistakes. Keep the same keys as SKELETON. Fill required anchors. Return JSON only.";
-        msgs.push({
-          role: "user",
-          content: [retryText, feedback].filter(Boolean).join("\n\n"),
-        });
+        const feedbackLines: string[] = [];
+
+        if (lastReport) {
+          if (lastReport.required_missing?.length) {
+            feedbackLines.push("Missing required anchors:");
+            for (const k of lastReport.required_missing) feedbackLines.push(`- ${k}`);
+          }
+          if (lastReport.violations?.length) {
+            feedbackLines.push("Invalid values (type/format/enum/range):");
+            for (const v of lastReport.violations.slice(0, 50)) feedbackLines.push(`- ${v.key}: ${v.reason}`);
+          }
+          if (lastReport.extra_keys?.length) {
+            feedbackLines.push("Unknown/extra keys (will be dropped):");
+            for (const k of lastReport.extra_keys.slice(0, 50)) feedbackLines.push(`- ${k}`);
+          }
+        }
+
+        msgs.push({ role: "user", content: [retryText, feedbackLines.join("\n")].filter(Boolean).join("\n\n") });
       }
 
       const r = await callGroqChat(msgs, { json: true, temperature: 0 });
@@ -511,20 +875,39 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
         reg
       );
 
-      parsed = { metadata: maybe?.metadata || {}, anchors: doc, _raw: maybe, _text: text, _report: report, _ok: ok };
+      // 机器校验 + 占位修正（满足三硬要求）
+      const rep = validateAndFix(doc, reg);
+      lastReport = rep;
+
+      parsed = {
+        metadata: maybe?.metadata || {},
+        anchors: doc,
+        _raw: maybe,
+        _text: text,
+        _report: { required_defaults: report, validation: rep, okRequired: ok },
+        _ok: ok && rep.required_missing.length === 0, // 必填通过
+      };
+
       _trace.retries.push({
         attempt,
-        ok,
-        report,
-        feedback: ok
-          ? undefined
-          : [
-              "Missing required anchors. Please refill using only allowed canonical keys.",
-              ...report.missing.map((m: string) => `- missing: ${m}`),
-            ].join("\n"),
+        ok: parsed._ok && rep.violations.length === 0,
+        required_missing: rep.required_missing,
+        violations: rep.violations?.slice(0, 100),
+        extra_keys: rep.extra_keys?.slice(0, 100),
+        placeholders_filled: rep.placeholders_filled?.slice(0, 50),
+        feedback:
+          rep.required_missing.length || rep.violations.length || rep.extra_keys.length
+            ? [
+                rep.required_missing.length ? `Missing: ${rep.required_missing.join(", ")}` : "",
+                rep.violations.length ? `Violations: ${rep.violations.map((v) => v.key).slice(0, 20).join(", ")}` : "",
+                rep.extra_keys.length ? `ExtraKeys: ${rep.extra_keys.slice(0, 20).join(", ")}` : "",
+                "Please fix and resend JSON with the SAME key set.",
+              ].filter(Boolean).join("\n")
+            : undefined,
       });
 
-      if (ok) break;
+      // 通过条件：必填 OK 且无 violations（或 violations 已被占位修正后不再出现）
+      if (parsed._ok && rep.violations.length === 0) break;
     } catch (e: any) {
       _trace.retries.push({ attempt, error: e?.message || String(e) });
     }
@@ -576,6 +959,13 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     _trace.rawText = JSON.stringify(v1doc);
   } else {
     _trace.rawText = parsed?._text;
+  }
+
+  // 报告合并到 trace
+  if (parsed?._report) {
+    _trace.validation = parsed._report.validation;
+    _trace.required_defaults = parsed._report.required_defaults;
+    _trace.okRequired = parsed._report.okRequired;
   }
 
   const permissionsXml = mkPermissionsXml(permissions);
