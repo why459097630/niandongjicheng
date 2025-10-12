@@ -1,7 +1,7 @@
 {
+  "schemaVersion": "1.0",
   "template": "circle-basic",
-  "schemaVersion": "1.1",
-  "aliases": {},
+
   "text": [
     "NDJC:PACKAGE_NAME",
     "NDJC:APP_LABEL",
@@ -37,70 +37,73 @@
 
     "NDJC:EXPERIMENT_BUCKET"
   ],
+
   "block": [
-    "HOME_HEADER",
-    "HOME_BODY",
-    "HOME_ACTIONS",
+    "BLOCK:HOME_HEADER",
+    "BLOCK:HOME_BODY",
+    "BLOCK:HOME_ACTIONS",
 
-    "THEME_COLORS",
-    "TYPOCASE_OVERRIDES",
-    "STRINGS_EXTRA",
+    "BLOCK:THEME_COLORS",
+    "BLOCK:TYPOCASE_OVERRIDES",
+    "BLOCK:STRINGS_EXTRA",
 
-    "ROUTE_HOME",
-    "ROUTE_DETAIL",
-    "ROUTE_POST",
-    "NAV_TRANSITIONS",
+    "BLOCK:ROUTE_HOME",
+    "BLOCK:ROUTE_DETAIL",
+    "BLOCK:ROUTE_POST",
+    "BLOCK:NAV_TRANSITIONS",
 
-    "SPLASH_CONTENT",
-    "EMPTY_STATE",
-    "ERROR_STATE",
+    "BLOCK:SPLASH_CONTENT",
+    "BLOCK:EMPTY_STATE",
+    "BLOCK:ERROR_STATE",
 
-    "DEPENDENCY_SNIPPETS",
-    "DEBUG_PANEL",
-    "BUILD_SUMMARY",
+    "BLOCK:DEPENDENCY_SNIPPETS",
+    "BLOCK:DEBUG_PANEL",
+    "BLOCK:BUILD_SUMMARY",
 
-    "HEADER_AD_SLOT",
-    "FEED_ITEM_BADGES",
-    "USER_PROFILE_CARD",
-    "SPONSORED_CARD",
+    "BLOCK:HEADER_AD_SLOT",
+    "BLOCK:FEED_ITEM_BADGES",
+    "BLOCK:USER_PROFILE_CARD",
+    "BLOCK:SPONSORED_CARD",
 
-    "PROFILE_SECTION",
-    "SETTINGS_SECTION"
+    "BLOCK:PROFILE_SECTION",
+    "BLOCK:SETTINGS_SECTION"
   ],
+
   "list": [
-    "PROGUARD_EXTRA",
-    "PACKAGING_RULES",
-    "ROUTES",
-    "POST_FIELDS",
-    "COMMENT_FIELDS",
-    "ABI_SPLITS",
-    "PLURAL_STRINGS",
-    "COMPONENT_STYLES",
-    "REMOTE_FLAGS",
-    "DEEPLINK_PATTERNS",
-    "SUPPORTED_LOCALES"
+    "LIST:PROGUARD_EXTRA",
+    "LIST:PACKAGING_RULES",
+    "LIST:ROUTES",
+    "LIST:POST_FIELDS",
+    "LIST:COMMENT_FIELDS",
+    "LIST:ABI_SPLITS",
+    "LIST:PLURAL_STRINGS",
+    "LIST:COMPONENT_STYLES",
+    "LIST:REMOTE_FLAGS",
+    "LIST:DEEPLINK_PATTERNS"
   ],
-  "if": [
-    "PERMISSION.CAMERA",
-    "PERMISSION.MEDIA",
-    "PERMISSION.NOTIFICATION",
-    "PERMISSION.LOCATION",
-    "PERMISSION.CONTACTS",
-    "PERMISSION.SCHEDULE_EXACT_ALARM",
-    "PERMISSION.CLIPBOARD",
 
-    "NETWORK.CLEAR_TEXT",
-    "FILE_PROVIDER",
-    "INTENT.SHARE"
+  "if": [
+    "IF:PERMISSION.CAMERA",
+    "IF:PERMISSION.MEDIA",
+    "IF:PERMISSION.NOTIFICATION",
+    "IF:PERMISSION.LOCATION",
+    "IF:PERMISSION.CONTACTS",
+    "IF:PERMISSION.SCHEDULE_EXACT_ALARM",
+    "IF:PERMISSION.CLIPBOARD",
+    "IF:NETWORK.CLEAR_TEXT",
+    "IF:FILE_PROVIDER",
+    "IF:INTENT.SHARE"
   ],
+
   "hook": [
-    "BEFORE_BUILD",
-    "AFTER_BUILD",
-    "PRE_INJECT",
-    "POST_INJECT",
-    "PRE_COMMIT",
-    "AFTER_INSTALL"
+    "HOOK:BEFORE_BUILD",
+    "HOOK:AFTER_BUILD",
+    "HOOK:PRE_INJECT",
+    "HOOK:POST_INJECT",
+    "HOOK:PRE_COMMIT",
+    "HOOK:AFTER_INSTALL"
   ],
+
   "resources": [
     "RES:drawable/app_icon.png",
     "RES:drawable/empty_illustration.png",
@@ -113,44 +116,21 @@
     "RES:raw/seed_data.json"
   ],
 
+  "aliases": {},
+
   "required": {
     "text": [
       "NDJC:PACKAGE_NAME",
       "NDJC:APP_LABEL",
       "NDJC:HOME_TITLE",
       "NDJC:PRIMARY_BUTTON_TEXT",
-      "NDJC:LOG_LEVEL",
-      "NDJC:DEBUG_LOG_ENABLED"
-    ],
-    "block": [
-      "HOME_HEADER",
-      "HOME_BODY",
-      "HOME_ACTIONS"
+      "NDJC:THEME_NAME"
     ],
     "list": [
-      "ROUTES",
-      "SUPPORTED_LOCALES",
-      "DEEPLINK_PATTERNS"
-    ],
-    "if": [
-      "PERMISSION.NOTIFICATION",
-      "NETWORK.CLEAR_TEXT",
-      "INTENT.SHARE"
-    ],
-    "hook": [
-      "BEFORE_BUILD",
-      "AFTER_BUILD"
-    ],
-    "resources": [
-      "RES:drawable/app_icon.png",
-      "RES:font/primary.ttf",
-      "RES:font/secondary.ttf",
-      "RES:raw/theme_colors.json"
+      "LIST:ROUTES"
     ],
     "gradle": [
-      "applicationId",
-      "resConfigs",
-      "permissions"
+      "applicationId"
     ]
   },
 
@@ -160,48 +140,47 @@
       "NDJC:APP_LABEL": "NDJC App",
       "NDJC:HOME_TITLE": "Home",
       "NDJC:PRIMARY_BUTTON_TEXT": "Start",
-      "NDJC:THEME_NAME": "NDJCTheme",
+      "NDJC:THEME_NAME": "CircleBasicTheme",
 
-      "NDJC:DARK_MODE": "system",
-      "NDJC:FONT_FAMILY_PRIMARY": "sans-serif",
-      "NDJC:FONT_FAMILY_SECONDARY": "sans-serif-medium",
+      "NDJC:DARK_MODE": "auto",
+      "NDJC:FONT_FAMILY_PRIMARY": "system",
+      "NDJC:FONT_FAMILY_SECONDARY": "system",
       "NDJC:I18N_ENABLED": "true",
       "NDJC:ANIM_ENABLED": "true",
-      "NDJC:ANIM_DURATION_MS": "160",
-      "NDJC:LAYOUT_DENSITY": "normal",
+      "NDJC:ANIM_DURATION_MS": "300",
+      "NDJC:LAYOUT_DENSITY": "comfortable",
 
-      "NDJC:DATA_SOURCE": "remote",
+      "NDJC:DATA_SOURCE": "local",
       "NDJC:SEED_ENABLED": "false",
       "NDJC:FEED_SORT": "latest",
       "NDJC:PAGING_SIZE": "20",
-      "NDJC:OFFLINE_POLICY": "cache-first",
+      "NDJC:OFFLINE_POLICY": "read_through_cache",
       "NDJC:PRIVACY_POLICY": "",
       "NDJC:DRAFT_ENABLED": "true",
 
       "NDJC:USE_APP_BUNDLE": "true",
       "NDJC:BUILD_META_RUNID": "",
-      "NDJC:FEATURE_TOGGLE_MIN": "false",
-      "NDJC:DEBUG_LOG_ENABLED": "true",
+      "NDJC:FEATURE_TOGGLE_MIN": "baseline",
+      "NDJC:DEBUG_LOG_ENABLED": "false",
 
       "NDJC:RUN_ID": "",
-      "NDJC:LOG_LEVEL": "INFO",
-      "NDJC:METRICS_ENABLED": "true",
-      "NDJC:CRASHLYTICS_ENABLED": "true",
+      "NDJC:LOG_LEVEL": "info",
+      "NDJC:METRICS_ENABLED": "false",
+      "NDJC:CRASHLYTICS_ENABLED": "false",
 
-      "NDJC:EXPERIMENT_BUCKET": "control"
+      "NDJC:EXPERIMENT_BUCKET": ""
     },
     "list": {
-      "ROUTES": ["home"],
-      "SUPPORTED_LOCALES": ["en", "zh-rCN", "zh-rTW"],
-      "DEEPLINK_PATTERNS": ["https://example.com/*"],
-      "PROGUARD_EXTRA": [],
-      "PACKAGING_RULES": [],
-      "POST_FIELDS": [],
-      "COMMENT_FIELDS": [],
-      "ABI_SPLITS": [],
-      "PLURAL_STRINGS": [],
-      "COMPONENT_STYLES": [],
-      "REMOTE_FLAGS": []
+      "LIST:ROUTES": ["home", "detail/{id}", "post"],
+      "LIST:PROGUARD_EXTRA": [],
+      "LIST:PACKAGING_RULES": [],
+      "LIST:POST_FIELDS": [],
+      "LIST:COMMENT_FIELDS": [],
+      "LIST:ABI_SPLITS": [],
+      "LIST:PLURAL_STRINGS": [],
+      "LIST:COMPONENT_STYLES": [],
+      "LIST:REMOTE_FLAGS": [],
+      "LIST:DEEPLINK_PATTERNS": []
     },
     "gradle": {
       "applicationId": "com.ndjc.demo.core",
@@ -210,263 +189,65 @@
     }
   },
 
-  "valueSchemas": {
+  "placeholders": {
     "text": {
-      "*": {
-        "valueType": "string",
-        "valueFormat": "^.{0,160}$",
-        "placeholder": "__NDJC_PLACEHOLDER_TEXT__"
-      },
-      "NDJC:PACKAGE_NAME": {
-        "valueType": "string",
-        "valueFormat": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*){2,}$",
-        "placeholder": "com.ndjc.demo.core",
-        "examples": ["com.example.app", "com.ndjc.demo.core"]
-      },
-      "NDJC:APP_LABEL": {
-        "valueType": "string",
-        "valueFormat": "^.{1,40}$",
-        "placeholder": "NDJC App",
-        "examples": ["NDJC App", "咖啡记"]
-      },
-      "NDJC:HOME_TITLE": {
-        "valueType": "string",
-        "valueFormat": "^.{1,40}$",
-        "placeholder": "Home"
-      },
-      "NDJC:PRIMARY_BUTTON_TEXT": {
-        "valueType": "string",
-        "valueFormat": "^.{1,24}$",
-        "placeholder": "Start"
-      },
-      "NDJC:THEME_NAME": {
-        "valueType": "string",
-        "valueFormat": "^[A-Za-z][A-Za-z0-9_]{0,40}$",
-        "placeholder": "NDJCTheme"
-      },
-
-      "NDJC:DARK_MODE": {
-        "valueType": "enum",
-        "enum": ["system","light","dark"],
-        "placeholder": "system"
-      },
-      "NDJC:FONT_FAMILY_PRIMARY": {
-        "valueType": "string",
-        "valueFormat": "^.{1,80}$",
-        "placeholder": "sans-serif"
-      },
-      "NDJC:FONT_FAMILY_SECONDARY": {
-        "valueType": "string",
-        "valueFormat": "^.{1,80}$",
-        "placeholder": "sans-serif-medium"
-      },
-      "NDJC:I18N_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true","false"],
-        "placeholder": "true"
-      },
-      "NDJC:ANIM_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true","false"],
-        "placeholder": "true"
-      },
-      "NDJC:ANIM_DURATION_MS": {
-        "valueType": "int",
-        "min": 0,
-        "max": 2000,
-        "placeholder": "160"
-      },
-      "NDJC:LAYOUT_DENSITY": {
-        "valueType": "enum",
-        "enum": ["compact","normal","expanded"],
-        "placeholder": "normal"
-      },
-
-      "NDJC:DATA_SOURCE": {
-        "valueType": "enum",
-        "enum": ["remote","local","hybrid"],
-        "placeholder": "remote"
-      },
-      "NDJC:SEED_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true","false"],
-        "placeholder": "false"
-      },
-      "NDJC:FEED_SORT": {
-        "valueType": "enum",
-        "enum": ["latest","hot","top"],
-        "placeholder": "latest"
-      },
-      "NDJC:PAGING_SIZE": {
-        "valueType": "int",
-        "min": 5,
-        "max": 200,
-        "placeholder": "20"
-      },
-      "NDJC:OFFLINE_POLICY": {
-        "valueType": "enum",
-        "enum": ["cache-first","network-first","always-online"],
-        "placeholder": "cache-first"
-      },
-      "NDJC:PRIVACY_POLICY": {
-        "valueType": "string",
-        "valueFormat": "^.{0,2000}$",
-        "placeholder": ""
-      },
-      "NDJC:DRAFT_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true","false"],
-        "placeholder": "true"
-      },
-
-      "NDJC:USE_APP_BUNDLE": {
-        "valueType": "enum",
-        "enum": ["true","false"],
-        "placeholder": "true"
-      },
-      "NDJC:BUILD_META_RUNID": {
-        "valueType": "string",
-        "valueFormat": "^[A-Za-z0-9_\\-]{0,64}$",
-        "placeholder": ""
-      },
-      "NDJC:FEATURE_TOGGLE_MIN": {
-        "valueType": "enum",
-        "enum": ["true","false"],
-        "placeholder": "false"
-      },
-      "NDJC:DEBUG_LOG_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true","false"],
-        "placeholder": "true"
-      },
-
-      "NDJC:RUN_ID": {
-        "valueType": "string",
-        "valueFormat": "^[A-Za-z0-9_\\-]{0,64}$",
-        "placeholder": ""
-      },
-      "NDJC:LOG_LEVEL": {
-        "valueType": "enum",
-        "enum": ["DEBUG","INFO","WARN","ERROR"],
-        "placeholder": "INFO"
-      },
-      "NDJC:METRICS_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true","false"],
-        "placeholder": "true"
-      },
-      "NDJC:CRASHLYTICS_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true","false"],
-        "placeholder": "true"
-      },
-
-      "NDJC:EXPERIMENT_BUCKET": {
-        "valueType": "string",
-        "valueFormat": "^[A-Za-z0-9_\\-]{1,40}$",
-        "placeholder": "control",
-        "examples": ["control","variantA","variantB"]
-      }
+      "NDJC:APP_LABEL": "__APP_LABEL__",
+      "NDJC:HOME_TITLE": "__HOME_TITLE__",
+      "NDJC:PRIMARY_BUTTON_TEXT": "__PRIMARY_BUTTON__",
+      "NDJC:THEME_NAME": "__THEME__",
+      "NDJC:PRIVACY_POLICY": "__PRIVACY_URL__"
     },
-
     "block": {
-      "*": {
-        "valueType": "code",
-        "languageHint": "xml|kotlin|groovy|gradle",
-        "placeholder": "<!-- __NDJC_PLACEHOLDER_BLOCK__ -->",
-        "examples": [
-          "<TextView android:id=\"@+id/title\" .../>",
-          "val title = stringResource(R.string.app_name)"
-        ]
-      }
+      "BLOCK:HOME_HEADER": "<!-- __HOME_HEADER__ -->",
+      "BLOCK:HOME_BODY": "<!-- __HOME_BODY__ -->",
+      "BLOCK:HOME_ACTIONS": "<!-- __HOME_ACTIONS__ -->",
+      "BLOCK:THEME_COLORS": "{ /* __THEME_COLORS__ */ }",
+      "BLOCK:EMPTY_STATE": "<!-- __EMPTY__ -->",
+      "BLOCK:ERROR_STATE": "<!-- __ERROR__ -->"
     },
-
     "list": {
-      "*": {
-        "valueType": "array",
-        "itemType": "string",
-        "itemFormat": "^.{1,120}$",
-        "placeholder": ["__NDJC_PLACEHOLDER_ITEM__"]
-      },
-      "SUPPORTED_LOCALES": {
-        "valueType": "array",
-        "itemType": "string",
-        "itemFormat": "^[a-z]{2}(-r[A-Z]{2})?$",
-        "placeholder": ["en","zh-rCN","zh-rTW"]
-      },
-      "DEEPLINK_PATTERNS": {
-        "valueType": "array",
-        "itemType": "string",
-        "itemFormat": "^(https?|ndjc)://.+$",
-        "placeholder": ["https://example.com/*"]
-      }
+      "LIST:ROUTES": ["home"],
+      "LIST:DEEPLINK_PATTERNS": [],
+      "LIST:PROGUARD_EXTRA": [],
+      "LIST:PACKAGING_RULES": []
     },
-
-    "if": {
-      "*": {
-        "valueType": "boolean",
-        "placeholder": false
-      }
-    },
-
+    "if": {},
     "hook": {
-      "*": {
-        "valueType": "code",
-        "languageHint": "kotlin|groovy|gradle|bash",
-        "placeholder": "// __NDJC_PLACEHOLDER_HOOK__",
-        "examples": [
-          "dependencies { implementation(\"com.squareup.okhttp3:okhttp:4.12.0\") }",
-          "println(\"after build\")"
-        ]
-      }
+      "HOOK:BEFORE_BUILD": "",
+      "HOOK:AFTER_BUILD": ""
     },
+    "resources": {},
+    "gradle": {
+      "applicationId": "com.ndjc.demo.core",
+      "resConfigs": ["en"],
+      "permissions": []
+    }
+  },
 
-    "resources": {
-      "RES:drawable/app_icon.png": {
-        "valueType": "file",
-        "mime": "image/png",
-        "placeholder": "drawable/app_icon.png"
-      },
-      "RES:drawable/empty_illustration.png": {
-        "valueType": "file",
-        "mime": "image/png",
-        "placeholder": "drawable/empty_illustration.png"
-      },
-      "RES:drawable/avatar_placeholder.png": {
-        "valueType": "file",
-        "mime": "image/png",
-        "placeholder": "drawable/avatar_placeholder.png"
-      },
-      "RES:drawable/brand_cover.png": {
-        "valueType": "file",
-        "mime": "image/png",
-        "placeholder": "drawable/brand_cover.png"
-      },
-      "RES:drawable/ic_stat_notify.png": {
-        "valueType": "file",
-        "mime": "image/png",
-        "placeholder": "drawable/ic_stat_notify.png"
-      },
-      "RES:font/primary.ttf": {
-        "valueType": "file",
-        "mime": "font/ttf",
-        "placeholder": "font/primary.ttf"
-      },
-      "RES:font/secondary.ttf": {
-        "valueType": "file",
-        "mime": "font/ttf",
-        "placeholder": "font/secondary.ttf"
-      },
-      "RES:raw/theme_colors.json": {
-        "valueType": "file",
-        "mime": "application/json",
-        "placeholder": "raw/theme_colors.json"
-      },
-      "RES:raw/seed_data.json": {
-        "valueType": "file",
-        "mime": "application/json",
-        "placeholder": "raw/seed_data.json"
-      }
+  "valueFormat": {
+    "text": {
+      "NDJC:PACKAGE_NAME": { "regex": "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$" },
+      "NDJC:APP_LABEL": { "minLen": 1, "maxLen": 40 },
+      "NDJC:HOME_TITLE": { "minLen": 1, "maxLen": 40 },
+      "NDJC:PRIMARY_BUTTON_TEXT": { "minLen": 1, "maxLen": 24 },
+      "NDJC:ANIM_DURATION_MS": { "regex": "^[0-9]{1,5}$" },
+      "NDJC:PAGING_SIZE": { "regex": "^[0-9]{1,3}$" },
+      "NDJC:LOG_LEVEL": { "enum": ["trace", "debug", "info", "warn", "error"] }
+    },
+    "block": {
+      "BLOCK:THEME_COLORS": { "maxLen": 20000 }
+    },
+    "list": {
+      "LIST:ROUTES": { "itemRegex": "^[a-z0-9_\\-/{}}]{1,32}$", "minItems": 1, "maxItems": 64 },
+      "LIST:DEEPLINK_PATTERNS": { "itemRegex": "^[a-z0-9_\\-/{\\.:}]+$", "maxItems": 64 }
+    },
+    "if": {},
+    "hook": {},
+    "resources": {},
+    "gradle": {
+      "applicationId": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
+      "resConfigs": { "itemRegex": "^[a-z]{2}(-r[A-Z]{2})?$" },
+      "permissions": { "itemRegex": "^android\\.permission\\.[A-Z_]+$" }
     }
   }
 }
