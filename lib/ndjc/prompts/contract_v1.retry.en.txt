@@ -9,4 +9,9 @@ Your previous JSON violated the requirements. Please FIX and resend the FULL JSO
   * gradle: { applicationId: string; resConfigs: string[]; permissions: string[] }
 - Do not add or remove keys. Do not return Markdown fences. Return only JSON.
 
-Now resend the corrected JSON.
+Additionally fix the following when present:
+- Remove or replace example/default strings such as "NDJC App", "Home", "Start" with requirement-derived, meaningful values.
+- Keep EXACTLY the same key set and structure as SKELETON (no add/remove).
+- If the requirement is Chinese, prefer Chinese for anchors.text unless identifiers must remain English.
+
+Return only a single valid JSON object.
