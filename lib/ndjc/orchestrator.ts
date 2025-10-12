@@ -559,40 +559,37 @@ export async function orchestrate(input: OrchestrateInput) {
   const proguardExtra = input.proguardExtra;
   const packagingRules = input.packagingRules;
 
-  // 关键来源打点：供前端/日志快速确认
-  _trace.summary = {
-    template,
-    mode,
-    fromPromptFile: !!systemText,
-    promptFilePath: systemFile,
-    retryFilePath: retryFile,
-    generatedTextLen: (_trace.rawText || "").length,
-  };
+// 关键来源打点：供前端/日志快速确认
+_trace.summary = {
+  template,
+  mode,
+  fromPromptFile: !!systemText,
+  promptFilePath: systemFile,
+  retryFilePath: retryFile,
+  generatedTextLen: (_trace.rawText || "").length,
+};
 
-  return {
-    template,
-    mode,
-    allowCompanions,
+return {
+  template,
+  mode,
+  allowCompanions,
 
-    appName,
-    homeTitle,
-    mainButtonText,
-    packageId,
+  appName,
+  homeTitle,
+  mainButtonText,
+  packageId,
 
-    locales,
-    resConfigs,
-    proguardExtra,
-    packagingRules,
+  locales,
+  resConfigs,
+  proguardExtra,
+  packagingRules,
 
-    permissionsXml,
-    intentFiltersXml,
-    themeOverridesXml,
+  permissionsXml,
+  intentFiltersXml,
+  themeOverridesXml,
 
-    companions: allowCompanions ? companions : [],
-    _trace,
-    // ✅ 新增 meta._trace，保证 01_contract.json 中可以直接看到 trace（满足你的第 3 条要求）
-    meta: { _trace }
-  };
-}
-
-/* 省略：mkPermissionsXml / mkIntentFiltersXml 等原有工具函数实现（保持不变） */
+  companions: allowCompanions ? companions : [],
+  _trace,
+  // ✅ 新增 meta._trace，保证 01_contract.json 中可以直接看到 trace（满足你的第 3 条要求）
+  meta: { _trace },
+};
