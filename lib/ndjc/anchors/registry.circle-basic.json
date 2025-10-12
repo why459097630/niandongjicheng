@@ -1,83 +1,72 @@
 {
   "template": "circle-basic",
-  "schemaVersion": "1.3",
-  "description": "NDJC anchor registry for circle-basic. Contains canonical anchor keys, required sets, defaults, and per-anchor value constraints to force LLM fill-in (or placeholder) with valid formats for Android native APK generation.",
-
+  "schemaVersion": "1.1",
+  "aliases": {},
   "text": [
     "NDJC:PACKAGE_NAME",
     "NDJC:APP_LABEL",
     "NDJC:HOME_TITLE",
     "NDJC:PRIMARY_BUTTON_TEXT",
     "NDJC:THEME_NAME",
-    "NDJC:RUN_ID",
-    "NDJC:LOG_LEVEL",
-    "NDJC:DEBUG_LOG_ENABLED",
+
     "NDJC:DARK_MODE",
     "NDJC:FONT_FAMILY_PRIMARY",
     "NDJC:FONT_FAMILY_SECONDARY",
     "NDJC:I18N_ENABLED",
-
-    "NDJC:ANIM_DURATION_SHORT_MS",
-    "NDJC:ANIM_DURATION_MEDIUM_MS",
-    "NDJC:ANIM_DURATION_LONG_MS",
-
-    "NDJC:LAYOUT_DENSITY",
-    "NDJC:DATA_SOURCE",
-    "NDJC:PAGING_SIZE",
-    "NDJC:OFFLINE_POLICY",
-    "NDJC:METRICS_ENABLED",
-    "NDJC:CRASHLYTICS_ENABLED",
-    "NDJC:EXPERIMENT_BUCKET",
-
-    /* ======= added vs. 2025.10.4 anchors ======= */
     "NDJC:ANIM_ENABLED",
+    "NDJC:ANIM_DURATION_MS",
+    "NDJC:LAYOUT_DENSITY",
+
+    "NDJC:DATA_SOURCE",
     "NDJC:SEED_ENABLED",
     "NDJC:FEED_SORT",
+    "NDJC:PAGING_SIZE",
+    "NDJC:OFFLINE_POLICY",
     "NDJC:PRIVACY_POLICY",
     "NDJC:DRAFT_ENABLED",
-    "NDJC:USE_APP_BUNDLE",
-    "NDJC:FEATURE_TOGGLE_MIN"
-  ],
 
+    "NDJC:USE_APP_BUNDLE",
+    "NDJC:BUILD_META_RUNID",
+    "NDJC:FEATURE_TOGGLE_MIN",
+    "NDJC:DEBUG_LOG_ENABLED",
+
+    "NDJC:RUN_ID",
+    "NDJC:LOG_LEVEL",
+    "NDJC:METRICS_ENABLED",
+    "NDJC:CRASHLYTICS_ENABLED",
+
+    "NDJC:EXPERIMENT_BUCKET"
+  ],
   "block": [
     "HOME_HEADER",
     "HOME_BODY",
     "HOME_ACTIONS",
+
     "THEME_COLORS",
     "TYPOCASE_OVERRIDES",
     "STRINGS_EXTRA",
+
     "ROUTE_HOME",
     "ROUTE_DETAIL",
     "ROUTE_POST",
     "NAV_TRANSITIONS",
+
     "SPLASH_CONTENT",
     "EMPTY_STATE",
     "ERROR_STATE",
+
     "DEPENDENCY_SNIPPETS",
     "DEBUG_PANEL",
     "BUILD_SUMMARY",
+
     "HEADER_AD_SLOT",
     "FEED_ITEM_BADGES",
     "USER_PROFILE_CARD",
     "SPONSORED_CARD",
-    "PROFILE_SECTION",
-    "SETTINGS_SECTION",
-    "SEARCH_BAR",
-    "APP_BAR",
-    "FOOTER",
-    "ONBOARDING",
-    "LOGIN_FORM",
-    "REGISTER_FORM",
-    "TERMS_SECTION",
-    "PRIVACY_SECTION",
-    "ABOUT_SECTION",
-    "NOTIFICATIONS_PANEL",
-    "ANALYTICS_INIT",
-    "CRASHLYTICS_INIT",
-    "NETWORK_CONFIG",
-    "THEME_OVERRIDES"
-  ],
 
+    "PROFILE_SECTION",
+    "SETTINGS_SECTION"
+  ],
   "list": [
     "PROGUARD_EXTRA",
     "PACKAGING_RULES",
@@ -89,11 +78,8 @@
     "COMPONENT_STYLES",
     "REMOTE_FLAGS",
     "DEEPLINK_PATTERNS",
-    "SUPPORTED_LOCALES",
-    "MENU_ITEMS",
-    "FEATURE_FLAGS"
+    "SUPPORTED_LOCALES"
   ],
-
   "if": [
     "PERMISSION.CAMERA",
     "PERMISSION.MEDIA",
@@ -102,28 +88,19 @@
     "PERMISSION.CONTACTS",
     "PERMISSION.SCHEDULE_EXACT_ALARM",
     "PERMISSION.CLIPBOARD",
-    "PERMISSION.BLUETOOTH",
-    "PERMISSION.NEARBY_WIFI",
+
     "NETWORK.CLEAR_TEXT",
     "FILE_PROVIDER",
-    "INTENT.SHARE",
-    "FEATURE.LOGIN",
-    "FEATURE.COMMENTS",
-    "ANALYTICS.ENABLED",
-    "ADS.ENABLED"
+    "INTENT.SHARE"
   ],
-
   "hook": [
     "BEFORE_BUILD",
     "AFTER_BUILD",
     "PRE_INJECT",
     "POST_INJECT",
     "PRE_COMMIT",
-    "AFTER_INSTALL",
-    "PRE_GRADLE_SYNC",
-    "POST_GRADLE_SYNC"
+    "AFTER_INSTALL"
   ],
-
   "resources": [
     "RES:drawable/app_icon.png",
     "RES:drawable/empty_illustration.png",
@@ -184,56 +161,47 @@
       "NDJC:HOME_TITLE": "Home",
       "NDJC:PRIMARY_BUTTON_TEXT": "Start",
       "NDJC:THEME_NAME": "NDJCTheme",
-      "NDJC:RUN_ID": "",
-      "NDJC:LOG_LEVEL": "INFO",
-      "NDJC:DEBUG_LOG_ENABLED": "true",
+
       "NDJC:DARK_MODE": "system",
       "NDJC:FONT_FAMILY_PRIMARY": "sans-serif",
       "NDJC:FONT_FAMILY_SECONDARY": "sans-serif-medium",
       "NDJC:I18N_ENABLED": "true",
-
-      "NDJC:ANIM_DURATION_SHORT_MS": "120",
-      "NDJC:ANIM_DURATION_MEDIUM_MS": "240",
-      "NDJC:ANIM_DURATION_LONG_MS": "360",
-
-      "NDJC:LAYOUT_DENSITY": "normal",
-      "NDJC:DATA_SOURCE": "remote",
-      "NDJC:PAGING_SIZE": "20",
-      "NDJC:OFFLINE_POLICY": "cache-first",
-      "NDJC:METRICS_ENABLED": "true",
-      "NDJC:CRASHLYTICS_ENABLED": "true",
-      "NDJC:EXPERIMENT_BUCKET": "control",
-
-      /* ======= defaults for newly added keys ======= */
       "NDJC:ANIM_ENABLED": "true",
+      "NDJC:ANIM_DURATION_MS": "160",
+      "NDJC:LAYOUT_DENSITY": "normal",
+
+      "NDJC:DATA_SOURCE": "remote",
       "NDJC:SEED_ENABLED": "false",
       "NDJC:FEED_SORT": "latest",
-      "NDJC:PRIVACY_POLICY": "internal",
-      "NDJC:DRAFT_ENABLED": "false",
+      "NDJC:PAGING_SIZE": "20",
+      "NDJC:OFFLINE_POLICY": "cache-first",
+      "NDJC:PRIVACY_POLICY": "",
+      "NDJC:DRAFT_ENABLED": "true",
+
       "NDJC:USE_APP_BUNDLE": "true",
-      "NDJC:FEATURE_TOGGLE_MIN": "0"
-    },
-    "block": {
-      "HOME_HEADER": "<!-- header placeholder -->",
-      "HOME_BODY": "<!-- body placeholder -->",
-      "HOME_ACTIONS": "<!-- actions placeholder -->"
+      "NDJC:BUILD_META_RUNID": "",
+      "NDJC:FEATURE_TOGGLE_MIN": "false",
+      "NDJC:DEBUG_LOG_ENABLED": "true",
+
+      "NDJC:RUN_ID": "",
+      "NDJC:LOG_LEVEL": "INFO",
+      "NDJC:METRICS_ENABLED": "true",
+      "NDJC:CRASHLYTICS_ENABLED": "true",
+
+      "NDJC:EXPERIMENT_BUCKET": "control"
     },
     "list": {
       "ROUTES": ["home"],
       "SUPPORTED_LOCALES": ["en", "zh-rCN", "zh-rTW"],
       "DEEPLINK_PATTERNS": ["https://example.com/*"],
+      "PROGUARD_EXTRA": [],
+      "PACKAGING_RULES": [],
+      "POST_FIELDS": [],
+      "COMMENT_FIELDS": [],
+      "ABI_SPLITS": [],
+      "PLURAL_STRINGS": [],
       "COMPONENT_STYLES": [],
-      "REMOTE_FLAGS": [],
-      "FEATURE_FLAGS": []
-    },
-    "if": {
-      "PERMISSION.NOTIFICATION": true,
-      "NETWORK.CLEAR_TEXT": false,
-      "INTENT.SHARE": true
-    },
-    "hook": {
-      "BEFORE_BUILD": "// no-op",
-      "AFTER_BUILD": "// no-op"
+      "REMOTE_FLAGS": []
     },
     "gradle": {
       "applicationId": "com.ndjc.demo.core",
@@ -242,159 +210,92 @@
     }
   },
 
-  "aliases": {
-    /* list aliases (kept) */
-    "ROUTES": "LIST:ROUTES",
-    "DEEPLINKS": "LIST:DEEPLINK_PATTERNS",
-    "DEEP_LINKS": "LIST:DEEPLINK_PATTERNS",
-    "FEATURE_FLAGS": "LIST:FEATURE_FLAGS",
-    "STYLES": "LIST:COMPONENT_STYLES",
-    "PROGUARD": "LIST:PROGUARD_EXTRA",
-
-    /* if/permission aliases (kept) */
-    "PERMISSIONS": "IF:PERMISSION",
-    "PERMISSION_CAMERA": "IF:PERMISSION.CAMERA",
-    "CAMERA_PERMISSION": "IF:PERMISSION.CAMERA",
-    "PERMISSION_MEDIA": "IF:PERMISSION.MEDIA",
-    "MEDIA_PERMISSION": "IF:PERMISSION.MEDIA",
-    "PERMISSION_NOTIFICATIONS": "IF:PERMISSION.NOTIFICATION",
-    "NOTIFICATIONS": "IF:PERMISSION.NOTIFICATION",
-    "PERMISSION_LOCATION": "IF:PERMISSION.LOCATION",
-    "LOCATION_PERMISSION": "IF:PERMISSION.LOCATION",
-    "PERMISSION_CONTACTS": "IF:PERMISSION.CONTACTS",
-    "CONTACTS_PERMISSION": "IF:PERMISSION.CONTACTS",
-    "PERMISSION_ALARM": "IF:PERMISSION.SCHEDULE_EXACT_ALARM",
-    "SCHEDULE_EXACT_ALARM": "IF:PERMISSION.SCHEDULE_EXACT_ALARM",
-    "ALLOW_HTTP": "IF:NETWORK.CLEAR_TEXT",
-    "CLEAR_HTTP": "IF:NETWORK.CLEAR_TEXT",
-    "HTTP_CLEAR_TEXT": "IF:NETWORK.CLEAR_TEXT",
-    "SHARE_INTENT": "IF:INTENT.SHARE",
-
-    /* text aliases (kept) */
-    "APPLICATION_ID": "TEXT:NDJC:PACKAGE_NAME",
-    "NDJC:APPLICATION_ID": "TEXT:NDJC:PACKAGE_NAME",
-    "APP_NAME": "TEXT:NDJC:APP_LABEL",
-    "NDJC:APP_NAME": "TEXT:NDJC:APP_LABEL",
-    "HOME.TITLE": "TEXT:NDJC:HOME_TITLE",
-    "TITLE_HOME": "TEXT:NDJC:HOME_TITLE",
-    "NDJC:TITLE_HOME": "TEXT:NDJC:HOME_TITLE",
-    "NDJC:MAIN_BUTTON": "TEXT:NDJC:PRIMARY_BUTTON_TEXT",
-    "PRIMARY_BUTTON": "TEXT:NDJC:PRIMARY_BUTTON_TEXT",
-    "CTA_PRIMARY": "TEXT:NDJC:PRIMARY_BUTTON_TEXT",
-    "THEME": "TEXT:NDJC:THEME_NAME",
-    "NDJC:THEME": "TEXT:NDJC:THEME_NAME",
-
-    /* block aliases (kept) */
-    "NAV_ANIMATIONS": "BLOCK:NAV_TRANSITIONS",
-    "SPLASH": "BLOCK:SPLASH_CONTENT",
-    "EMPTY_VIEW": "BLOCK:EMPTY_STATE",
-    "ERROR_VIEW": "BLOCK:ERROR_STATE",
-    "DEPS_SNIPPETS": "BLOCK:DEPENDENCY_SNIPPETS",
-    "ADS_HEADER": "BLOCK:HEADER_AD_SLOT",
-    "PROFILE": "BLOCK:PROFILE_SECTION",
-    "SETTINGS": "BLOCK:SETTINGS_SECTION",
-
-    /* ======= new aliases to match the doc ======= */
-    "NDJC:ANIM_DURATION_MS": "TEXT:NDJC:ANIM_DURATION_MEDIUM_MS",
-    "NDJC:BUILD_META_RUNID": "TEXT:NDJC:RUN_ID"
-  },
-
   "valueSchemas": {
     "text": {
+      "*": {
+        "valueType": "string",
+        "valueFormat": "^.{0,160}$",
+        "placeholder": "__NDJC_PLACEHOLDER_TEXT__"
+      },
       "NDJC:PACKAGE_NAME": {
         "valueType": "string",
-        "valueFormat": "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$",
-        "placeholder": "com.example.myapp",
-        "examples": ["com.ndjc.demo.core", "io.company.product.app"]
+        "valueFormat": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*){2,}$",
+        "placeholder": "com.ndjc.demo.core",
+        "examples": ["com.example.app", "com.ndjc.demo.core"]
       },
       "NDJC:APP_LABEL": {
         "valueType": "string",
         "valueFormat": "^.{1,40}$",
-        "placeholder": "My App",
-        "examples": ["NDJC App", "Circle News"]
+        "placeholder": "NDJC App",
+        "examples": ["NDJC App", "咖啡记"]
       },
       "NDJC:HOME_TITLE": {
         "valueType": "string",
         "valueFormat": "^.{1,40}$",
-        "placeholder": "Home",
-        "examples": ["Home", "Discover"]
+        "placeholder": "Home"
       },
       "NDJC:PRIMARY_BUTTON_TEXT": {
         "valueType": "string",
         "valueFormat": "^.{1,24}$",
-        "placeholder": "Start",
-        "examples": ["Start", "Continue", "Get Started"]
+        "placeholder": "Start"
       },
       "NDJC:THEME_NAME": {
         "valueType": "string",
-        "valueFormat": "^[A-Za-z][A-Za-z0-9_]*$",
-        "placeholder": "NDJCTheme",
-        "examples": ["NDJCTheme", "AppTheme"]
+        "valueFormat": "^[A-Za-z][A-Za-z0-9_]{0,40}$",
+        "placeholder": "NDJCTheme"
       },
-      "NDJC:RUN_ID": {
-        "valueType": "string",
-        "valueFormat": "^[A-Za-z0-9_.\\-]{0,80}$",
-        "placeholder": ""
-      },
-      "NDJC:LOG_LEVEL": {
-        "valueType": "enum",
-        "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"],
-        "placeholder": "INFO"
-      },
-      "NDJC:DEBUG_LOG_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true", "false"],
-        "placeholder": "true"
-      },
+
       "NDJC:DARK_MODE": {
         "valueType": "enum",
-        "enum": ["light", "dark", "system"],
+        "enum": ["system","light","dark"],
         "placeholder": "system"
       },
       "NDJC:FONT_FAMILY_PRIMARY": {
         "valueType": "string",
-        "valueFormat": "^[-A-Za-z0-9_ ]{1,40}$",
+        "valueFormat": "^.{1,80}$",
         "placeholder": "sans-serif"
       },
       "NDJC:FONT_FAMILY_SECONDARY": {
         "valueType": "string",
-        "valueFormat": "^[-A-Za-z0-9_ ]{1,40}$",
+        "valueFormat": "^.{1,80}$",
         "placeholder": "sans-serif-medium"
       },
       "NDJC:I18N_ENABLED": {
         "valueType": "enum",
-        "enum": ["true", "false"],
+        "enum": ["true","false"],
         "placeholder": "true"
       },
-
-      "NDJC:ANIM_DURATION_SHORT_MS": {
-        "valueType": "int",
-        "min": 50,
-        "max": 400,
-        "placeholder": "120"
+      "NDJC:ANIM_ENABLED": {
+        "valueType": "enum",
+        "enum": ["true","false"],
+        "placeholder": "true"
       },
-      "NDJC:ANIM_DURATION_MEDIUM_MS": {
+      "NDJC:ANIM_DURATION_MS": {
         "valueType": "int",
-        "min": 100,
-        "max": 800,
-        "placeholder": "240"
+        "min": 0,
+        "max": 2000,
+        "placeholder": "160"
       },
-      "NDJC:ANIM_DURATION_LONG_MS": {
-        "valueType": "int",
-        "min": 200,
-        "max": 1200,
-        "placeholder": "360"
-      },
-
       "NDJC:LAYOUT_DENSITY": {
         "valueType": "enum",
-        "enum": ["compact", "normal", "expanded"],
+        "enum": ["compact","normal","expanded"],
         "placeholder": "normal"
       },
+
       "NDJC:DATA_SOURCE": {
         "valueType": "enum",
-        "enum": ["remote", "local", "hybrid"],
+        "enum": ["remote","local","hybrid"],
         "placeholder": "remote"
+      },
+      "NDJC:SEED_ENABLED": {
+        "valueType": "enum",
+        "enum": ["true","false"],
+        "placeholder": "false"
+      },
+      "NDJC:FEED_SORT": {
+        "valueType": "enum",
+        "enum": ["latest","hot","top"],
+        "placeholder": "latest"
       },
       "NDJC:PAGING_SIZE": {
         "valueType": "int",
@@ -404,63 +305,67 @@
       },
       "NDJC:OFFLINE_POLICY": {
         "valueType": "enum",
-        "enum": ["cache-first", "network-first", "always-online"],
+        "enum": ["cache-first","network-first","always-online"],
         "placeholder": "cache-first"
+      },
+      "NDJC:PRIVACY_POLICY": {
+        "valueType": "string",
+        "valueFormat": "^.{0,2000}$",
+        "placeholder": ""
+      },
+      "NDJC:DRAFT_ENABLED": {
+        "valueType": "enum",
+        "enum": ["true","false"],
+        "placeholder": "true"
+      },
+
+      "NDJC:USE_APP_BUNDLE": {
+        "valueType": "enum",
+        "enum": ["true","false"],
+        "placeholder": "true"
+      },
+      "NDJC:BUILD_META_RUNID": {
+        "valueType": "string",
+        "valueFormat": "^[A-Za-z0-9_\\-]{0,64}$",
+        "placeholder": ""
+      },
+      "NDJC:FEATURE_TOGGLE_MIN": {
+        "valueType": "enum",
+        "enum": ["true","false"],
+        "placeholder": "false"
+      },
+      "NDJC:DEBUG_LOG_ENABLED": {
+        "valueType": "enum",
+        "enum": ["true","false"],
+        "placeholder": "true"
+      },
+
+      "NDJC:RUN_ID": {
+        "valueType": "string",
+        "valueFormat": "^[A-Za-z0-9_\\-]{0,64}$",
+        "placeholder": ""
+      },
+      "NDJC:LOG_LEVEL": {
+        "valueType": "enum",
+        "enum": ["DEBUG","INFO","WARN","ERROR"],
+        "placeholder": "INFO"
       },
       "NDJC:METRICS_ENABLED": {
         "valueType": "enum",
-        "enum": ["true", "false"],
+        "enum": ["true","false"],
         "placeholder": "true"
       },
       "NDJC:CRASHLYTICS_ENABLED": {
         "valueType": "enum",
-        "enum": ["true", "false"],
+        "enum": ["true","false"],
         "placeholder": "true"
       },
+
       "NDJC:EXPERIMENT_BUCKET": {
         "valueType": "string",
         "valueFormat": "^[A-Za-z0-9_\\-]{1,40}$",
         "placeholder": "control",
-        "examples": ["control", "variantA", "variantB"]
-      },
-
-      /* ======= schemas for newly added keys ======= */
-      "NDJC:ANIM_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true", "false"],
-        "placeholder": "true"
-      },
-      "NDJC:SEED_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true", "false"],
-        "placeholder": "false"
-      },
-      "NDJC:FEED_SORT": {
-        "valueType": "enum",
-        "enum": ["latest", "hot", "top"],
-        "placeholder": "latest"
-      },
-      "NDJC:PRIVACY_POLICY": {
-        "valueType": "string",
-        "valueFormat": "^(https?://.+|internal)$",
-        "placeholder": "internal",
-        "examples": ["internal", "https://example.com/privacy"]
-      },
-      "NDJC:DRAFT_ENABLED": {
-        "valueType": "enum",
-        "enum": ["true", "false"],
-        "placeholder": "false"
-      },
-      "NDJC:USE_APP_BUNDLE": {
-        "valueType": "enum",
-        "enum": ["true", "false"],
-        "placeholder": "true"
-      },
-      "NDJC:FEATURE_TOGGLE_MIN": {
-        "valueType": "int",
-        "min": 0,
-        "max": 100,
-        "placeholder": "0"
+        "examples": ["control","variantA","variantB"]
       }
     },
 
@@ -468,7 +373,7 @@
       "*": {
         "valueType": "code",
         "languageHint": "xml|kotlin|groovy|gradle",
-        "placeholder": "<!-- placeholder / code snippet -->",
+        "placeholder": "<!-- __NDJC_PLACEHOLDER_BLOCK__ -->",
         "examples": [
           "<TextView android:id=\"@+id/title\" .../>",
           "val title = stringResource(R.string.app_name)"
@@ -481,15 +386,13 @@
         "valueType": "array",
         "itemType": "string",
         "itemFormat": "^.{1,120}$",
-        "placeholder": [],
-        "examples": [["home", "detail"], ["title", "author", "date"]]
+        "placeholder": ["__NDJC_PLACEHOLDER_ITEM__"]
       },
       "SUPPORTED_LOCALES": {
         "valueType": "array",
         "itemType": "string",
         "itemFormat": "^[a-z]{2}(-r[A-Z]{2})?$",
-        "placeholder": ["en"],
-        "examples": ["en", "zh-rCN", "zh-rTW"]
+        "placeholder": ["en","zh-rCN","zh-rTW"]
       },
       "DEEPLINK_PATTERNS": {
         "valueType": "array",
@@ -510,7 +413,7 @@
       "*": {
         "valueType": "code",
         "languageHint": "kotlin|groovy|gradle|bash",
-        "placeholder": "// no-op",
+        "placeholder": "// __NDJC_PLACEHOLDER_HOOK__",
         "examples": [
           "dependencies { implementation(\"com.squareup.okhttp3:okhttp:4.12.0\") }",
           "println(\"after build\")"
@@ -526,55 +429,43 @@
       },
       "RES:drawable/empty_illustration.png": {
         "valueType": "file",
-        "mime": "image/png"
+        "mime": "image/png",
+        "placeholder": "drawable/empty_illustration.png"
       },
       "RES:drawable/avatar_placeholder.png": {
         "valueType": "file",
-        "mime": "image/png"
+        "mime": "image/png",
+        "placeholder": "drawable/avatar_placeholder.png"
       },
       "RES:drawable/brand_cover.png": {
         "valueType": "file",
-        "mime": "image/png"
+        "mime": "image/png",
+        "placeholder": "drawable/brand_cover.png"
       },
       "RES:drawable/ic_stat_notify.png": {
         "valueType": "file",
-        "mime": "image/png"
+        "mime": "image/png",
+        "placeholder": "drawable/ic_stat_notify.png"
       },
       "RES:font/primary.ttf": {
         "valueType": "file",
-        "mime": "font/ttf"
+        "mime": "font/ttf",
+        "placeholder": "font/primary.ttf"
       },
       "RES:font/secondary.ttf": {
         "valueType": "file",
-        "mime": "font/ttf"
+        "mime": "font/ttf",
+        "placeholder": "font/secondary.ttf"
       },
       "RES:raw/theme_colors.json": {
         "valueType": "file",
-        "mime": "application/json"
+        "mime": "application/json",
+        "placeholder": "raw/theme_colors.json"
       },
       "RES:raw/seed_data.json": {
         "valueType": "file",
-        "mime": "application/json"
-      }
-    },
-
-    "gradle": {
-      "applicationId": {
-        "valueType": "string",
-        "valueFormat": "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$",
-        "placeholder": "com.example.myapp"
-      },
-      "resConfigs": {
-        "valueType": "array",
-        "itemType": "string",
-        "itemFormat": "^[a-z]{2}(-r[A-Z]{2})?$",
-        "placeholder": ["en"]
-      },
-      "permissions": {
-        "valueType": "array",
-        "itemType": "string",
-        "itemFormat": "^android\\.permission\\.[A-Z_]+$",
-        "placeholder": []
+        "mime": "application/json",
+        "placeholder": "raw/seed_data.json"
       }
     }
   }
