@@ -1,19 +1,25 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import crypto from "node:crypto";
 import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
+
+/* ======================== types ======================== */
 
 type Registry = {
   template: string;
   schemaVersion?: string;
+
   text: string[];
   block: string[];
   list: string[];
   if: string[];
   hook: string[];
   resources?: string[];
+
+  /** 允许的别名 -> 规范键（会被规范化） */
   aliases?: Record<string, string>;
+
+  /** 必填项：缺失会判定为不合规 */
   required?: {
     text?: string[];
     block?: string[];
@@ -22,6 +28,8 @@ type Registry = {
     hook?: string[];
     gradle?: string[];
   };
+
+  /** 默认值：当缺失时用于兜底 */
   defaults?: {
     text?: Record<string, string>;
     list?: Record<string, string[]>;
@@ -30,6 +38,15 @@ type Registry = {
       resConfigs?: string[];
       permissions?: string[];
     };
+  };
+
+  /** 值格式约束（可选）：用于提示/检验/回填 */
+  valueRules?: {
+    text?: Record<string, { type: "string"; placeholder?: string }>;
+    block?: Record<string, { type: "string"; placeholder?: string }>;
+    list?: Record<string, { type: "string[]"; placeholder?: string[] }>;
+    if?: Record<string, { type: "boolean"; placeholder?: boolean }>;
+    hook?: Record<string, { type: "string"; placeholder?: string }>;
   };
 };
 
@@ -88,7 +105,7 @@ export type OrchestrateOutput = {
   _trace?: any | null;
 };
 
-/* ----------------- helpers ----------------- */
+/* ======================== helpers ======================== */
 
 function wantV1(input: Partial<OrchestrateInput>): boolean {
   const envRaw = (process.env.NDJC_CONTRACT_V1 || "").trim().toLowerCase();
@@ -168,15 +185,6 @@ function sanitizeCompanions(list?: Companion[]): Companion[] {
   return out;
 }
 
-async function sha256OfFile(p: string): Promise<string> {
-  const buf = await fs.readFile(p);
-  return crypto.createHash("sha256").update(buf).digest("hex");
-}
-
-async function loadTextFile(p: string): Promise<string> {
-  return fs.readFile(p, "utf8");
-}
-
 async function loadRegistry(): Promise<Registry | null> {
   const root = process.cwd();
   const hint =
@@ -185,8 +193,11 @@ async function loadRegistry(): Promise<Registry | null> {
     path.join(root, "lib/ndjc/anchors/registry.circle-basic.json");
   try {
     const buf = await fs.readFile(hint, "utf8");
-    return JSON.parse(buf) as Registry;
-  } catch {
+    const reg = JSON.parse(buf) as Registry;
+    console.log("[orchestrator] registry loaded:", { file: hint, template: reg.template, schemaVersion: reg.schemaVersion });
+    return reg;
+  } catch (e: any) {
+    console.log("[orchestrator] registry load failed, fallback minimal:", e?.message || String(e));
     return null;
   }
 }
@@ -195,10 +206,52 @@ function withPrefix(kind: "BLOCK" | "LIST" | "IF" | "HOOK", xs: string[]): strin
   return (xs || []).map((k) => `${kind}:${k}`);
 }
 
+/** 从提示词文件读取 system / retry 内容（来源打点） */
+async function loadPrompts() {
+  const cwd = process.cwd();
+  const systemFile =
+    process.env.NDJC_PROMPT_SYSTEM_FILE ||
+    path.join(cwd, "lib/ndjc/prompts/contract_v1.en.json");
+  const retryFile =
+    process.env.NDJC_PROMPT_RETRY_FILE ||
+    path.join(cwd, "lib/ndjc/prompts/contract_v1.retry.en.txt");
+
+  let systemText = "";
+  let retryText = "";
+
+  try {
+    const raw = await fs.readFile(systemFile, "utf8");
+    // 允许纯文本或 { system: "..."} 两种
+    try {
+      const obj = JSON.parse(raw);
+      systemText = String(obj.system || obj.prompt || raw || "");
+    } catch {
+      systemText = raw;
+    }
+  } catch (e: any) {
+    console.log("[orchestrator] system prompt read failed:", { file: systemFile, error: e?.message || String(e) });
+  }
+
+  try {
+    retryText = await fs.readFile(retryFile, "utf8");
+  } catch (e: any) {
+    console.log("[orchestrator] retry prompt read failed:", { file: retryFile, error: e?.message || String(e) });
+  }
+
+  console.log("[orchestrator] prompt sources:", {
+    systemFile,
+    systemRead: systemText ? true : false,
+    retryFile,
+    retryRead: retryText ? true : false,
+  });
+
+  return { systemText, retryText, systemFile, retryFile };
+}
+
 /** 把注册表变成“可回填的骨架表单”：所有规范键都出现，值给空/默认 */
 function buildSkeletonFromRegistry(
   reg: Registry,
-  seed: { appName: string; packageId: string; locales: string[]; }
+  seed: { appName: string; packageId: string; locales: string[] }
 ) {
   const defText = reg.defaults?.text || {};
   const defList = reg.defaults?.list || {};
@@ -229,11 +282,13 @@ function buildSkeletonFromRegistry(
     permissions: defGradle.permissions || []
   };
 
-  return {
+  const skeleton = {
     metadata: { template: reg.template, appName: seed.appName, packageId: seed.packageId, mode: "B" },
     anchors: { text, block, list, if: iff, hook, gradle },
     files: [] as any[]
   };
+
+  return skeleton;
 }
 
 /* ---------- alias & prefix normalization ---------- */
@@ -246,6 +301,7 @@ function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>):
   if (/^NDJC:/.test(k)) return `TEXT:${k}`;
   if (/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k)) return k;
 
+  // 宽松推断（极少用；主要靠 registry+表单锁死）
   if (/^ROUTES$|FIELDS$|FLAGS$|STYLES$|PATTERNS$|PROGUARD|SPLITS|STRINGS$/i.test(k)) return `LIST:${k}`;
   if (/^PERMISSION|INTENT|NETWORK|FILE_PROVIDER/i.test(k)) return `IF:${k}`;
   if (/^HOME_|^ROUTE_|^NAV_|^SPLASH_|^EMPTY_|^ERROR_|^DEPENDENCY_|^DEBUG_|^BUILD_|^HEADER_|^PROFILE_|^SETTINGS_/i.test(k)) return `BLOCK:${k}`;
@@ -267,15 +323,15 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
   const groups = ["text", "block", "list", "if", "hook"];
   const from = raw || {};
   for (const g of groups) {
-    const m = from[g] || {};
-    for (const [k, v] of Object.entries(m)) {
+    const m = (from as any)[g] || {};
+    for (const [k, v] of Object.entries<any>(m)) {
       let key1 = /^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k) ? k : normalizeKeyWithAliases(k, reg.aliases);
       const mapped = reg.aliases?.[key1] || reg.aliases?.[k];
       const key2 = mapped || key1;
       tryAssign(out, key2, v);
     }
   }
-  if (from.gradle && typeof from.gradle === "object") out.gradle = { ...from.gradle };
+  if ((from as any).gradle && typeof (from as any).gradle === "object") out.gradle = { ...(from as any).gradle };
 
   // 白名单裁剪（canonical）
   const keep = {
@@ -335,7 +391,11 @@ function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
   if (!doc.gradle) doc.gradle = {};
   for (const k of req.gradle || []) {
     if (k === "applicationId") {
-      let appId = doc.gradle.applicationId || doc.text?.["NDJC:PACKAGE_NAME"] || def.text?.["NDJC:PACKAGE_NAME"] || def.gradle?.applicationId;
+      let appId =
+        doc.gradle.applicationId ||
+        doc.text?.["NDJC:PACKAGE_NAME"] ||
+        def.text?.["NDJC:PACKAGE_NAME"] ||
+        def.gradle?.applicationId;
       appId = ensurePackageId(appId, "com.ndjc.demo.core");
       if (!appId) report.missing.push("gradle:applicationId");
       else {
@@ -363,69 +423,7 @@ function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
   return { ok, report, doc };
 }
 
-/* ---------- prompt loader (EXTERNAL ONLY) ---------- */
-
-async function loadExternalPrompts() {
-  const root = process.cwd();
-  const defaultSystem = path.join(root, "lib/ndjc/prompts/contract_v1.en.json");
-  const defaultRetry = path.join(root, "lib/ndjc/prompts/contract_v1.retry.en.txt");
-
-  const systemPath = process.env.NDJC_PROMPT_SYSTEM_FILE || defaultSystem;
-  const retryPath = process.env.NDJC_PROMPT_RETRY_FILE || defaultRetry;
-
-  // 强制存在
-  const sysOk = await fs
-    .access(systemPath)
-    .then(() => true)
-    .catch(() => false);
-  if (!sysOk) {
-    throw new Error(`NDJC prompt (system) not found: ${systemPath}`);
-  }
-  const systemJsonRaw = await loadTextFile(systemPath);
-  let system: { role: "system"; content: string } | null = null;
-  try {
-    const j = JSON.parse(systemJsonRaw);
-    if (!j?.role || !j?.content) throw new Error("system prompt JSON missing {role, content}");
-    system = { role: j.role, content: j.content };
-  } catch (e: any) {
-    throw new Error(`Invalid system prompt JSON at ${systemPath}: ${e?.message || e}`);
-  }
-
-  const retryOk = await fs
-    .access(retryPath)
-    .then(() => true)
-    .catch(() => false);
-  const retryContent = retryOk ? await loadTextFile(retryPath) : "";
-  const retry = retryOk ? { path: retryPath, content: retryContent } : null;
-
-  const sysSha = await sha256OfFile(systemPath);
-  const rtySha = retryOk ? await sha256OfFile(retryPath) : "";
-
-  // 打点到日志（构建日志可见）
-  console.log(`[NDJC] prompt.system.path=${systemPath}`);
-  console.log(`[NDJC] prompt.system.sha256=${sysSha}`);
-  if (retry) {
-    console.log(`[NDJC] prompt.retry.path=${retryPath}`);
-    console.log(`[NDJC] prompt.retry.sha256=${rtySha}`);
-  } else {
-    console.log(`[NDJC] prompt.retry.path=(missing)`);
-  }
-
-  return {
-    systemMsg: system!,
-    retryMsg: retry?.content || "",
-    trace: {
-      systemPath,
-      systemSha256: sysSha,
-      systemSize: systemJsonRaw.length,
-      retryPath: retry?.path || null,
-      retrySha256: rtySha || null,
-      retrySize: retry?.content.length || 0
-    }
-  };
-}
-
-/* ----------------- main orchestrate ----------------- */
+/* ======================== main orchestrate ======================== */
 
 export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateOutput> {
   const reg =
@@ -437,7 +435,11 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       if: [],
       hook: [],
       aliases: {},
-      required: { text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"], list: ["ROUTES"], gradle: ["applicationId"] },
+      required: {
+        text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"],
+        list: ["ROUTES"],
+        gradle: ["applicationId"]
+      },
       defaults: {
         text: {
           "NDJC:PACKAGE_NAME": "com.ndjc.demo.core",
@@ -445,11 +447,12 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
           "NDJC:HOME_TITLE": "Home",
           "NDJC:PRIMARY_BUTTON_TEXT": "Start"
         },
-        list: { ROUTES: ["home"] },
+        list: { "ROUTES": ["home"] },
         gradle: { resConfigs: ["en", "zh-rCN", "zh-rTW"], permissions: [] }
       }
     };
 
+  // 初值
   let appName = input.appName || reg.defaults?.text?.["NDJC:APP_LABEL"] || "NDJC App";
   let homeTitle = input.homeTitle || reg.defaults?.text?.["NDJC:HOME_TITLE"] || "Home";
   let mainButtonText = input.mainButtonText || reg.defaults?.text?.["NDJC:PRIMARY_BUTTON_TEXT"] || "Start";
@@ -461,60 +464,68 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   let companions: Companion[] = Array.isArray(input._companions) ? sanitizeCompanions(input._companions) : [];
 
-  // 强制 B 模式
   const mode: "A" | "B" = "B";
   const allowCompanions = !!input.allowCompanions && mode === "B";
   const template = (input.template as any) || (reg.template || "circle-basic");
 
-  // 加载外部提示词（强制）
-  const promptLoaded = await loadExternalPrompts();
-
-  let _trace: any | null = {
+  const _trace: any = {
     retries: [],
-    prompts: promptLoaded.trace,
-    registryPath:
-      process.env.REGISTRY_FILE ||
-      process.env.NDJC_REGISTRY_FILE ||
-      path.join(process.cwd(), "lib/ndjc/anchors/registry.circle-basic.json")
+    sources: {},
   };
 
+  // 读取提示词（来源打点）
+  const { systemText, retryText, systemFile, retryFile } = await loadPrompts();
+  _trace.sources.systemPrompt = { file: systemFile, loaded: !!systemText };
+  _trace.sources.retryPrompt = { file: retryFile, loaded: !!retryText };
+
+  // 生成 skeleton（把可填的键全部列出）
   const skeleton = buildSkeletonFromRegistry(reg, { appName, packageId, locales });
 
+  // 组装 user 指令（只负责把数据/规则拼进去；真正的“风格/强约束”在 systemText 内）
   const baseUser = [
-    `Please strictly fill ALL fields in SKELETON (do not add/remove keys).`,
-    `- If a field is not applicable, put the placeholder defined by the registry/prompt instead of leaving it blank.`,
-    `- Types: text=string; block/hook=string; list=string[]; if=boolean; gradle as shown;`,
-    `- Return JSON only (no Markdown fences, no explanations).`,
+    `Please strictly fill the following SKELETON and return the **same JSON shape** (no extra/missing keys).`,
+    `If any field is not applicable, use the placeholder value described by the registry (or empty string/[]/false as type demands).`,
+    `Only output raw JSON (no markdown fences).`,
     `SKELETON:`,
     JSON.stringify(skeleton, null, 2),
-    (input.requirement?.trim() ? `Additional requirement: ${input.requirement!.trim()}` : ``)
+    input.requirement?.trim() ? `Requirement: ${input.requirement!.trim()}` : ``,
   ]
     .filter(Boolean)
     .join("\n");
 
-  // 生成 + 校验→重试
+  // -------- 调 LLM：生成 + 校验→必要时重试 --------
   const maxRetries = 2;
   let parsed: any = null;
   let lastText = "";
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const msgs: any[] = [
-        promptLoaded.systemMsg,
-        { role: "user", content: baseUser }
-      ];
-      if (attempt > 0 && _trace.retries?.[attempt - 1]?.feedback) {
-        msgs.push({ role: "user", content: promptLoaded.retryMsg || _trace.retries[attempt - 1].feedback });
+      const msgs: any[] = [];
+      if (systemText) msgs.push({ role: "system", content: systemText });
+      msgs.push({ role: "user", content: baseUser });
+
+      if (attempt > 0) {
+        if (_trace.retries?.[attempt - 1]?.feedback) {
+          msgs.push({ role: "user", content: _trace.retries[attempt - 1].feedback });
+        }
         if (lastText) {
           msgs.push({ role: "assistant", content: lastText });
-          msgs.push({ role: "user", content: "The above is non-compliant. Fix according to feedback and resend full JSON with the same keys." });
+          msgs.push({
+            role: "user",
+            content:
+              (retryText || "Previous output is invalid. Please fix the issues and resend full JSON.") +
+              "\nReturn full JSON with the SAME KEYS.",
+          });
         }
       }
 
+      console.log("[orchestrator] callGroqChat.start", { attempt, withSystem: !!systemText, withRetry: attempt > 0 });
       const r = await callGroqChat(msgs, { json: true, temperature: 0 });
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
       lastText = text;
-      const maybe = parseJsonSafely(text) as any;
+      console.log("[orchestrator] callGroqChat.done", { attempt, textLen: text.length });
 
+      const maybe = parseJsonSafely(text) as any;
       const normalized = normalizeAnchorsUsingRegistry(maybe?.anchors || maybe?.anchorsGrouped || {}, reg);
       const { ok, report, doc } = applyDefaultsAndCheckRequired(
         { ...normalized, gradle: maybe?.anchors?.gradle || maybe?.gradle || {} },
@@ -522,21 +533,22 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       );
 
       parsed = { metadata: maybe?.metadata || {}, anchors: doc, _raw: maybe, _text: text, _report: report, _ok: ok };
-      _trace.retries.push({
-        attempt,
-        ok,
-        report,
-        feedback: ok
-          ? undefined
-          : [
-              "You missed required fields. Please complete them using only canonical keys:",
-              ...report.missing.map((m: string) => `- missing: ${m}`),
-              "Use defaults/placeholders if data is absent. Return full JSON again."
-            ].join("\n")
-      });
+
+      const fb = ok
+        ? undefined
+        : [
+            "You missed required fields. Fill them and use only **canonical** keys from the registry:",
+            ...report.missing.map((m: string) => `- missing: ${m}`),
+            "Use defaults/placeholders if necessary. Return the full JSON again with the same keys.",
+          ].join("\n");
+
+      _trace.retries.push({ attempt, ok, report, feedback: fb });
+
+      console.log("[orchestrator] validate.result", { attempt, ok, missing: report.missing });
 
       if (ok) break;
     } catch (e: any) {
+      console.log("[orchestrator] callGroqChat.error", { attempt, error: e?.message || String(e) });
       _trace.retries.push({ attempt, error: e?.message || String(e) });
     }
   }
@@ -585,6 +597,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     };
     _trace.synthesized = true;
     _trace.rawText = JSON.stringify(v1doc);
+    console.log("[orchestrator] synthesized v1 due to empty LLM output");
   } else {
     _trace.rawText = parsed?._text;
     _trace.registryUsed = !!reg;
@@ -596,6 +609,16 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   const resConfigs = input.resConfigs || localesToResConfigs(locales);
   const proguardExtra = input.proguardExtra;
   const packagingRules = input.packagingRules;
+
+  // 关键来源打点：供前端/日志快速确认
+  _trace.summary = {
+    template,
+    mode,
+    fromPromptFile: !!systemText,
+    promptFilePath: systemFile,
+    retryFilePath: retryFile,
+    generatedTextLen: (_trace.rawText || "").length,
+  };
 
   return {
     template,
