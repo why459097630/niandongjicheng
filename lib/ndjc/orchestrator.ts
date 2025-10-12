@@ -1,7 +1,9 @@
 // lib/ndjc/orchestrator.ts
-// - 仅从文件读取 system / retry 提示词（不内置任何提示词文本）
-// - 成功时写入 requests/<RUN_ID>/01_contract.json，附带 meta._trace
-// - 失败（读不到文件 / LLM 错 / 非 JSON）直接抛错 -> 构建失败
+// - 仅从文件读取 system / retry 提示词（无内置提示词文本）
+// - 对每次 LLM 尝试都落盘原文：requests/<runId>/00_llm_raw.attempt{N}.txt 和 00_llm_raw.txt
+// - 成功解析后写 01_contract.json，并在 meta._trace 中固化：prompt/retry/registry 路径+sha1、model、attempts、raw_path、raw_len、timestamp、errors
+// - 失败时直接抛错（不兜底），但会保留 00_llm_raw*.txt，便于预检(contract-precheck)与排查
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -15,9 +17,9 @@ type OrchestrateParams = {
   outDir?: string;
 
   // 可覆盖默认文件路径（也可用环境变量）
-  promptSystemFile?: string;
-  promptRetryFile?: string;
-  registryFile?: string;
+  promptSystemFile?: string; // 默认 lib/ndjc/prompts/contract_v1.en.json
+  promptRetryFile?: string;  // 默认 lib/ndjc/prompts/contract_v1.retry.en.txt
+  registryFile?: string;     // 默认 lib/ndjc/anchors/registry.circle-basic.json
 
   // LLM
   model?: string;
@@ -36,6 +38,8 @@ type MetaTrace = {
   attempts: number;
   timestamp: string;
   errors: string[];
+  raw_path?: string; // 最后一次尝试的原文路径
+  raw_len?: number;  // 原文长度（字符）
 };
 
 export type OrchestrateOutput = {
@@ -62,6 +66,7 @@ const DEFAULT_TEMPERATURE = Number(process.env.NDJC_LLM_TEMPERATURE || 0);
 async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });
 }
+
 async function readFileMaybe(filePath?: string): Promise<{
   ok: boolean; absPath?: string; text?: string; sha1?: string; err?: string;
 }> {
@@ -75,6 +80,7 @@ async function readFileMaybe(filePath?: string): Promise<{
     return { ok: false, err: `read_failed:${e?.message || String(e)}` };
   }
 }
+
 async function readJsonMaybe<T = any>(filePath?: string): Promise<{
   ok: boolean; absPath?: string; data?: T; sha1?: string; err?: string;
 }> {
@@ -87,8 +93,10 @@ async function readJsonMaybe<T = any>(filePath?: string): Promise<{
     return { ok: false, absPath: r.absPath, sha1: r.sha1, err: `json_parse_failed:${e?.message || String(e)}` };
   }
 }
+
 function extractJsonObject(text: string): any | null {
   if (!text) return null;
+  // 支持 ```json ... ``` 包裹或纯文本 JSON
   const m =
     text.match(/```json\s*([\s\S]*?)```/i) ||
     text.match(/```\s*([\s\S]*?)```/) ||
@@ -100,45 +108,9 @@ function extractJsonObject(text: string): any | null {
     return null;
   }
 }
-async function loadPrompts(systemOverride?: string, retryOverride?: string) {
-  const systemFile =
-    systemOverride || process.env.NDJC_PROMPT_SYSTEM_FILE || DEFAULT_SYSTEM_FILE;
-  const retryFile =
-    retryOverride || process.env.NDJC_PROMPT_RETRY_FILE || DEFAULT_RETRY_FILE;
 
-  const sys = await readFileMaybe(systemFile);
-  const rty = await readFileMaybe(retryFile);
-
-  console.log("[orchestrator] prompt sources", {
-    systemFile,
-    systemRead: !!sys.text,
-    retryFile,
-    retryRead: !!rty.text,
-  });
-
-  return {
-    systemText: sys.ok ? (sys.text || "") : "",
-    systemFile: sys.absPath,
-    systemSha1: sys.sha1,
-    retryText: rty.ok ? (rty.text || "") : "",
-    retryFile: rty.absPath,
-    retrySha1: rty.sha1,
-    errors: [
-      ...(sys.ok ? [] : [`system_prompt:${sys.err}`]),
-      ...(rty.ok ? [] : [`retry_prompt:${rty.err}`]),
-    ],
-  };
-}
-async function loadRegistry(registryOverride?: string) {
-  const file =
-    registryOverride || process.env.NDJC_REGISTRY_FILE || DEFAULT_REGISTRY_FILE;
-  const r = await readJsonMaybe<any>(file);
-  if (!r.ok) {
-    console.log("[orchestrator] registry load failed", r.err);
-  } else {
-    console.log("[orchestrator] registry loaded", { file: r.absPath });
-  }
-  return r;
+async function writeText(filePath: string, text: string) {
+  await fs.writeFile(filePath, text ?? "", "utf-8");
 }
 
 // -------------------- main --------------------
@@ -158,47 +130,77 @@ export async function orchestrate(params: OrchestrateParams): Promise<Orchestrat
   const reqDir = path.join(outDir, String(runId));
   await ensureDir(reqDir);
 
-  const [{ ok: regOk, absPath: regPath, sha1: regSha1, err: regErr }, prompts] =
-    await Promise.all([loadRegistry(registryFile), loadPrompts(promptSystemFile, promptRetryFile)]);
+  // 加载注册表与提示词（仅从文件）
+  const [
+    { ok: regOk, absPath: regPath, sha1: regSha1, err: regErr },
+    sys,
+    rty,
+  ] = await Promise.all([
+    readJsonMaybe<any>(registryFile || DEFAULT_REGISTRY_FILE),
+    readFileMaybe(promptSystemFile || DEFAULT_SYSTEM_FILE),
+    readFileMaybe(promptRetryFile || DEFAULT_RETRY_FILE),
+  ]);
 
-  // 仅记录来源；不内置任何提示词文本
-  const baseMsgs: ChatMsg[] = [];
-  if (prompts.systemText) baseMsgs.push({ role: "system", content: prompts.systemText });
-  baseMsgs.push({ role: "user", content: requirement || "" });
+  console.log("[orchestrator] sources", {
+    registry: { ok: regOk, file: regPath },
+    system: { ok: sys.ok, file: sys.absPath },
+    retry: { ok: rty.ok, file: rty.absPath },
+  });
 
   const metaTrace: MetaTrace = {
-    prompt_file: prompts.systemFile,
-    prompt_sha1: prompts.systemSha1,
-    retry_file: prompts.retryFile,
-    retry_sha1: prompts.retrySha1,
+    prompt_file: sys.absPath,
+    prompt_sha1: sys.sha1,
+    retry_file: rty.absPath,
+    retry_sha1: rty.sha1,
     registry_file: regPath,
     registry_sha1: regSha1,
     model,
     attempts: 0,
     timestamp: new Date().toISOString(),
-    errors: [...prompts.errors, ...(regErr ? [`registry:${regErr}`] : [])],
+    errors: [
+      ...(sys.ok ? [] : [`system_prompt:${sys.err}`]),
+      ...(rty.ok ? [] : [`retry_prompt:${rty.err}`]),
+      ...(regOk ? [] : [`registry:${regErr}`]),
+    ],
   };
 
-  // LLM 调用（失败/非 JSON -> 抛错）
+  // 组织基础消息
+  const baseMsgs: ChatMsg[] = [];
+  if (sys.ok && sys.text) baseMsgs.push({ role: "system", content: sys.text });
+  baseMsgs.push({ role: "user", content: requirement || "" });
+
+  // 调 LLM：每次尝试都把原文落盘
   let contractObj: any | null = null;
   let lastErr: any = null;
-  const tries = Math.max(1, maxRetry);
+  let lastRawPath: string | undefined;
+  let lastRawLen = 0;
 
+  const tries = Math.max(1, maxRetry);
   for (let attempt = 1; attempt <= tries; attempt++) {
     metaTrace.attempts = attempt;
-
     let messages = baseMsgs;
-    if (attempt > 1 && prompts.retryText) {
-      messages = [{ role: "system", content: prompts.retryText }, ...baseMsgs];
+    if (attempt > 1 && rty.ok && rty.text) {
+      messages = [{ role: "system", content: rty.text }, ...baseMsgs];
     }
 
     try {
-      console.log("[orchestrator] callGroqChat.start", { attempt, withSystem: !!prompts.systemText, withRetrySystem: attempt > 1 && !!prompts.retryText });
+      console.log("[orchestrator] callGroqChat.start", { attempt, withSystem: !!sys.text, withRetrySystem: attempt > 1 && !!rty.text });
       const r = await callGroqChat(messages, { json: true, temperature });
-      const text = typeof r === "string" ? r : (r as any)?.text ?? "";
-      console.log("[orchestrator] callGroqChat.done", { attempt, textLen: text.length });
+      const raw = typeof r === "string" ? r : (r as any)?.text ?? "";
 
-      const parsed = extractJsonObject(text);
+      // 1) 总是落盘原文（按尝试号 & 最新别名）
+      const rawAttempt = path.join(reqDir, `00_llm_raw.attempt${attempt}.txt`);
+      await writeText(rawAttempt, raw);
+      const rawLatest = path.join(reqDir, "00_llm_raw.txt");
+      await writeText(rawLatest, raw);
+
+      lastRawPath = rawLatest;
+      lastRawLen = raw.length;
+
+      console.log("[orchestrator] callGroqChat.done", { attempt, rawLen: raw.length });
+
+      // 2) 尝试解析 JSON
+      const parsed = extractJsonObject(raw);
       if (parsed && typeof parsed === "object") {
         contractObj = parsed;
         break;
@@ -211,16 +213,22 @@ export async function orchestrate(params: OrchestrateParams): Promise<Orchestrat
   }
 
   if (!contractObj) {
-    // 不兜底：让构建失败（同时带上我们记录的错误与来源）
-    const info = {
-      reason: lastErr?.message || String(lastErr) || "unknown",
-      trace: metaTrace,
-    };
-    console.error("[orchestrator] LLM failed (no contract)", info);
-    throw new Error(`orchestrate_failed: ${info.reason}`);
+    // 不兜底：直接失败，但保留 raw 文件
+    metaTrace.raw_path = lastRawPath;
+    metaTrace.raw_len = lastRawLen;
+    metaTrace.errors.push(`llm_failed:${lastErr?.message || String(lastErr) || "unknown"}`);
+
+    // 将 metaTrace 也落一份，方便排查
+    const tracePath = path.join(reqDir, "00_trace.json");
+    await fs.writeFile(tracePath, JSON.stringify({ meta: { _trace: metaTrace } }, null, 2), "utf-8");
+
+    throw new Error(`orchestrate_failed: ${lastErr?.message || "no_valid_json"}`);
   }
 
-  // 写入 01_contract.json + meta._trace
+  // 成功：写入 01_contract.json + meta._trace（含 raw 信息）
+  metaTrace.raw_path = lastRawPath;
+  metaTrace.raw_len = lastRawLen;
+
   if (!contractObj.meta) contractObj.meta = {};
   contractObj.meta._trace = metaTrace;
 
