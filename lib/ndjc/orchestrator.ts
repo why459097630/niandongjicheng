@@ -590,6 +590,9 @@ return {
 
   companions: allowCompanions ? companions : [],
   _trace,
-  // ✅ 新增 meta._trace，保证 01_contract.json 中可以直接看到 trace（满足你的第 3 条要求）
+  // ✅ 新增 meta._trace，保证 01_contract.json 可以直接看到 trace
   meta: { _trace },
 };
+} // ← 结束 orchestrate 函数
+
+export default orchestrate;
