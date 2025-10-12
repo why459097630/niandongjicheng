@@ -16,16 +16,27 @@
     "NDJC:FONT_FAMILY_PRIMARY",
     "NDJC:FONT_FAMILY_SECONDARY",
     "NDJC:I18N_ENABLED",
+
     "NDJC:ANIM_DURATION_SHORT_MS",
     "NDJC:ANIM_DURATION_MEDIUM_MS",
     "NDJC:ANIM_DURATION_LONG_MS",
+
     "NDJC:LAYOUT_DENSITY",
     "NDJC:DATA_SOURCE",
     "NDJC:PAGING_SIZE",
     "NDJC:OFFLINE_POLICY",
     "NDJC:METRICS_ENABLED",
     "NDJC:CRASHLYTICS_ENABLED",
-    "NDJC:EXPERIMENT_BUCKET"
+    "NDJC:EXPERIMENT_BUCKET",
+
+    /* ======= added vs. 2025.10.4 anchors ======= */
+    "NDJC:ANIM_ENABLED",
+    "NDJC:SEED_ENABLED",
+    "NDJC:FEED_SORT",
+    "NDJC:PRIVACY_POLICY",
+    "NDJC:DRAFT_ENABLED",
+    "NDJC:USE_APP_BUNDLE",
+    "NDJC:FEATURE_TOGGLE_MIN"
   ],
 
   "block": [
@@ -180,16 +191,27 @@
       "NDJC:FONT_FAMILY_PRIMARY": "sans-serif",
       "NDJC:FONT_FAMILY_SECONDARY": "sans-serif-medium",
       "NDJC:I18N_ENABLED": "true",
+
       "NDJC:ANIM_DURATION_SHORT_MS": "120",
       "NDJC:ANIM_DURATION_MEDIUM_MS": "240",
       "NDJC:ANIM_DURATION_LONG_MS": "360",
+
       "NDJC:LAYOUT_DENSITY": "normal",
       "NDJC:DATA_SOURCE": "remote",
       "NDJC:PAGING_SIZE": "20",
       "NDJC:OFFLINE_POLICY": "cache-first",
       "NDJC:METRICS_ENABLED": "true",
       "NDJC:CRASHLYTICS_ENABLED": "true",
-      "NDJC:EXPERIMENT_BUCKET": "control"
+      "NDJC:EXPERIMENT_BUCKET": "control",
+
+      /* ======= defaults for newly added keys ======= */
+      "NDJC:ANIM_ENABLED": "true",
+      "NDJC:SEED_ENABLED": "false",
+      "NDJC:FEED_SORT": "latest",
+      "NDJC:PRIVACY_POLICY": "internal",
+      "NDJC:DRAFT_ENABLED": "false",
+      "NDJC:USE_APP_BUNDLE": "true",
+      "NDJC:FEATURE_TOGGLE_MIN": "0"
     },
     "block": {
       "HOME_HEADER": "<!-- header placeholder -->",
@@ -221,6 +243,7 @@
   },
 
   "aliases": {
+    /* list aliases (kept) */
     "ROUTES": "LIST:ROUTES",
     "DEEPLINKS": "LIST:DEEPLINK_PATTERNS",
     "DEEP_LINKS": "LIST:DEEPLINK_PATTERNS",
@@ -228,6 +251,7 @@
     "STYLES": "LIST:COMPONENT_STYLES",
     "PROGUARD": "LIST:PROGUARD_EXTRA",
 
+    /* if/permission aliases (kept) */
     "PERMISSIONS": "IF:PERMISSION",
     "PERMISSION_CAMERA": "IF:PERMISSION.CAMERA",
     "CAMERA_PERMISSION": "IF:PERMISSION.CAMERA",
@@ -246,6 +270,7 @@
     "HTTP_CLEAR_TEXT": "IF:NETWORK.CLEAR_TEXT",
     "SHARE_INTENT": "IF:INTENT.SHARE",
 
+    /* text aliases (kept) */
     "APPLICATION_ID": "TEXT:NDJC:PACKAGE_NAME",
     "NDJC:APPLICATION_ID": "TEXT:NDJC:PACKAGE_NAME",
     "APP_NAME": "TEXT:NDJC:APP_LABEL",
@@ -259,6 +284,7 @@
     "THEME": "TEXT:NDJC:THEME_NAME",
     "NDJC:THEME": "TEXT:NDJC:THEME_NAME",
 
+    /* block aliases (kept) */
     "NAV_ANIMATIONS": "BLOCK:NAV_TRANSITIONS",
     "SPLASH": "BLOCK:SPLASH_CONTENT",
     "EMPTY_VIEW": "BLOCK:EMPTY_STATE",
@@ -266,7 +292,11 @@
     "DEPS_SNIPPETS": "BLOCK:DEPENDENCY_SNIPPETS",
     "ADS_HEADER": "BLOCK:HEADER_AD_SLOT",
     "PROFILE": "BLOCK:PROFILE_SECTION",
-    "SETTINGS": "BLOCK:SETTINGS_SECTION"
+    "SETTINGS": "BLOCK:SETTINGS_SECTION",
+
+    /* ======= new aliases to match the doc ======= */
+    "NDJC:ANIM_DURATION_MS": "TEXT:NDJC:ANIM_DURATION_MEDIUM_MS",
+    "NDJC:BUILD_META_RUNID": "TEXT:NDJC:RUN_ID"
   },
 
   "valueSchemas": {
@@ -336,6 +366,7 @@
         "enum": ["true", "false"],
         "placeholder": "true"
       },
+
       "NDJC:ANIM_DURATION_SHORT_MS": {
         "valueType": "int",
         "min": 50,
@@ -354,6 +385,7 @@
         "max": 1200,
         "placeholder": "360"
       },
+
       "NDJC:LAYOUT_DENSITY": {
         "valueType": "enum",
         "enum": ["compact", "normal", "expanded"],
@@ -390,6 +422,45 @@
         "valueFormat": "^[A-Za-z0-9_\\-]{1,40}$",
         "placeholder": "control",
         "examples": ["control", "variantA", "variantB"]
+      },
+
+      /* ======= schemas for newly added keys ======= */
+      "NDJC:ANIM_ENABLED": {
+        "valueType": "enum",
+        "enum": ["true", "false"],
+        "placeholder": "true"
+      },
+      "NDJC:SEED_ENABLED": {
+        "valueType": "enum",
+        "enum": ["true", "false"],
+        "placeholder": "false"
+      },
+      "NDJC:FEED_SORT": {
+        "valueType": "enum",
+        "enum": ["latest", "hot", "top"],
+        "placeholder": "latest"
+      },
+      "NDJC:PRIVACY_POLICY": {
+        "valueType": "string",
+        "valueFormat": "^(https?://.+|internal)$",
+        "placeholder": "internal",
+        "examples": ["internal", "https://example.com/privacy"]
+      },
+      "NDJC:DRAFT_ENABLED": {
+        "valueType": "enum",
+        "enum": ["true", "false"],
+        "placeholder": "false"
+      },
+      "NDJC:USE_APP_BUNDLE": {
+        "valueType": "enum",
+        "enum": ["true", "false"],
+        "placeholder": "true"
+      },
+      "NDJC:FEATURE_TOGGLE_MIN": {
+        "valueType": "int",
+        "min": 0,
+        "max": 100,
+        "placeholder": "0"
       }
     },
 
