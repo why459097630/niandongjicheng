@@ -6,55 +6,21 @@ import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
 /** ---------------- types ---------------- */
-type ValueSchema =
-  | {
-      valueType: "string";
-      valueFormat?: string; // regex
-      enum?: string[];
-      min?: number;
-      max?: number;
-      placeholder?: string;
-      examples?: string[];
-    }
-  | {
-      valueType: "int";
-      min?: number;
-      max?: number;
-      placeholder?: string;
-      examples?: string[];
-    }
-  | {
-      valueType: "enum";
-      enum: string[];
-      placeholder?: string;
-      examples?: string[];
-    }
-  | {
-      // code/file/array/boolean 这些在具体分支处理
-      valueType: "code" | "file" | "array" | "boolean";
-      itemType?: "string";
-      itemFormat?: string; // regex for array items
-      placeholder?: any;
-      examples?: any[];
-      mime?: string;
-      languageHint?: string;
-    }
-  | {
-      // 未知/兜底
-      valueType: string;
-      placeholder?: any;
-      [k: string]: any;
-    };
+type AnchorGroup = "text" | "block" | "list" | "if" | "hook" | "resources" | "gradle";
 
 type Registry = {
   template: string;
   schemaVersion?: string;
+
+  // 白名单
   text: string[];
   block: string[];
   list: string[];
   if: string[];
   hook: string[];
   resources?: string[];
+
+  // 别名 / 必填 / 默认
   aliases?: Record<string, string>;
   required?: {
     text?: string[];
@@ -74,14 +40,35 @@ type Registry = {
       permissions?: string[];
     };
   };
-  valueSchemas?: {
-    text?: Record<string, ValueSchema>;
-    block?: Record<string, ValueSchema> | { ["*"]?: ValueSchema };
-    list?: Record<string, ValueSchema> | { ["*"]?: ValueSchema };
-    if?: Record<string, ValueSchema> | { ["*"]?: ValueSchema };
-    hook?: Record<string, ValueSchema> | { ["*"]?: ValueSchema };
-    resources?: Record<string, ValueSchema>;
-    gradle?: Record<string, ValueSchema>;
+
+  // 新增：占位（全部可为空对象，避免 TS 推断为 never）
+  placeholders?: {
+    text?: Record<string, string>;
+    block?: Record<string, string>;
+    list?: Record<string, string[]>;
+    if?: Record<string, boolean>;
+    hook?: Record<string, string>;
+    resources?: Record<string, string>;
+    gradle?: {
+      applicationId?: string;
+      resConfigs?: string[];
+      permissions?: string[];
+    };
+  };
+
+  // 新增：值格式约束（按需逐步补充）
+  valueFormat?: {
+    text?: Record<string, { regex?: string; enum?: string[]; minLen?: number; maxLen?: number }>;
+    block?: Record<string, { maxLen?: number }>;
+    list?: Record<string, { itemRegex?: string; minItems?: number; maxItems?: number }>;
+    if?: Record<string, {}>;
+    hook?: Record<string, {}>;
+    resources?: Record<string, { pattern?: string }>;
+    gradle?: {
+      applicationId?: { regex?: string };
+      resConfigs?: { itemRegex?: string };
+      permissions?: { itemRegex?: string };
+    };
   };
 };
 
@@ -221,6 +208,13 @@ function sanitizeCompanions(list?: Companion[]): Companion[] {
   return out;
 }
 
+async function readTextAndHash(filePath: string) {
+  const abs = path.isAbsolute(filePath) ? filePath : path.join(ROOT, filePath);
+  const raw = await fs.readFile(abs, "utf8");
+  const sha = crypto.createHash("sha256").update(raw, "utf8").digest("hex");
+  return { abs, raw, sha, size: Buffer.byteLength(raw) };
+}
+
 async function loadRegistry(): Promise<Registry | null> {
   const hint =
     process.env.NDJC_REGISTRY_FILE ||
@@ -229,6 +223,11 @@ async function loadRegistry(): Promise<Registry | null> {
   try {
     const buf = await fs.readFile(hint, "utf8");
     const json = JSON.parse(buf) as Registry;
+
+    // 补齐空壳，避免 TS/运行时访问 undefined
+    json.placeholders ??= { text: {}, block: {}, list: {}, if: {}, hook: {}, resources: {}, gradle: {} };
+    json.valueFormat ??= { text: {}, block: {}, list: {}, if: {}, hook: {}, resources: {}, gradle: {} };
+
     console.log(
       `[NDJC:orchestrator] registry loaded: %s (text:%d, block:%d, list:%d, if:%d, hook:%d)`,
       hint,
@@ -245,13 +244,6 @@ async function loadRegistry(): Promise<Registry | null> {
   }
 }
 
-async function readTextAndHash(filePath: string) {
-  const abs = path.isAbsolute(filePath) ? filePath : path.join(ROOT, filePath);
-  const raw = await fs.readFile(abs, "utf8");
-  const sha = crypto.createHash("sha256").update(raw, "utf8").digest("hex");
-  return { abs, raw, sha, size: Buffer.byteLength(raw) };
-}
-
 async function loadSystemPrompt() {
   const hint =
     process.env.NDJC_PROMPT_SYSTEM_FILE ||
@@ -259,15 +251,10 @@ async function loadSystemPrompt() {
   try {
     const { abs, raw, sha, size } = await readTextAndHash(hint);
     let text = raw;
-    // allow .json or .txt; if json with { "system": "..." }
     try {
       const maybe = JSON.parse(raw);
-      if (maybe && typeof maybe.system === "string") {
-        text = maybe.system;
-      }
-    } catch {
-      /* not json -> treat as plain text */
-    }
+      if (maybe && typeof maybe.system === "string") text = maybe.system;
+    } catch {}
     console.log(
       `[NDJC:orchestrator] system prompt loaded: %s (size:%d, sha256:%s)`,
       abs,
@@ -300,7 +287,12 @@ async function loadRetryPrompt() {
   }
 }
 
-/** ----- normalization / whitelist / defaults / required ----- */
+/** ----- registry helpers ----- */
+function aliasKey(k: string, aliases?: Record<string, string>) {
+  const kk = (k || "").trim();
+  if (!kk) return kk;
+  return aliases?.[kk] || kk;
+}
 
 function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>): string {
   const k = (key || "").trim();
@@ -310,55 +302,99 @@ function normalizeKeyWithAliases(key: string, aliases?: Record<string, string>):
   if (/^NDJC:/.test(k)) return `TEXT:${k}`;
   if (/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k)) return k;
 
-  // Fallback guess
+  // 宽松推断（兜底）
   if (/^ROUTES$|FIELDS$|FLAGS$|STYLES$|PATTERNS$|PROGUARD|SPLITS|STRINGS$/i.test(k)) return `LIST:${k}`;
   if (/^PERMISSION|INTENT|NETWORK|FILE_PROVIDER/i.test(k)) return `IF:${k}`;
   if (/^HOME_|^ROUTE_|^NAV_|^SPLASH_|^EMPTY_|^ERROR_|^DEPENDENCY_|^DEBUG_|^BUILD_|^HEADER_|^PROFILE_|^SETTINGS_/i.test(k)) return `BLOCK:${k}`;
   return k;
 }
 
-function setOf<T = string>(arr?: T[]) {
-  return new Set(Array.isArray(arr) ? (arr as any[]) : []);
+function pickWhitelist(group: AnchorGroup, reg: Registry): Set<string> {
+  switch (group) {
+    case "text": return new Set(reg.text || []);
+    case "block": return new Set(reg.block || []);
+    case "list": return new Set(reg.list || []);
+    case "if": return new Set(reg.if || []);
+    case "hook": return new Set(reg.hook || []);
+    case "resources": return new Set(reg.resources || []);
+    case "gradle": return new Set(["applicationId", "resConfigs", "permissions"]); // 固定三件
+  }
 }
 
-function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
+function placeholderFor(group: AnchorGroup, key: string, reg: Registry): any {
+  const ph = reg.placeholders || {};
+  const g = (ph as any)[group] || {};
+  return (g as any)[key];
+}
+
+function constraintFor(group: AnchorGroup, key: string, reg: Registry): any {
+  const vf = reg.valueFormat || {};
+  const g = (vf as any)[group] || {};
+  return (g as any)[key];
+}
+
+function validateValue(group: AnchorGroup, key: string, val: any, reg: Registry): { ok: boolean; reason?: string } {
+  const c = constraintFor(group, key, reg);
+  if (!c) return { ok: true };
+
+  // text
+  if (group === "text" || group === "block" || group === "hook" || group === "resources") {
+    const s = String(val ?? "");
+    if (c.minLen && s.length < c.minLen) return { ok: false, reason: `too_short(<${c.minLen})` };
+    if (c.maxLen && s.length > c.maxLen) return { ok: false, reason: `too_long(>${c.maxLen})` };
+    if (c.enum && Array.isArray(c.enum) && !c.enum.includes(s)) return { ok: false, reason: "enum" };
+    if (c.regex && !(new RegExp(c.regex).test(s))) return { ok: false, reason: "regex" };
+    return { ok: true };
+  }
+
+  // list
+  if (group === "list") {
+    const arr = Array.isArray(val) ? val : [];
+    if (c.minItems && arr.length < c.minItems) return { ok: false, reason: "minItems" };
+    if (c.maxItems && arr.length > c.maxItems) return { ok: false, reason: "maxItems" };
+    if (c.itemRegex) {
+      const re = new RegExp(c.itemRegex);
+      for (const it of arr) if (!re.test(String(it))) return { ok: false, reason: "itemRegex" };
+    }
+    return { ok: true };
+  }
+
+  // if
+  if (group === "if") {
+    return { ok: typeof val === "boolean" };
+  }
+
+  // gradle
+  if (group === "gradle") {
+    if (key === "applicationId") {
+      const s = String(val ?? "");
+      if (c.regex && !(new RegExp(c.regex).test(s))) return { ok: false, reason: "regex" };
+      return { ok: true };
+    }
+    if (key === "resConfigs" || key === "permissions") {
+      const arr = Array.isArray(val) ? val : [];
+      if (c.itemRegex) {
+        const re = new RegExp(c.itemRegex);
+        for (const it of arr) if (!re.test(String(it))) return { ok: false, reason: "itemRegex" };
+      }
+      return { ok: true };
+    }
+  }
+  return { ok: true };
+}
+
+function applyWhitelistAndAliases(raw: any, reg: Registry) {
   const out: any = { text: {}, block: {}, list: {}, if: {}, hook: {}, gradle: {} };
+  const groups: AnchorGroup[] = ["text", "block", "list", "if", "hook"];
 
   const tryAssign = (dict: any, key: string, val: any) => {
     if (key.startsWith("TEXT:")) dict.text[key.replace(/^TEXT:/, "") || key] = String(val ?? "");
     else if (key.startsWith("BLOCK:")) dict.block[key.replace(/^BLOCK:/, "") || key] = String(val ?? "");
-    else if (key.startsWith("LIST:"))
-      dict.list[key.replace(/^LIST:/, "") || key] = Array.isArray(val) ? val.map(String) : (val == null ? [] : [String(val)]);
+    else if (key.startsWith("LIST:")) dict.list[key.replace(/^LIST:/, "") || key] = Array.isArray(val) ? val.map(String) : (val == null ? [] : [String(val)]);
     else if (key.startsWith("IF:")) dict.if[key.replace(/^IF:/, "") || key] = !!val;
     else if (key.startsWith("HOOK:")) dict.hook[key.replace(/^HOOK:/, "") || key] = Array.isArray(val) ? val.join("\n") : String(val ?? "");
   };
 
-  // collect potential extra keys before whitelist
-  const extra_keys: string[] = [];
-  const collect = (obj: any, group: string) => {
-    if (!obj) return;
-    for (const [k, _] of Object.entries(obj)) {
-      const k1 = /^(TEXT|BLOCK|LIST|IF|HOOK):/.test(k) ? k : normalizeKeyWithAliases(k, reg.aliases);
-      const mapped = reg.aliases?.[k1] || reg.aliases?.[k];
-      const key2 = (mapped || k1);
-      const groupName = key2.split(":")[0];
-      const pure = key2.replace(/^(TEXT|BLOCK|LIST|IF|HOOK):/, "");
-      const allow =
-        (groupName === "TEXT" && (reg.text || []).includes(pure)) ||
-        (groupName === "BLOCK" && (reg.block || []).includes(pure)) ||
-        (groupName === "LIST" && (reg.list || []).includes(pure)) ||
-        (groupName === "IF" && (reg.if || []).includes(pure)) ||
-        (groupName === "HOOK" && (reg.hook || []).includes(pure));
-      if (!allow) extra_keys.push(`${group}:${k}`);
-    }
-  };
-  collect(raw?.text, "text");
-  collect(raw?.block, "block");
-  collect(raw?.list, "list");
-  collect(raw?.if, "if");
-  collect(raw?.hook, "hook");
-
-  const groups = ["text", "block", "list", "if", "hook"];
   const from = raw || {};
   for (const g of groups) {
     const m = from[g] || {};
@@ -371,361 +407,108 @@ function normalizeAnchorsUsingRegistry(raw: any, reg: Registry) {
   }
   if (from.gradle && typeof from.gradle === "object") out.gradle = { ...from.gradle };
 
-  // whitelist trim
-  const keep = {
-    text: setOf(reg.text),
-    block: setOf(reg.block),
-    list: setOf(reg.list),
-    if: setOf(reg.if),
-    hook: setOf(reg.hook),
-  };
-  const filterDict = (d: Record<string, any>, allow: Set<string>) =>
-    Object.fromEntries(Object.entries(d).filter(([k]) => allow.has(k)));
+  // 白名单裁剪
+  (["text","block","list","if","hook"] as AnchorGroup[]).forEach((g) => {
+    const allow = pickWhitelist(g, reg);
+    out[g] = Object.fromEntries(Object.entries(out[g]).filter(([k]) => allow.has(k)));
+  });
 
-  out.text = filterDict(out.text, keep.text);
-  out.block = filterDict(out.block, keep.block);
-  out.list = filterDict(out.list, keep.list);
-  out.if = filterDict(out.if, keep.if);
-  out.hook = filterDict(out.hook, keep.hook);
-
-  (out as any)._extra_keys = extra_keys;
   return out;
 }
 
-function applyDefaultsAndCheckRequired(doc: any, reg: Registry) {
+function fillSkeletonFromRegistry(
+  reg: Registry,
+  seed: { appName: string; homeTitle: string; mainButtonText: string; packageId: string; locales: string[]; permissions: string[] }
+) {
+  const defText = reg.defaults?.text || {};
+  const defList = reg.defaults?.list || {};
+
+  const text: Record<string, string> = {};
+  for (const k of reg.text) {
+    if (k === "NDJC:APP_LABEL") text[k] = seed.appName || defText[k] || (reg.placeholders?.text?.[k] ?? "");
+    else if (k === "NDJC:HOME_TITLE") text[k] = seed.homeTitle || defText[k] || (reg.placeholders?.text?.[k] ?? "");
+    else if (k === "NDJC:PRIMARY_BUTTON_TEXT") text[k] = seed.mainButtonText || defText[k] || (reg.placeholders?.text?.[k] ?? "");
+    else if (k === "NDJC:PACKAGE_NAME") text[k] = seed.packageId || defText[k] || (reg.placeholders?.text?.[k] ?? "");
+    else text[k] = defText[k] ?? (reg.placeholders?.text?.[k] ?? "");
+  }
+  const block: Record<string, string> = Object.fromEntries(reg.block.map((k) => [k, reg.placeholders?.block?.[k] ?? ""]));
+  const list: Record<string, string[]> = Object.fromEntries(reg.list.map((k) => [k, defList[k] ?? (reg.placeholders?.list?.[k] ?? [])]));
+  const iff: Record<string, boolean> = Object.fromEntries(reg.if.map((k) => [k, reg.placeholders?.if?.[k] ?? false]));
+  const hook: Record<string, string> = Object.fromEntries(reg.hook.map((k) => [k, reg.placeholders?.hook?.[k] ?? ""]));
+  const gradle = {
+    applicationId: seed.packageId,
+    resConfigs: seed.locales,
+    permissions: seed.permissions,
+  };
+  return { text, block, list, if: iff, hook, gradle };
+}
+
+function enforceRequiredAndFormats(doc: any, reg: Registry) {
   const req = reg.required || {};
   const def = reg.defaults || {};
-  const report = {
-    filled: { text: [] as string[], list: [] as string[], gradle: [] as string[] },
-    missing: [] as string[],
-  };
+  const ph = reg.placeholders || {};
+  const report = { missing: [] as string[], invalid: [] as string[] };
 
-  // TEXT required
-  for (const k of req.text || []) {
-    if (!doc.text?.[k]) {
-      const dv = def.text?.[k] ?? "";
-      if (dv !== "") {
-        doc.text[k] = dv;
-        report.filled.text.push(k);
-      } else {
-        report.missing.push(`text:${k}`);
-      }
-    }
+  // ensure groups
+  doc.text ||= {}; doc.block ||= {}; doc.list ||= {}; doc.if ||= {}; doc.hook ||= {}; doc.gradle ||= {};
+
+  // required:text
+  for (const k of (req.text || [])) {
+    let v = doc.text[k];
+    if (v == null || v === "") v = def.text?.[k] ?? ph.text?.[k] ?? "";
+    doc.text[k] = v;
   }
-
-  // LIST required
-  for (const k of req.list || []) {
-    const cur = doc.list?.[k];
-    if (!Array.isArray(cur) || cur.length === 0) {
-      const dv = def.list?.[k] ?? [];
-      if (dv.length) {
-        doc.list[k] = dv;
-        report.filled.list.push(k);
-      } else {
-        report.missing.push(`list:${k}`);
-      }
-    }
+  // required:list
+  for (const k of (req.list || [])) {
+    let v = doc.list[k];
+    if (!Array.isArray(v) || v.length === 0) v = def.list?.[k] ?? ph.list?.[k] ?? [];
+    doc.list[k] = v;
   }
-
-  // GRADLE required
-  if (!doc.gradle) doc.gradle = {};
-  for (const k of req.gradle || []) {
+  // required:gradle
+  for (const k of (req.gradle || [])) {
     if (k === "applicationId") {
-      let appId =
-        doc.gradle.applicationId ||
-        doc.text?.["NDJC:PACKAGE_NAME"] ||
-        def.text?.["NDJC:PACKAGE_NAME"] ||
-        def.gradle?.applicationId;
+      let appId = doc.gradle.applicationId || doc.text?.["NDJC:PACKAGE_NAME"] || def.text?.["NDJC:PACKAGE_NAME"] || def.gradle?.applicationId || ph.gradle?.applicationId;
       appId = ensurePackageId(appId, "com.ndjc.demo.core");
-      if (!appId) report.missing.push("gradle:applicationId");
-      else {
-        doc.gradle.applicationId = appId;
-        if (!doc.text["NDJC:PACKAGE_NAME"]) doc.text["NDJC:PACKAGE_NAME"] = appId;
-        report.filled.gradle.push("applicationId");
-      }
-    } else {
-      if (doc.gradle[k] == null && (def.gradle as any)?.[k] != null) {
-        (doc.gradle as any)[k] = (def.gradle as any)[k];
-        report.filled.gradle.push(k);
-      }
+      doc.gradle.applicationId = appId;
+      if (!doc.text["NDJC:PACKAGE_NAME"]) doc.text["NDJC:PACKAGE_NAME"] = appId;
+    } else if (k === "resConfigs") {
+      if (!Array.isArray(doc.gradle.resConfigs)) doc.gradle.resConfigs = def.gradle?.resConfigs ?? ph.gradle?.resConfigs ?? ["en"];
+    } else if (k === "permissions") {
+      if (!Array.isArray(doc.gradle.permissions)) doc.gradle.permissions = def.gradle?.permissions ?? ph.gradle?.permissions ?? [];
     }
   }
 
-  // fallback: resConfigs/permissions defaults
-  if (!Array.isArray(doc.gradle.resConfigs) && Array.isArray(def.gradle?.resConfigs)) {
-    doc.gradle.resConfigs = def.gradle!.resConfigs;
-  }
-  if (!Array.isArray(doc.gradle.permissions) && Array.isArray(def.gradle?.permissions)) {
-    doc.gradle.permissions = def.gradle!.permissions;
-  }
-
-  const ok = report.missing.length === 0;
-  return { ok, report, doc };
-}
-
-/** ----- inline validators & placeholders (方案A) ----- */
-
-const PLACEHOLDERS = {
-  text: "__NDJC_PLACEHOLDER_TEXT__",
-  listItem: "__NDJC_PLACEHOLDER_ITEM__",
-  blockXml: "<!-- __NDJC_PLACEHOLDER_BLOCK__ -->",
-  hookCode: "// __NDJC_PLACEHOLDER_HOOK__",
-};
-
-function isString(x: any): x is string {
-  return typeof x === "string";
-}
-function isBoolean(x: any): x is boolean {
-  return typeof x === "boolean";
-}
-function isArray(x: any): x is any[] {
-  return Array.isArray(x);
-}
-function isIntStr(x: any) {
-  if (!isString(x)) return false;
-  if (!/^-?\d+$/.test(x)) return false;
-  return true;
-}
-function matchRegex(s: string, pattern?: string) {
-  if (!pattern) return true;
-  try {
-    const re = new RegExp(pattern);
-    return re.test(s);
-  } catch {
-    return true; // invalid regex in schema -> ignore
-  }
-}
-
-type ValidationReport = {
-  violations: { key: string; reason: string; got?: any; expect?: any }[];
-  placeholders_filled: { key: string; from?: any; placeholder: any }[];
-  required_missing: string[];
-  extra_keys: string[];
-};
-
-function pickSchema(group: keyof Registry["valueSchemas"], key: string, reg: Registry): ValueSchema | undefined {
-  const vs = reg.valueSchemas || {};
-  const map = (vs as any)[group] || {};
-  return map[key] || map["*"];
-}
-
-function placeholderFor(group: "text" | "block" | "list" | "if" | "hook" | "resources" | "gradle", key: string, reg: Registry) {
-  const sch = pickSchema(group as any, key, reg);
-  if (sch && (sch as any).placeholder != null) return (sch as any).placeholder;
-
-  switch (group) {
-    case "text":
-      return PLACEHOLDERS.text;
-    case "block":
-      return PLACEHOLDERS.blockXml;
-    case "list":
-      return [PLACEHOLDERS.listItem];
-    case "if":
-      return false;
-    case "hook":
-      return PLACEHOLDERS.hookCode;
-    case "resources":
-      return key; // 资源占位：返回其标识，物化阶段可忽略/查找
-    case "gradle":
-      if (key === "applicationId") return "com.ndjc.demo.core";
-      if (key === "resConfigs") return ["en", "zh-rCN", "zh-rTW"];
-      if (key === "permissions") return [];
-      return "";
-    default:
-      return "";
-  }
-}
-
-function validateAndFix(doc: any, reg: Registry): ValidationReport {
-  const rep: ValidationReport = {
-    violations: [],
-    placeholders_filled: [],
-    required_missing: [],
-    extra_keys: Array.isArray(doc?._extra_keys) ? doc._extra_keys : [],
-  };
-
-  // ensure groups exist
-  doc.text ||= {};
-  doc.block ||= {};
-  doc.list ||= {};
-  doc.if ||= {};
-  doc.hook ||= {};
-  doc.gradle ||= {};
-
-  // 1) 覆盖率：所有白名单键都要存在；缺失→占位
-  for (const k of reg.text || []) {
-    if (!isString(doc.text[k]) || doc.text[k] === "") {
-      const ph = placeholderFor("text", k, reg);
-      rep.placeholders_filled.push({ key: `text:${k}`, from: doc.text[k], placeholder: ph });
-      doc.text[k] = String(ph);
-    }
-  }
-  for (const k of reg.block || []) {
-    if (!isString(doc.block[k]) || doc.block[k] === "") {
-      const ph = placeholderFor("block", k, reg);
-      rep.placeholders_filled.push({ key: `block:${k}`, from: doc.block[k], placeholder: ph });
-      doc.block[k] = String(ph);
-    }
-  }
-  for (const k of reg.list || []) {
-    if (!isArray(doc.list[k]) || doc.list[k].length === 0) {
-      const ph = placeholderFor("list", k, reg);
-      rep.placeholders_filled.push({ key: `list:${k}`, from: doc.list[k], placeholder: ph });
-      doc.list[k] = Array.isArray(ph) ? ph : [String(ph)];
-    } else {
-      doc.list[k] = doc.list[k].map((s: any) => String(s));
-    }
-  }
-  for (const k of reg.if || []) {
-    if (!isBoolean(doc.if[k])) {
-      const ph = placeholderFor("if", k, reg);
-      rep.placeholders_filled.push({ key: `if:${k}`, from: doc.if[k], placeholder: ph });
-      doc.if[k] = !!ph;
-    }
-  }
-  for (const k of reg.hook || []) {
-    if (!isString(doc.hook[k]) || doc.hook[k] === "") {
-      const ph = placeholderFor("hook", k, reg);
-      rep.placeholders_filled.push({ key: `hook:${k}`, from: doc.hook[k], placeholder: ph });
-      doc.hook[k] = String(ph);
-    }
-  }
-  doc.gradle.applicationId = ensurePackageId(doc.gradle.applicationId || doc.text?.["NDJC:PACKAGE_NAME"], "com.ndjc.demo.core");
-  if (!isArray(doc.gradle.resConfigs)) doc.gradle.resConfigs = placeholderFor("gradle", "resConfigs", reg);
-  if (!isArray(doc.gradle.permissions)) doc.gradle.permissions = placeholderFor("gradle", "permissions", reg);
-
-  // 2) 值合规：按 valueSchemas 校验，非法→占位并记录 violations
-  const checkTextKey = (k: string) => {
-    const v = doc.text[k];
-    const sch = pickSchema("text", k, reg);
-    if (!sch) return;
-    if ((sch as any).enum && Array.isArray((sch as any).enum)) {
-      if (!(sch as any).enum.includes(String(v))) {
-        rep.violations.push({ key: `text:${k}`, reason: "enum", got: v, expect: (sch as any).enum });
-        const ph = placeholderFor("text", k, reg);
-        if (v !== ph) {
-          doc.text[k] = String(ph);
-          rep.placeholders_filled.push({ key: `text:${k}`, from: v, placeholder: ph });
-        }
-      }
-    } else if ((sch as any).valueType === "int") {
-      if (!isIntStr(String(v))) {
-        rep.violations.push({ key: `text:${k}`, reason: "type:int", got: v });
-        const ph = placeholderFor("text", k, reg);
-        doc.text[k] = String(ph);
-        rep.placeholders_filled.push({ key: `text:${k}`, from: v, placeholder: ph });
-      } else {
-        const n = parseInt(String(v), 10);
-        const min = (sch as any).min ?? -Infinity;
-        const max = (sch as any).max ?? Infinity;
-        if (n < min || n > max) {
-          rep.violations.push({ key: `text:${k}`, reason: "range", got: n, expect: { min, max } });
-          const ph = placeholderFor("text", k, reg);
-          doc.text[k] = String(ph);
-          rep.placeholders_filled.push({ key: `text:${k}`, from: v, placeholder: ph });
-        }
-      }
-    } else {
-      // string with regex
-      if (!isString(v) || !matchRegex(String(v), (sch as any).valueFormat)) {
-        rep.violations.push({ key: `text:${k}`, reason: "format", got: v, expect: (sch as any).valueFormat });
-        const ph = placeholderFor("text", k, reg);
-        doc.text[k] = String(ph);
-        rep.placeholders_filled.push({ key: `text:${k}`, from: v, placeholder: ph });
+  // 白名单+格式验证：不合规 → 占位
+  (["text","block","list","if","hook"] as AnchorGroup[]).forEach((g) => {
+    const allow = pickWhitelist(g, reg);
+    for (const key of Object.keys(doc[g])) {
+      if (!allow.has(key)) { delete doc[g][key]; continue; }
+      const val = doc[g][key];
+      const ok = validateValue(g, key, val, reg);
+      if (!ok.ok) {
+        report.invalid.push(`${g}:${key}`);
+        const pv = placeholderFor(g, key, reg);
+        doc[g][key] = g === "list" ? (Array.isArray(pv) ? pv : []) : (pv ?? (g === "if" ? false : (g === "text" || g === "block" || g==="hook" ? "" : "")));
       }
     }
-  };
-  for (const k of reg.text || []) checkTextKey(k);
+  });
 
-  const checkListKey = (k: string) => {
-    const v = doc.list[k];
-    const sch = pickSchema("list", k, reg);
-    const itemFmt = (sch as any)?.itemFormat;
-    if (!Array.isArray(v) || v.length === 0) {
-      const ph = placeholderFor("list", k, reg);
-      rep.violations.push({ key: `list:${k}`, reason: "empty" });
-      doc.list[k] = Array.isArray(ph) ? ph : [String(ph)];
-      rep.placeholders_filled.push({ key: `list:${k}`, from: v, placeholder: doc.list[k] });
-    } else if (itemFmt) {
-      const fixed: string[] = [];
-      let changed = false;
-      for (const it of v) {
-        const s = String(it);
-        if (matchRegex(s, itemFmt)) fixed.push(s);
-        else {
-          changed = true;
-          fixed.push(String(PLACEHOLDERS.listItem));
-          rep.violations.push({ key: `list:${k}`, reason: "item_format", got: s, expect: itemFmt });
-        }
+  // gradle 校验
+  if (doc.gradle) {
+    for (const key of ["applicationId","resConfigs","permissions"] as const) {
+      if (doc.gradle[key] == null) continue;
+      const ok = validateValue("gradle", key, doc.gradle[key], reg);
+      if (!ok.ok) {
+        report.invalid.push(`gradle:${key}`);
+        const pv = placeholderFor("gradle", key, reg);
+        if (key === "applicationId") doc.gradle.applicationId = ensurePackageId(pv || "com.ndjc.demo.core", "com.ndjc.demo.core");
+        else if (key === "resConfigs") doc.gradle.resConfigs = Array.isArray(pv) ? pv : ["en"];
+        else if (key === "permissions") doc.gradle.permissions = Array.isArray(pv) ? pv : [];
       }
-      if (changed) {
-        doc.list[k] = fixed;
-        rep.placeholders_filled.push({ key: `list:${k}`, placeholder: fixed });
-      }
-    }
-  };
-  for (const k of reg.list || []) checkListKey(k);
-
-  const checkIfKey = (k: string) => {
-    const v = doc.if[k];
-    if (typeof v !== "boolean") {
-      rep.violations.push({ key: `if:${k}`, reason: "type:boolean", got: v });
-      const ph = placeholderFor("if", k, reg);
-      doc.if[k] = !!ph;
-      rep.placeholders_filled.push({ key: `if:${k}`, from: v, placeholder: ph });
-    }
-  };
-  for (const k of reg.if || []) checkIfKey(k);
-
-  const checkBlockKey = (k: string) => {
-    const v = doc.block[k];
-    if (!isString(v) || v.trim() === "") {
-      rep.violations.push({ key: `block:${k}`, reason: "empty" });
-      const ph = placeholderFor("block", k, reg);
-      doc.block[k] = String(ph);
-      rep.placeholders_filled.push({ key: `block:${k}`, from: v, placeholder: ph });
-    }
-  };
-  for (const k of reg.block || []) checkBlockKey(k);
-
-  const checkHookKey = (k: string) => {
-    const v = doc.hook[k];
-    if (!isString(v) || v.trim() === "") {
-      rep.violations.push({ key: `hook:${k}`, reason: "empty" });
-      const ph = placeholderFor("hook", k, reg);
-      doc.hook[k] = String(ph);
-      rep.placeholders_filled.push({ key: `hook:${k}`, from: v, placeholder: ph });
-    }
-  };
-  for (const k of reg.hook || []) checkHookKey(k);
-
-  // gradle
-  const gschApp = reg.valueSchemas?.gradle?.applicationId as ValueSchema | undefined;
-  if (gschApp && gschApp.valueType === "string" && (gschApp as any).valueFormat) {
-    const ok = matchRegex(String(doc.gradle.applicationId || ""), (gschApp as any).valueFormat);
-    if (!ok) {
-      rep.violations.push({
-        key: "gradle:applicationId",
-        reason: "format",
-        got: doc.gradle.applicationId,
-        expect: (gschApp as any).valueFormat,
-      });
-      const ph = placeholderFor("gradle", "applicationId", reg);
-      doc.gradle.applicationId = String(ph);
-      rep.placeholders_filled.push({ key: "gradle:applicationId", from: doc.gradle.applicationId, placeholder: ph });
     }
   }
 
-  // required_missing（最终兜底再检查一次）
-  const req = reg.required || {};
-  for (const k of req.text || []) if (!doc.text?.[k]) rep.required_missing.push(`text:${k}`);
-  for (const k of req.block || []) if (!doc.block?.[k]) rep.required_missing.push(`block:${k}`);
-  for (const k of req.list || []) if (!isArray(doc.list?.[k]) || doc.list[k].length === 0) rep.required_missing.push(`list:${k}`);
-  for (const k of req.if || []) if (typeof doc.if?.[k] !== "boolean") rep.required_missing.push(`if:${k}`);
-  for (const k of req.hook || []) if (!doc.hook?.[k]) rep.required_missing.push(`hook:${k}`);
-  for (const k of req.gradle || []) if (doc.gradle?.[k] == null) rep.required_missing.push(`gradle:${k}`);
-
-  return rep;
+  return { doc, report };
 }
 
 /** ---------------- main orchestrate ---------------- */
@@ -740,7 +523,9 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       hook: [],
       aliases: {},
       required: { text: ["NDJC:PACKAGE_NAME", "NDJC:APP_LABEL", "NDJC:HOME_TITLE", "NDJC:PRIMARY_BUTTON_TEXT"], list: ["ROUTES"], gradle: ["applicationId"] },
-      defaults: { text: { "NDJC:PACKAGE_NAME": "com.ndjc.demo.core", "NDJC:APP_LABEL": "NDJC App", "NDJC:HOME_TITLE": "Home", "NDJC:PRIMARY_BUTTON_TEXT": "Start" }, list: { "ROUTES": ["home"] }, gradle: { resConfigs: ["en", "zh-rCN", "zh-rTW"], permissions: [] } }
+      defaults: { text: { "NDJC:PACKAGE_NAME": "com.ndjc.demo.core", "NDJC:APP_LABEL": "NDJC App", "NDJC:HOME_TITLE": "Home", "NDJC:PRIMARY_BUTTON_TEXT": "Start" }, list: { "ROUTES": ["home"] }, gradle: { resConfigs: ["en", "zh-rCN", "zh-rTW"], permissions: [] } },
+      placeholders: { text: {}, block: {}, list: {}, if: {}, hook: {}, resources: {}, gradle: {} },
+      valueFormat: { text: {}, block: {}, list: {}, if: {}, hook: {}, resources: {}, gradle: {} },
     };
 
   const sysPrompt = await loadSystemPrompt();
@@ -774,35 +559,19 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     },
   };
 
-  // SKELETON（所有键齐全、值先置空/默认）
+  // SKELETON（所有键齐全）
   const skeleton = (() => {
-    const defText = reg.defaults?.text || {};
-    const defList = reg.defaults?.list || {};
-    const text: Record<string, string> = {};
-    for (const k of reg.text) {
-      if (k === "NDJC:APP_LABEL") text[k] = appName || defText[k] || "";
-      else if (k === "NDJC:HOME_TITLE") text[k] = homeTitle || defText[k] || "";
-      else if (k === "NDJC:PRIMARY_BUTTON_TEXT") text[k] = mainButtonText || defText[k] || "";
-      else if (k === "NDJC:PACKAGE_NAME") text[k] = packageId || defText[k] || "";
-      else text[k] = defText[k] ?? "";
-    }
-    const block: Record<string, string> = Object.fromEntries(reg.block.map((k) => [k, ""]));
-    const list: Record<string, string[]> = Object.fromEntries(reg.list.map((k) => [k, defList[k] ?? []]));
-    const iff: Record<string, boolean> = Object.fromEntries(reg.if.map((k) => [k, false]));
-    const hook: Record<string, string> = Object.fromEntries(reg.hook.map((k) => [k, ""]));
-    const gradle = {
-      applicationId: packageId,
-      resConfigs: locales,
-      permissions: permissions,
-    };
+    const anchors = fillSkeletonFromRegistry(reg, {
+      appName, homeTitle, mainButtonText, packageId, locales, permissions
+    });
     return {
       metadata: { template, appName, packageId, mode },
-      anchors: { text, block, list, if: iff, hook, gradle },
+      anchors,
       files: [] as any[],
     };
   })();
 
-  // 组装 user 指令（强调“仅 JSON、键集合与 SKELETON 一致”）
+  // 组装 user 指令
   const baseUser = [
     "Return STRICT JSON only. Use the SAME keys of SKELETON. Do not add or remove any keys.",
     "Fill all anchors with values. If not applicable, use placeholders but keep the type.",
@@ -811,7 +580,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     (input.requirement?.trim() ? `User requirement: ${input.requirement!.trim()}` : ``),
   ].filter(Boolean).join("\n");
 
-  // 控制台明确打印——用于 Vercel Functions Logs 判断 prompt 是否被调用
+  // 控制台确认 prompt 文件
   console.log(
     `[NDJC:orchestrator] using system prompt: %s (sha256:%s, size:%d)`,
     sysPrompt.path,
@@ -825,12 +594,10 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     rtyPrompt.size
   );
 
-  // 生成 + 机器校验→重试
+  // 生成 + 校验→重试
   const maxRetries = 2;
   let parsed: any = null;
   let lastText = "";
-  let lastReport: ValidationReport | null = null;
-
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const msgs: any[] = [
@@ -839,29 +606,12 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       ];
 
       if (attempt > 0) {
-        // 上一轮的全文 + 具体问题清单回灌
         if (lastText) msgs.push({ role: "assistant", content: lastText });
+        const feedback = _trace.retries?.[attempt - 1]?.feedback || "";
         const retryText =
           (rtyPrompt.text || "").trim() ||
           "Fix mistakes. Keep the same keys as SKELETON. Fill required anchors. Return JSON only.";
-        const feedbackLines: string[] = [];
-
-        if (lastReport) {
-          if (lastReport.required_missing?.length) {
-            feedbackLines.push("Missing required anchors:");
-            for (const k of lastReport.required_missing) feedbackLines.push(`- ${k}`);
-          }
-          if (lastReport.violations?.length) {
-            feedbackLines.push("Invalid values (type/format/enum/range):");
-            for (const v of lastReport.violations.slice(0, 50)) feedbackLines.push(`- ${v.key}: ${v.reason}`);
-          }
-          if (lastReport.extra_keys?.length) {
-            feedbackLines.push("Unknown/extra keys (will be dropped):");
-            for (const k of lastReport.extra_keys.slice(0, 50)) feedbackLines.push(`- ${k}`);
-          }
-        }
-
-        msgs.push({ role: "user", content: [retryText, feedbackLines.join("\n")].filter(Boolean).join("\n\n") });
+        msgs.push({ role: "user", content: [retryText, feedback].filter(Boolean).join("\n\n") });
       }
 
       const r = await callGroqChat(msgs, { json: true, temperature: 0 });
@@ -869,51 +619,35 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       lastText = text;
       const maybe = parseJsonSafely(text) as any;
 
-      const normalized = normalizeAnchorsUsingRegistry(maybe?.anchors || maybe?.anchorsGrouped || {}, reg);
-      const { ok, report, doc } = applyDefaultsAndCheckRequired(
+      // 归一化 + 白名单
+      const normalized = applyWhitelistAndAliases(maybe?.anchors || maybe?.anchorsGrouped || {}, reg);
+
+      // 必填+格式：不合规 → 占位
+      const { doc, report } = enforceRequiredAndFormats(
         { ...normalized, gradle: maybe?.anchors?.gradle || maybe?.gradle || {} },
         reg
       );
 
-      // 机器校验 + 占位修正（满足三硬要求）
-      const rep = validateAndFix(doc, reg);
-      lastReport = rep;
-
-      parsed = {
-        metadata: maybe?.metadata || {},
-        anchors: doc,
-        _raw: maybe,
-        _text: text,
-        _report: { required_defaults: report, validation: rep, okRequired: ok },
-        _ok: ok && rep.required_missing.length === 0, // 必填通过
-      };
-
+      parsed = { metadata: maybe?.metadata || {}, anchors: doc, _raw: maybe, _text: text, _report: report, _ok: (report.invalid.length === 0) };
       _trace.retries.push({
         attempt,
-        ok: parsed._ok && rep.violations.length === 0,
-        required_missing: rep.required_missing,
-        violations: rep.violations?.slice(0, 100),
-        extra_keys: rep.extra_keys?.slice(0, 100),
-        placeholders_filled: rep.placeholders_filled?.slice(0, 50),
-        feedback:
-          rep.required_missing.length || rep.violations.length || rep.extra_keys.length
-            ? [
-                rep.required_missing.length ? `Missing: ${rep.required_missing.join(", ")}` : "",
-                rep.violations.length ? `Violations: ${rep.violations.map((v) => v.key).slice(0, 20).join(", ")}` : "",
-                rep.extra_keys.length ? `ExtraKeys: ${rep.extra_keys.slice(0, 20).join(", ")}` : "",
-                "Please fix and resend JSON with the SAME key set.",
-              ].filter(Boolean).join("\n")
-            : undefined,
+        ok: parsed._ok,
+        report,
+        feedback: (!parsed._ok)
+          ? [
+              "Normalize to allowed anchors only and satisfy all required keys.",
+              ...(report.invalid.length ? [`Invalid:`, ...report.invalid.map((s:string)=>`- ${s}`)] : []),
+            ].join("\n")
+          : undefined,
       });
 
-      // 通过条件：必填 OK 且无 violations（或 violations 已被占位修正后不再出现）
-      if (parsed._ok && rep.violations.length === 0) break;
+      if (parsed._ok) break;
     } catch (e: any) {
       _trace.retries.push({ attempt, error: e?.message || String(e) });
     }
   }
 
-  // 抽取关键值
+  // 抽取关键值（以模型产物为准）
   if (parsed?.metadata) {
     appName = parsed.metadata.appName || appName;
     packageId = ensurePackageId(parsed.metadata.packageId || packageId, packageId);
@@ -926,17 +660,11 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     packageId = ensurePackageId(anchorsFinal.text["NDJC:PACKAGE_NAME"] || packageId, packageId);
   }
   const gradle = parsed?.anchors?.gradle || {};
-  if (Array.isArray(gradle.resConfigs)) {
-    locales = normalizeLocales(gradle.resConfigs);
-  }
-  if (Array.isArray(gradle.permissions)) {
-    permissions = gradle.permissions;
-  }
-  if (allowCompanions && Array.isArray(parsed?._raw?.files)) {
-    companions = sanitizeCompanions(parsed._raw.files);
-  }
+  if (Array.isArray(gradle.resConfigs)) locales = normalizeLocales(gradle.resConfigs);
+  if (Array.isArray(gradle.permissions)) permissions = gradle.permissions;
+  if (allowCompanions && Array.isArray(parsed?._raw?.files)) companions = sanitizeCompanions(parsed._raw.files);
 
-  // v1 兜底
+  // v1 兜底（无返回时）
   if (wantV1(input) && (!parsed || !parsed._text)) {
     const v1doc = {
       metadata: { runId: (input as any).runId || undefined, template, appName, packageId, mode },
@@ -961,15 +689,8 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     _trace.rawText = parsed?._text;
   }
 
-  // 报告合并到 trace
-  if (parsed?._report) {
-    _trace.validation = parsed._report.validation;
-    _trace.required_defaults = parsed._report.required_defaults;
-    _trace.okRequired = parsed._report.okRequired;
-  }
-
   const permissionsXml = mkPermissionsXml(permissions);
-  const intentFiltersXml = mkIntentFiltersXml(intentHost);
+  const intentFiltersXml = mkIntentFiltersXml(input.intentHost);
   const themeOverridesXml = (input as any).themeOverridesXml || undefined;
   const resConfigs = input.resConfigs || localesToResConfigs(locales);
   const proguardExtra = input.proguardExtra;
