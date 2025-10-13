@@ -124,23 +124,104 @@
       "NDJC:APP_LABEL",
       "NDJC:HOME_TITLE",
       "NDJC:PRIMARY_BUTTON_TEXT",
-      "NDJC:THEME_NAME"
+      "NDJC:THEME_NAME",
+      "NDJC:DARK_MODE",
+      "NDJC:FONT_FAMILY_PRIMARY",
+      "NDJC:FONT_FAMILY_SECONDARY",
+      "NDJC:I18N_ENABLED",
+      "NDJC:ANIM_ENABLED",
+      "NDJC:ANIM_DURATION_MS",
+      "NDJC:LAYOUT_DENSITY",
+      "NDJC:DATA_SOURCE",
+      "NDJC:SEED_ENABLED",
+      "NDJC:FEED_SORT",
+      "NDJC:PAGING_SIZE",
+      "NDJC:OFFLINE_POLICY",
+      "NDJC:PRIVACY_POLICY",
+      "NDJC:DRAFT_ENABLED",
+      "NDJC:USE_APP_BUNDLE",
+      "NDJC:BUILD_META_RUNID",
+      "NDJC:FEATURE_TOGGLE_MIN",
+      "NDJC:DEBUG_LOG_ENABLED",
+      "NDJC:RUN_ID",
+      "NDJC:LOG_LEVEL",
+      "NDJC:METRICS_ENABLED",
+      "NDJC:CRASHLYTICS_ENABLED",
+      "NDJC:EXPERIMENT_BUCKET"
+    ],
+    "block": [
+      "BLOCK:HOME_HEADER",
+      "BLOCK:HOME_BODY",
+      "BLOCK:HOME_ACTIONS",
+      "BLOCK:THEME_COLORS",
+      "BLOCK:TYPOCASE_OVERRIDES",
+      "BLOCK:STRINGS_EXTRA",
+      "BLOCK:ROUTE_HOME",
+      "BLOCK:ROUTE_DETAIL",
+      "BLOCK:ROUTE_POST",
+      "BLOCK:NAV_TRANSITIONS",
+      "BLOCK:SPLASH_CONTENT",
+      "BLOCK:EMPTY_STATE",
+      "BLOCK:ERROR_STATE",
+      "BLOCK:DEPENDENCY_SNIPPETS",
+      "BLOCK:DEBUG_PANEL",
+      "BLOCK:BUILD_SUMMARY",
+      "BLOCK:HEADER_AD_SLOT",
+      "BLOCK:FEED_ITEM_BADGES",
+      "BLOCK:USER_PROFILE_CARD",
+      "BLOCK:SPONSORED_CARD",
+      "BLOCK:PROFILE_SECTION",
+      "BLOCK:SETTINGS_SECTION"
     ],
     "list": [
-      "LIST:ROUTES"
+      "LIST:PROGUARD_EXTRA",
+      "LIST:PACKAGING_RULES",
+      "LIST:ROUTES",
+      "LIST:POST_FIELDS",
+      "LIST:COMMENT_FIELDS",
+      "LIST:ABI_SPLITS",
+      "LIST:PLURAL_STRINGS",
+      "LIST:COMPONENT_STYLES",
+      "LIST:REMOTE_FLAGS",
+      "LIST:DEEPLINK_PATTERNS"
+    ],
+    "if": [
+      "IF:PERMISSION.CAMERA",
+      "IF:PERMISSION.MEDIA",
+      "IF:PERMISSION.NOTIFICATION",
+      "IF:PERMISSION.LOCATION",
+      "IF:PERMISSION.CONTACTS",
+      "IF:PERMISSION.SCHEDULE_EXACT_ALARM",
+      "IF:PERMISSION.CLIPBOARD",
+      "IF:NETWORK.CLEAR_TEXT",
+      "IF:FILE_PROVIDER",
+      "IF:INTENT.SHARE"
+    ],
+    "hook": [
+      "HOOK:BEFORE_BUILD",
+      "HOOK:AFTER_BUILD",
+      "HOOK:PRE_INJECT",
+      "HOOK:POST_INJECT",
+      "HOOK:PRE_COMMIT",
+      "HOOK:AFTER_INSTALL"
     ],
     "gradle": [
-      "applicationId"
+      "applicationId",
+      "resConfigs",
+      "permissions"
     ]
   },
 
   "defaults": {
+  },
+
+  "placeholders": {
     "text": {
-      "NDJC:PACKAGE_NAME": "com.ndjc.demo.core",
-      "NDJC:APP_LABEL": "NDJC App",
-      "NDJC:HOME_TITLE": "Home",
-      "NDJC:PRIMARY_BUTTON_TEXT": "Start",
-      "NDJC:THEME_NAME": "CircleBasicTheme",
+      "NDJC:PACKAGE_NAME": "com.example.ndjc",
+      "NDJC:APP_LABEL": "__APP_LABEL__",
+      "NDJC:HOME_TITLE": "__HOME_TITLE__",
+      "NDJC:PRIMARY_BUTTON_TEXT": "__PRIMARY_BUTTON__",
+      "NDJC:THEME_NAME": "__THEME__",
 
       "NDJC:DARK_MODE": "auto",
       "NDJC:FONT_FAMILY_PRIMARY": "system",
@@ -155,81 +236,97 @@
       "NDJC:FEED_SORT": "latest",
       "NDJC:PAGING_SIZE": "20",
       "NDJC:OFFLINE_POLICY": "read_through_cache",
-      "NDJC:PRIVACY_POLICY": "",
+      "NDJC:PRIVACY_POLICY": "__PRIVACY_URL__",
       "NDJC:DRAFT_ENABLED": "true",
 
       "NDJC:USE_APP_BUNDLE": "true",
-      "NDJC:BUILD_META_RUNID": "",
+      "NDJC:BUILD_META_RUNID": "__RUN_ID__",
       "NDJC:FEATURE_TOGGLE_MIN": "baseline",
       "NDJC:DEBUG_LOG_ENABLED": "false",
 
-      "NDJC:RUN_ID": "",
+      "NDJC:RUN_ID": "__RUN_ID__",
       "NDJC:LOG_LEVEL": "info",
       "NDJC:METRICS_ENABLED": "false",
       "NDJC:CRASHLYTICS_ENABLED": "false",
 
-      "NDJC:EXPERIMENT_BUCKET": ""
-    },
-    "list": {
-      "LIST:ROUTES": ["home", "detail/{id}", "post"],
-      "LIST:PROGUARD_EXTRA": [],
-      "LIST:PACKAGING_RULES": [],
-      "LIST:POST_FIELDS": [],
-      "LIST:COMMENT_FIELDS": [],
-      "LIST:ABI_SPLITS": [],
-      "LIST:PLURAL_STRINGS": [],
-      "LIST:COMPONENT_STYLES": [],
-      "LIST:REMOTE_FLAGS": [],
-      "LIST:DEEPLINK_PATTERNS": []
-    },
-    "gradle": {
-      "applicationId": "com.ndjc.demo.core",
-      "resConfigs": ["en", "zh-rCN", "zh-rTW"],
-      "permissions": []
-    }
-  },
-
-  "placeholders": {
-    "text": {
-      "NDJC:APP_LABEL": "__APP_LABEL__",
-      "NDJC:HOME_TITLE": "__HOME_TITLE__",
-      "NDJC:PRIMARY_BUTTON_TEXT": "__PRIMARY_BUTTON__",
-      "NDJC:THEME_NAME": "__THEME__",
-      "NDJC:PRIVACY_POLICY": "__PRIVACY_URL__"
+      "NDJC:EXPERIMENT_BUCKET": "__BUCKET__"
     },
     "block": {
-      "BLOCK:HOME_HEADER": "<!-- __HOME_HEADER__ -->",
-      "BLOCK:HOME_BODY": "<!-- __HOME_BODY__ -->",
-      "BLOCK:HOME_ACTIONS": "<!-- __HOME_ACTIONS__ -->",
-      "BLOCK:THEME_COLORS": "{ /* __THEME_COLORS__ */ }",
-      "BLOCK:EMPTY_STATE": "<!-- __EMPTY__ -->",
-      "BLOCK:ERROR_STATE": "<!-- __ERROR__ -->"
+      "BLOCK:HOME_HEADER": "__BLOCK_HOME_HEADER__",
+      "BLOCK:HOME_BODY": "__BLOCK_HOME_BODY__",
+      "BLOCK:HOME_ACTIONS": "__BLOCK_HOME_ACTIONS__",
+
+      "BLOCK:THEME_COLORS": "__BLOCK_THEME_COLORS__",
+      "BLOCK:TYPOCASE_OVERRIDES": "__BLOCK_TYPOCASE__",
+      "BLOCK:STRINGS_EXTRA": "__BLOCK_STRINGS_EXTRA__",
+
+      "BLOCK:ROUTE_HOME": "__BLOCK_ROUTE_HOME__",
+      "BLOCK:ROUTE_DETAIL": "__BLOCK_ROUTE_DETAIL__",
+      "BLOCK:ROUTE_POST": "__BLOCK_ROUTE_POST__",
+      "BLOCK:NAV_TRANSITIONS": "__BLOCK_NAV_TRANSITIONS__",
+
+      "BLOCK:SPLASH_CONTENT": "__BLOCK_SPLASH__",
+      "BLOCK:EMPTY_STATE": "__BLOCK_EMPTY__",
+      "BLOCK:ERROR_STATE": "__BLOCK_ERROR__",
+
+      "BLOCK:DEPENDENCY_SNIPPETS": "__BLOCK_DEPENDENCY__",
+      "BLOCK:DEBUG_PANEL": "__BLOCK_DEBUG__",
+      "BLOCK:BUILD_SUMMARY": "__BLOCK_BUILD_SUMMARY__",
+
+      "BLOCK:HEADER_AD_SLOT": "__BLOCK_HEADER_AD__",
+      "BLOCK:FEED_ITEM_BADGES": "__BLOCK_FEED_BADGES__",
+      "BLOCK:USER_PROFILE_CARD": "__BLOCK_USER_PROFILE__",
+      "BLOCK:SPONSORED_CARD": "__BLOCK_SPONSORED__",
+
+      "BLOCK:PROFILE_SECTION": "__BLOCK_PROFILE__",
+      "BLOCK:SETTINGS_SECTION": "__BLOCK_SETTINGS__"
     },
     "list": {
+      "LIST:PROGUARD_EXTRA": ["__PROGUARD__"],
+      "LIST:PACKAGING_RULES": ["__PACKAGING_RULE__"],
       "LIST:ROUTES": ["home"],
-      "LIST:DEEPLINK_PATTERNS": [],
-      "LIST:PROGUARD_EXTRA": [],
-      "LIST:PACKAGING_RULES": []
+      "LIST:POST_FIELDS": ["id", "title", "body"],
+      "LIST:COMMENT_FIELDS": ["id", "postId", "body"],
+      "LIST:ABI_SPLITS": ["arm64-v8a"],
+      "LIST:PLURAL_STRINGS": ["item_count"],
+      "LIST:COMPONENT_STYLES": ["card", "chip"],
+      "LIST:REMOTE_FLAGS": ["__REMOTE_FLAG__"],
+      "LIST:DEEPLINK_PATTERNS": ["myapp://home"]
     },
-    "if": {},
+    "if": {
+      "IF:PERMISSION.CAMERA": false,
+      "IF:PERMISSION.MEDIA": false,
+      "IF:PERMISSION.NOTIFICATION": false,
+      "IF:PERMISSION.LOCATION": false,
+      "IF:PERMISSION.CONTACTS": false,
+      "IF:PERMISSION.SCHEDULE_EXACT_ALARM": false,
+      "IF:PERMISSION.CLIPBOARD": false,
+      "IF:NETWORK.CLEAR_TEXT": false,
+      "IF:FILE_PROVIDER": false,
+      "IF:INTENT.SHARE": false
+    },
     "hook": {
-      "HOOK:BEFORE_BUILD": "",
-      "HOOK:AFTER_BUILD": ""
+      "HOOK:BEFORE_BUILD": "__HOOK_BEFORE_BUILD__",
+      "HOOK:AFTER_BUILD": "__HOOK_AFTER_BUILD__",
+      "HOOK:PRE_INJECT": "__HOOK_PRE_INJECT__",
+      "HOOK:POST_INJECT": "__HOOK_POST_INJECT__",
+      "HOOK:PRE_COMMIT": "__HOOK_PRE_COMMIT__",
+      "HOOK:AFTER_INSTALL": "__HOOK_AFTER_INSTALL__"
     },
     "resources": {},
     "gradle": {
-      "applicationId": "com.ndjc.demo.core",
+      "applicationId": "com.example.ndjc",
       "resConfigs": ["en"],
-      "permissions": []
+      "permissions": ["android.permission.INTERNET"]
     }
   },
 
   "valueFormat": {
     "text": {
-      "NDJC:PACKAGE_NAME": { "regex": "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$" },
-      "NDJC:APP_LABEL": { "minLen": 1, "maxLen": 40 },
-      "NDJC:HOME_TITLE": { "minLen": 1, "maxLen": 40 },
-      "NDJC:PRIMARY_BUTTON_TEXT": { "minLen": 1, "maxLen": 24 },
+      "NDJC:PACKAGE_NAME": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
+      "NDJC:APP_LABEL": { "minLen": 1, "maxLen": 64 },
+      "NDJC:HOME_TITLE": { "minLen": 1, "maxLen": 64 },
+      "NDJC:PRIMARY_BUTTON_TEXT": { "minLen": 1, "maxLen": 64 },
       "NDJC:ANIM_DURATION_MS": { "regex": "^[0-9]{1,5}$" },
       "NDJC:PAGING_SIZE": { "regex": "^[0-9]{1,3}$" },
       "NDJC:LOG_LEVEL": { "enum": ["trace", "debug", "info", "warn", "error"] }
@@ -238,7 +335,7 @@
       "BLOCK:THEME_COLORS": { "maxLen": 20000 }
     },
     "list": {
-      "LIST:ROUTES": { "itemRegex": "^[a-z0-9_\\-/{}}]{1,32}$", "minItems": 1, "maxItems": 64 },
+      "LIST:ROUTES": { "itemRegex": "^[a-z0-9_\\-/{}}]{1,64}$", "minItems": 1, "maxItems": 64 },
       "LIST:DEEPLINK_PATTERNS": { "itemRegex": "^[a-z0-9_\\-/{\\.:}]+$", "maxItems": 64 }
     },
     "if": {},
