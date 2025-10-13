@@ -8,7 +8,6 @@ function normalizeYesNo(s: string): "可以" | "不可以" | null {
   const t = (s || "").trim();
   if (t === "可以") return "可以";
   if (t === "不可以") return "不可以";
-  // 容错：截断到第一个词
   if (t.startsWith("可以")) return "可以";
   if (t.startsWith("不可以")) return "不可以";
   return null;
@@ -34,7 +33,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const userText = toBulletText(constraints).slice(0, 4000); // 简单限长，避免超长提示
+    const userText = toBulletText(constraints).slice(0, 4000); // 简单限长
 
     const systemText =
       '你将收到一组构建约束。请判断是否能在一次生成中完全满足这些约束。\n' +
@@ -46,15 +45,13 @@ export async function POST(req: Request) {
     ];
 
     console.log(
-      "[probe] yes/no run start (temp=0 top_p=0 max_tokens~8) constraints_len=%d",
+      "[probe] yes/no run start (temp=0) constraints_len=%d",
       userText.length
     );
 
-    // 复用现有 groq 封装；json: true 便于模型以 JSON 形式返回
+    // 仅传递你封装支持的参数，避免类型错误
     const r = await callGroqChat(messages, {
       temperature: 0,
-      top_p: 0,
-      max_tokens: 8,
       json: true,
     });
 
@@ -69,7 +66,7 @@ export async function POST(req: Request) {
         answer = a;
       }
     } catch {
-      /* ignore */
+      /* ignore non-JSON */
     }
 
     // 2) 非 JSON，则从纯文本里提取首个 可以/不可以
