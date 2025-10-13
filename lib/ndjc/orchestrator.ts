@@ -41,7 +41,7 @@ type Registry = {
     };
   };
 
-  // 新增：占位（全部可为空对象，避免 TS 推断为 never）
+  // 占位（全部可为空对象，避免 TS 推断为 never）
   placeholders?: {
     text?: Record<string, string>;
     block?: Record<string, string>;
@@ -56,7 +56,7 @@ type Registry = {
     };
   };
 
-  // 新增：值格式约束（按需逐步补充）
+  // 值格式约束（按需逐步补充）
   valueFormat?: {
     text?: Record<string, { regex?: string; enum?: string[]; minLen?: number; maxLen?: number }>;
     block?: Record<string, { maxLen?: number }>;
@@ -337,29 +337,29 @@ function validateValue(group: AnchorGroup, key: string, val: any, reg: Registry)
   const c = constraintFor(group, key, reg);
   if (!c) return { ok: true };
 
-  // text / block / hook / resources
+  // text / block / hook / resources -> string
   if (group === "text" || group === "block" || group === "hook" || group === "resources") {
     const s = String(val ?? "");
-    if ((c as any).minLen && s.length < (c as any).minLen) return { ok: false, reason: `too_short(<${(c as any).minLen})` };
-    if ((c as any).maxLen && s.length > (c as any).maxLen) return { ok: false, reason: `too_long(>${(c as any).maxLen})` };
-    if ((c as any).enum && Array.isArray((c as any).enum) && !(c as any).enum.includes(s)) return { ok: false, reason: "enum" };
-    if ((c as any).regex && !(new RegExp((c as any).regex).test(s))) return { ok: false, reason: "regex" };
+    if (c.minLen && s.length < c.minLen) return { ok: false, reason: `too_short(<${c.minLen})` };
+    if (c.maxLen && s.length > c.maxLen) return { ok: false, reason: `too_long(>${c.maxLen})` };
+    if (c.enum && Array.isArray(c.enum) && !c.enum.includes(s)) return { ok: false, reason: "enum" };
+    if (c.regex && !(new RegExp(c.regex).test(s))) return { ok: false, reason: "regex" };
     return { ok: true };
   }
 
-  // list
+  // list -> string[]
   if (group === "list") {
     const arr = Array.isArray(val) ? val : [];
-    if ((c as any).minItems && arr.length < (c as any).minItems) return { ok: false, reason: "minItems" };
-    if ((c as any).maxItems && arr.length > (c as any).maxItems) return { ok: false, reason: "maxItems" };
-    if ((c as any).itemRegex) {
-      const re = new RegExp((c as any).itemRegex);
+    if (c.minItems && arr.length < c.minItems) return { ok: false, reason: "minItems" };
+    if (c.maxItems && arr.length > c.maxItems) return { ok: false, reason: "maxItems" };
+    if (c.itemRegex) {
+      const re = new RegExp(c.itemRegex);
       for (const it of arr) if (!re.test(String(it))) return { ok: false, reason: "itemRegex" };
     }
     return { ok: true };
   }
 
-  // if
+  // if -> boolean
   if (group === "if") {
     return { ok: typeof val === "boolean" };
   }
@@ -368,13 +368,13 @@ function validateValue(group: AnchorGroup, key: string, val: any, reg: Registry)
   if (group === "gradle") {
     if (key === "applicationId") {
       const s = String(val ?? "");
-      if ((c as any).regex && !(new RegExp((c as any).regex).test(s))) return { ok: false, reason: "regex" };
+      if (c.regex && !(new RegExp(c.regex).test(s))) return { ok: false, reason: "regex" };
       return { ok: true };
     }
     if (key === "resConfigs" || key === "permissions") {
       const arr = Array.isArray(val) ? val : [];
-      if ((c as any).itemRegex) {
-        const re = new RegExp((c as any).itemRegex);
+      if (c.itemRegex) {
+        const re = new RegExp(c.itemRegex);
         for (const it of arr) if (!re.test(String(it))) return { ok: false, reason: "itemRegex" };
       }
       return { ok: true };
@@ -537,14 +537,11 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   let packageId = ensurePackageId(input.packageId || input.packageName || reg.defaults?.text?.["NDJC:PACKAGE_NAME"], "com.ndjc.demo.core");
 
   let permissions = input.permissions || [];
-  let intentHost = input.intentHost ?? null;
   let locales = normalizeLocales(input.locales);
 
   let companions: Companion[] = Array.isArray(input._companions) ? sanitizeCompanions(input._companions) : [];
 
-  // ★★★ 锁死 metadata.mode：仅允许 'A' | 'B'，默认 'B'
-  const mode: "A" | "B" = (input.mode === "A" || input.mode === "B") ? input.mode : "B";
-
+  const mode: "A" | "B" = "B";
   const allowCompanions = !!input.allowCompanions && mode === "B";
   const template = (input.template as any) || (reg.template || "circle-basic");
 
@@ -558,10 +555,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       retry_file: rtyPrompt.path,
       retry_sha256: rtyPrompt.sha,
       model: process.env.NDJC_MODEL || "groq",
-    },
-    enforce: {
-      metadata_mode_final: mode,
-      metadata_from_model_ignored: true, // 我们将忽略模型提供的 metadata
     },
   };
 
@@ -653,9 +646,11 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     }
   }
 
-  // ★★★ 关键点：不再使用 parsed.metadata 覆盖本地元信息（避免 LLM 改坏 metadata）
-  // if (parsed?.metadata) { ... }  —— 故意删除这段逻辑
-
+  // 抽取关键值（以模型产物为准）
+  if (parsed?.metadata) {
+    appName = parsed.metadata.appName || appName;
+    packageId = ensurePackageId(parsed.metadata.packageId || packageId, packageId);
+  }
   const anchorsFinal = parsed?.anchors || {};
   if (anchorsFinal?.text) {
     appName = anchorsFinal.text["NDJC:APP_LABEL"] || appName;
@@ -668,33 +663,30 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   if (Array.isArray(gradle.permissions)) permissions = gradle.permissions;
   if (allowCompanions && Array.isArray(parsed?._raw?.files)) companions = sanitizeCompanions(parsed._raw.files);
 
-  // v1 兜底（无返回时）
-  if (wantV1(input) && (!parsed || !parsed._text)) {
-    const v1doc = {
-      metadata: { runId: (input as any).runId || undefined, template, appName, packageId, mode },
-      anchors: {
-        text: {
-          "NDJC:PACKAGE_NAME": packageId,
-          "NDJC:APP_LABEL": appName,
-          "NDJC:HOME_TITLE": homeTitle,
-          "NDJC:PRIMARY_BUTTON_TEXT": mainButtonText,
-        },
-        block: {},
-        list: { "LIST:ROUTES": ["home"] },
-        if: {},
-        hook: {},
-        gradle: { applicationId: packageId, resConfigs: locales, permissions },
-      },
-      files: allowCompanions ? companions : [],
-    };
-    _trace.synthesized = true;
-    _trace.rawText = JSON.stringify(v1doc);
-  } else {
-    _trace.rawText = parsed?._text;
-  }
+  /** -------------------- 关键改动：统一构造合约对象写入 trace -------------------- */
+  const contractDoc = {
+    metadata: {
+      runId: (input as any).runId || parsed?.metadata?.runId || undefined,
+      template,
+      appName,
+      packageId,
+      // 兜底，确保合法字符串 "A" 或 "B"
+      mode:
+        parsed?.metadata?.mode === "A" || parsed?.metadata?.mode === "B"
+          ? parsed.metadata.mode
+          : "B",
+    },
+    anchors: anchorsFinal,
+    files: allowCompanions ? companions : [],
+  };
+
+  // 如果模型完全没产出，也同样写入我们构造的对象
+  _trace.synthesized = !parsed || !parsed._text;
+  _trace.rawText = JSON.stringify(contractDoc, null, 2);
+  /** ----------------------------------------------------------------------- */
 
   const permissionsXml = mkPermissionsXml(permissions);
-  const intentFiltersXml = mkIntentFiltersXml(intentHost); // 使用上面归一过的 intentHost
+  const intentFiltersXml = mkIntentFiltersXml(input.intentHost);
   const themeOverridesXml = (input as any).themeOverridesXml || undefined;
   const resConfigs = input.resConfigs || localesToResConfigs(locales);
   const proguardExtra = input.proguardExtra;
@@ -702,7 +694,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   return {
     template,
-    mode, // ★ 它始终是本地锁死的 'A' | 'B'
+    mode,
     allowCompanions,
 
     appName,
