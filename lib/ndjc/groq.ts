@@ -1,60 +1,131 @@
 // lib/ndjc/groq.ts
-import Groq from "groq-sdk";
+/**
+ * Groq chat via native fetch (no groq-sdk dependency).
+ * Keep the same signature used by orchestrator:
+ *   groqChat(messages, { json?, temperature?, top_p?, max_tokens?, model? })
+ *
+ * Requirements:
+ *   - Set GROQ_API_KEY in environment variables
+ *   - (optional) NDJC_GROQ_MODEL for default model override
+ */
 
-export type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
-export type ChatOpts = {
-  temperature?: number;
-  max_tokens?: number;
-  top_p?: number;
-  stream?: boolean;
+const API_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+
+export type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
 };
 
-const apiKey = process.env.GROQ_API_KEY || process.env.GROQ_API_TOKEN;
-if (!apiKey) {
-  console.warn("[NDJC:groq] GROQ_API_KEY missing");
+export type ChatOpts = {
+  /** Ask the model to return valid JSON (OpenAI-compatible response_format) */
+  json?: boolean;
+  /** 0 ~ 2 typically; default 0 */
+  temperature?: number;
+  /** 0 ~ 1; default 1 */
+  top_p?: number;
+  /** max tokens for completion; default 1024 */
+  max_tokens?: number;
+  /** override model name; default from env or "llama-3.1-8b-instant" */
+  model?: string;
+  /** optional request timeout in ms; default 60_000 */
+  timeoutMs?: number;
+};
+
+function ensureEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) {
+    throw new Error(`Missing required env: ${name}`);
+  }
+  return v;
 }
 
-const client = new Groq({ apiKey: apiKey || "" });
-
-// 始终返回“纯字符串”的助手回复
-export async function groqChat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string> {
-  const model = process.env.NDJC_MODEL || "llama-3.1-8b-instant";
-
-  const payload: any = {
-    model,
-    messages,
+function buildBody(messages: ChatMessage[], opts: ChatOpts) {
+  return {
+    model:
+      opts.model ||
+      process.env.NDJC_GROQ_MODEL ||
+      "llama-3.1-8b-instant",
     temperature: opts.temperature ?? 0,
-    max_tokens: opts.max_tokens ?? 1024,
     top_p: opts.top_p ?? 1,
-    stream: opts.stream ?? false,
+    max_tokens: opts.max_tokens ?? 1024,
+    // OpenAI-compatible "response_format" for JSON forcing:
+    response_format: opts.json ? { type: "json_object" } : undefined,
+    messages,
   };
+}
 
-  // 不使用 JSON 模式，由我们自己去解析，避免空/null
+async function doFetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    if (payload.stream) {
-      const stream = await client.chat.completions.create(payload);
-      let out = "";
-      // SDK 的流式用法：遍历 chunks，累加 delta.content
-      // 兼容一下“不是流式”的情况（某些 SDK 版本 stream:true 也会直接返回完整对象）
-      // @ts-ignore
-      if (typeof stream?.[Symbol.asyncIterator] === "function") {
-        // @ts-ignore
-        for await (const chunk of stream) {
-          const d = chunk?.choices?.[0]?.delta?.content ?? "";
-          if (typeof d === "string") out += d;
-        }
-        return out;
-      } else {
-        const text = stream?.choices?.[0]?.message?.content ?? "";
-        return typeof text === "string" ? text : "";
-      }
-    } else {
-      const res = await client.chat.completions.create(payload);
-      const text = res?.choices?.[0]?.message?.content ?? "";
-      return typeof text === "string" ? text : "";
-    }
-  } catch (e: any) {
-    // 抛给上层，由 orchestrator 做兜底
-    throw new Error(`[NDJC:groq] chat failed: ${e?.message || e}`);
+    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    return res;
+  } finally {
+    clearTimeout(id);
   }
 }
+
+/**
+ * Call Groq chat completions via fetch.
+ * Returns the first choice message.content (string; may be JSON-encoded text if json=true).
+ */
+export async function groqChat(
+  messages: ChatMessage[],
+  opts: ChatOpts = {}
+): Promise<string> {
+  const apiKey = ensureEnv("GROQ_API_KEY");
+
+  // Basic validation to avoid silly 400s
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error("groqChat: 'messages' must be a non-empty array.");
+  }
+
+  const body = buildBody(messages, opts);
+
+  const res = await doFetchWithTimeout(
+    API_ENDPOINT,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+    opts.timeoutMs ?? 60_000
+  );
+
+  // Handle HTTP error with detailed text for debugging
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    const hint =
+      text && text.length > 500 ? text.slice(0, 500) + "…" : text;
+    throw new Error(
+      `groqChat HTTP ${res.status} ${res.statusText} - ${hint || "no body"}`
+    );
+  }
+
+  const data = await res.json().catch((e) => {
+    throw new Error(`groqChat: invalid JSON response: ${String(e)}`);
+  });
+
+  // OpenAI-compatible response shape:
+  // { choices: [{ message: { role, content } }] }
+  const content =
+    data?.choices?.[0]?.message?.content ??
+    data?.choices?.[0]?.delta?.content ?? // (stream fragments, just in case)
+    "";
+
+  if (typeof content !== "string") {
+    // Make it explicit: downstream expects string
+    return JSON.stringify(content);
+  }
+
+  return content;
+}
+
+export default groqChat;
