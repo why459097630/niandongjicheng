@@ -1,13 +1,32 @@
-Fix the following violations with concrete, compilable values only.
+Your previous output contains issues:
 
-RULES (recap)
-- NO placeholders/dummies: forbidden ^__.*__$, values containing {{ or }}, __NDJC_PLACEHOLDER__, TODO/TBD/N/A/none, "-" etc.
-- NO empty values: "", [], {} or whitespace-only strings.
-- BLOCK/HOOK MUST be compilable Kotlin/Compose and include at least one token: @Composable, "fun ", LazyColumn, Modifier.
-- Lists must have ≥1 item. gradle arrays must have ≥1 valid item.
-- Permissions must be valid for modern Android; forbidden: MEDIA, READ_/WRITE_EXTERNAL_STORAGE, unknown/vendor-specific.
-
-ISSUES TO FIX:
 {ISSUES}
 
-RESPOND AGAIN with a single JSON object mirroring SKELETON exactly (same keys, structure, and types). Do not include any text outside the JSON.
+Please fix them and return STRICT JSON only with the SAME keys and nesting as the given SKELETON.
+
+Absolute requirements:
+- No placeholders or templates (deny: ^__.*__$, {{.*}}, placeholder/todo/sample/example/模板/样例).
+- No empty values: "", [], {}, null.
+- All anchors must be compilable for a native Android APK.
+
+Group-specific checks to pass:
+- block: length >= 30 AND must contain at least one of: "@Composable", "fun ", "LazyColumn", "Modifier."
+- list: every item length >= 2
+- hook: length >= 10
+- gradle.applicationId: ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$
+- gradle.resConfigs[*]: ^[a-z]{2}(-r[A-Z]{2})?$
+- gradle.permissions[*]: use valid Android permissions such as:
+  - android.permission.INTERNET
+  - android.permission.ACCESS_NETWORK_STATE
+
+Examples:
+GOOD block: "@Composable fun MenuList() { LazyColumn { /* ... */ } }"
+BAD  block: "__FOO__", "{{BAR}}", "todo"
+
+GOOD list: ["home", "menu", "detail"]
+BAD  list: []
+
+GOOD gradle.applicationId: "com.ndjc.demo.food"
+BAD  gradle.applicationId: "__APP__", "com..bad"
+
+Return ONLY the strict JSON. Do not add or remove keys. Do not include explanations.
