@@ -1,9 +1,6 @@
-/**
- * Thin Groq Chat API wrapper used by the NDJC orchestrator.
- * - No streaming (keeps types simple and matches how route.ts calls it)
- * - Exposes a single `callGroqChat` function + types
- * - Reads GROQ_API_KEY and optional GROQ_MODEL from env
- */
+// lib/ndjc/groq.ts
+// 轻量封装 Groq Chat Completion，避免 SDK 依赖问题；统一返回纯文本
+// 环境变量：GROQ_API_KEY（必填）、GROQ_MODEL（可选，默认 llama-3.1-8b-instant）
 
 export type ChatRole = "system" | "user" | "assistant";
 
@@ -13,76 +10,54 @@ export interface ChatMessage {
 }
 
 export interface ChatOpts {
-  /** 0–2 */
   temperature?: number;
-  /** max tokens for the assistant output */
-  max_tokens?: number;
-  /** 0–1 */
   top_p?: number;
-  /** override model name if needed */
+  max_tokens?: number;
   model?: string;
 }
 
-export interface ChatResponse<TRaw = unknown> {
-  /** assistant text content */
-  text: string;
-  /** raw API payload for diagnostics */
-  raw: TRaw;
-}
+const API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-/**
- * Call Groq's OpenAI-compatible chat completions endpoint.
- * Returns `{ text, raw }`.
- */
 export async function callGroqChat(
   messages: ChatMessage[],
-  opts: Partial<ChatOpts> = {}
-): Promise<ChatResponse> {
-  const apiKey =
-    process.env.GROQ_API_KEY ?? process.env.NEXT_PUBLIC_GROQ_API_KEY;
+  opts: ChatOpts = {}
+): Promise<string> {
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      "GROQ_API_KEY not found (set GROQ_API_KEY or NEXT_PUBLIC_GROQ_API_KEY)"
-    );
+    throw new Error("Missing GROQ_API_KEY");
   }
 
-  const model = opts.model ?? process.env.GROQ_MODEL ?? "llama-3.1-8b-instant";
+  const model = opts.model || process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 
-  // Keep body schema aligned with OpenAI-compatible API
   const body = {
     model,
     messages,
     temperature: opts.temperature ?? 0,
-    max_tokens: opts.max_tokens ?? 2048,
     top_p: opts.top_p ?? 1,
+    max_tokens: opts.max_tokens ?? 2048,
+    stream: false, // 一律关闭流式，避免类型不匹配
+    response_format: { type: "text" }, // 明确返回文本
   };
 
-  const res = await fetch(
-    "https://api.groq.com/openai/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    }
-  );
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(
-      `Groq API error: ${res.status} ${res.statusText} ${errText}`
-    );
+    const text = await res.text().catch(() => "");
+    throw new Error(`Groq HTTP ${res.status}: ${text || res.statusText}`);
   }
 
-  const data = await res.json();
-  const text: string =
-    data?.choices?.[0]?.message?.content ??
-    data?.choices?.[0]?.delta?.content ??
+  const json = await res.json();
+  const content =
+    json?.choices?.[0]?.message?.content ??
+    json?.choices?.[0]?.delta?.content ??
     "";
 
-  return { text, raw: data };
+  return typeof content === "string" ? content : String(content ?? "");
 }
-
-export default callGroqChat;
