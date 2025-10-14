@@ -1,81 +1,60 @@
 // lib/ndjc/groq.ts
-import type { RequestInit } from "node-fetch";
+import Groq from "groq-sdk";
 
-export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+export type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 export type ChatOpts = {
-  model?: string;
   temperature?: number;
-  top_p?: number;
   max_tokens?: number;
-  json?: boolean; // 仅作提示，不强制 SDK 设置 JSON mode，避免原文丢失
-  headers?: Record<string, string>;
-  timeout_ms?: number;
+  top_p?: number;
+  stream?: boolean;
 };
 
-export type ChatResult = {
-  ok: boolean;
-  text: string;            // 模型主输出（合并）
-  raw: any;                // 完整响应 JSON
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-  error?: string;
-};
-
-const DEFAULT_MODEL = process.env.NDJC_MODEL || "llama-3.1-8b-instant";
-const API_URL = process.env.GROQ_API_URL || "https://api.groq.com/openai/v1/chat/completions";
-const API_KEY = process.env.GROQ_API_KEY || process.env.GROQ_API_TOKEN || "";
-
-function withTimeout<T>(p: Promise<T>, ms = 60000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`groqChat timeout after ${ms}ms`)), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }).catch((e) => { clearTimeout(t); reject(e); });
-  });
+const apiKey = process.env.GROQ_API_KEY || process.env.GROQ_API_TOKEN;
+if (!apiKey) {
+  console.warn("[NDJC:groq] GROQ_API_KEY missing");
 }
 
-export async function groqChat(messages: ChatMessage[], opts: ChatOpts = {}): Promise<ChatResult> {
-  if (!API_KEY) {
-    return { ok: false, text: "", raw: null, error: "GROQ_API_KEY missing" };
-  }
+const client = new Groq({ apiKey: apiKey || "" });
 
-  const body = {
-    model: opts.model || DEFAULT_MODEL,
-    temperature: opts.temperature ?? 0,
-    top_p: opts.top_p ?? 1,
-    max_tokens: opts.max_tokens ?? 1024,
-    stream: false,
+// 始终返回“纯字符串”的助手回复
+export async function groqChat(messages: ChatMsg[], opts: ChatOpts = {}): Promise<string> {
+  const model = process.env.NDJC_MODEL || "llama-3.1-8b-instant";
+
+  const payload: any = {
+    model,
     messages,
+    temperature: opts.temperature ?? 0,
+    max_tokens: opts.max_tokens ?? 1024,
+    top_p: opts.top_p ?? 1,
+    stream: opts.stream ?? false,
   };
 
-  const init: RequestInit = {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${API_KEY}`,
-      ...(opts.headers || {}),
-    },
-    body: JSON.stringify(body),
-  };
-
+  // 不使用 JSON 模式，由我们自己去解析，避免空/null
   try {
-    const res = await withTimeout(fetch(API_URL, init as any), opts.timeout_ms || 60000);
-    const raw = await res.json().catch(() => null);
-    if (!res.ok) {
-      const message = raw?.error?.message || `HTTP ${res.status}`;
-      return { ok: false, text: String(message || ""), raw, error: message };
+    if (payload.stream) {
+      const stream = await client.chat.completions.create(payload);
+      let out = "";
+      // SDK 的流式用法：遍历 chunks，累加 delta.content
+      // 兼容一下“不是流式”的情况（某些 SDK 版本 stream:true 也会直接返回完整对象）
+      // @ts-ignore
+      if (typeof stream?.[Symbol.asyncIterator] === "function") {
+        // @ts-ignore
+        for await (const chunk of stream) {
+          const d = chunk?.choices?.[0]?.delta?.content ?? "";
+          if (typeof d === "string") out += d;
+        }
+        return out;
+      } else {
+        const text = stream?.choices?.[0]?.message?.content ?? "";
+        return typeof text === "string" ? text : "";
+      }
+    } else {
+      const res = await client.chat.completions.create(payload);
+      const text = res?.choices?.[0]?.message?.content ?? "";
+      return typeof text === "string" ? text : "";
     }
-
-    // openai-compatible schema
-    const choices = raw?.choices || [];
-    const text = choices.map((c: any) => c?.message?.content || "").join("");
-
-    return {
-      ok: true,
-      text: typeof text === "string" ? text : "",
-      raw,
-      usage: raw?.usage,
-    };
   } catch (e: any) {
-    const msg = e?.message || String(e);
-    // 仍返回可读 text，避免上层出现 “No raw LLM text”
-    return { ok: false, text: `/* groqChat error: ${msg} */`, raw: null, error: msg };
+    // 抛给上层，由 orchestrator 做兜底
+    throw new Error(`[NDJC:groq] chat failed: ${e?.message || e}`);
   }
 }
