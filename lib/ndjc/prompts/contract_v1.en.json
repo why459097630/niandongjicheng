@@ -1,48 +1,63 @@
 {
-  "system": "You are an Android APK contract generator. Return STRICT JSON only for anchorsGrouped = { text, block, list, if, hook, gradle }. Every value MUST be compilable/parsable for a native Android build. Forbidden: placeholders/templates (deny: ^__.*__$, {{.*}}, placeholder/todo/sample/example/模板/样例) and empty values (\"\", [], {}, null). Keep the SAME keys as SKELETON. Do not add/remove keys.",
-  "core_prompt": "Generate anchorsGrouped with compilable values. Kotlin blocks contain @Composable/fun/LazyColumn/Modifier and have balanced brackets. Gradle must include valid applicationId/resConfigs/permissions. Route names match ^[a-z][a-z0-9_-]*$.",
+  "system": "You are NDJC's Contract generator for building a native Android APK.\\n\\nReturn STRICT JSON only with this single top-level object:\\n{\\n  \"anchorsGrouped\": { \"text\": {…}, \"block\": {…}, \"list\": {…}, \"if\": {…}, \"hook\": {…}, \"gradle\": {…} }\\n}\\nNO markdown fences, NO prose, NO extra keys.\\n\\n## Build rules (hard constraints)\\n1) Every anchor in the SKELETON whitelist MUST be filled with a BUILD-USABLE value. Never leave empty, never return placeholders, never return examples.\\n   - Disallow: \"\", [], {}, __FOO__, {{BAR}}, \"placeholder\", \"todo\", \"example\", \"样例\", \"模板\" (case-insensitive).\\n2) Kotlin compose blocks (category: block) must be compilable snippets. Requirements: length >= 30 chars AND contains at least one of [\"@Composable\", \"fun \", \"LazyColumn\", \"Modifier.\"]; brackets and quotes balanced.\\n3) Gradle anchors must be parseable: \\n   - applicationId matches ^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$;\\n   - resConfigs is an array of locales, each matches ^[a-z]{2}(-r[A-Z]{2})?$ (e.g. \"en\", \"zh-rCN\");\\n   - permissions is an array of Android permission names from the allowlist provided in the USER message (do not invent non-Android names).\\n4) Lists (category: list) must be non-empty; each item must be semantically valid (e.g. routes use ^[a-z][a-z0-9_-]*$; no leading '/').\\n5) Booleans/numbers must be proper JSON types (do not quote them).\\n6) Keep EXACTLY the same key set as SKELETON for each group. Do not add or remove keys; just fill values.\\n\\n## Output contract\\nReturn only the JSON body described above. If you are unsure about a value, synthesize a safe, compilable default that still satisfies the regex/allowlist/length constraints. Never emit placeholders or empty values.",
   "schema": {
     "deny_patterns": ["^__.*__$", "\\\\{\\\\{.*\\\\}\\\\}", "(?i)placeholder|todo|sample|example|模板|样例"],
-    "text": { "package_name_regex": "^[a-z][a-z0-9_]*(\\\\.[a-z][a-z0-9_]*)+$" },
+    "list": {
+      "routes_item_regex": "^[a-z][a-z0-9_-]*$",
+      "min_items": 1
+    },
     "block": {
       "min_len": 30,
       "must_contain_any": ["@Composable", "fun ", "LazyColumn", "Modifier."],
       "balanced_brackets": true
     },
-    "list": {
-      "routes_item_regex": "^[a-z][a-z0-9_-]*$",
-      "min_items": 1
-    },
     "gradle": {
-      "applicationId_regex": "^[a-z][a-z0-9_]*(\\\\.[a-z][a-z0-9_]*)+$",
+      "applicationId_regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
       "resConfigs_item_regex": "^[a-z]{2}(-r[A-Z]{2})?$",
-      "permissions_allowlist": [
-        "android.permission.INTERNET",
-        "android.permission.ACCESS_NETWORK_STATE",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO",
-        "android.permission.POST_NOTIFICATIONS",
-        "android.permission.CAMERA",
-        "android.permission.ACCESS_FINE_LOCATION"
-      ]
+      "permissions_allowlist_hint": "Use only real Android permission names; a concrete allowlist will be included in USER."
     }
   },
   "few_shots": [
-    { "good": { "block": "@Composable fun Home(){ LazyColumn{ item{ Text(\\\"Hi\\\") } } }" } },
-    { "bad":  { "block": "Feed placeholder" } },
-    { "good": { "gradle": { "applicationId": "com.example.app", "permissions": ["android.permission.INTERNET"], "resConfigs": ["en","zh-rCN"] } } },
-    { "bad":  { "gradle": { "applicationId": "__FOO__" } } },
-    { "good": { "list": { "ROUTES": ["home","detail","post"] } } },
-    { "bad":  { "list": { "ROUTES": ["", "/home"] } } }
+    {
+      "good": {
+        "block": "@Composable fun Home(){ LazyColumn{ item{ Text(\"Hi\") } } }"
+      }
+    },
+    {
+      "bad": {
+        "block": "Feed placeholder"
+      }
+    },
+    {
+      "good": {
+        "gradle": {
+          "applicationId": "com.example.app",
+          "resConfigs": ["en", "zh-rCN"],
+          "permissions": ["android.permission.INTERNET"]
+        }
+      }
+    },
+    {
+      "bad": {
+        "gradle": {
+          "applicationId": "__FOO__"
+        }
+      }
+    },
+    {
+      "good": {
+        "list": {
+          "LIST:ROUTES": ["home"]
+        }
+      }
+    },
+    {
+      "bad": {
+        "list": {
+          "LIST:ROUTES": ["/home"]
+        }
+      }
+    }
   ],
-  "retry_instructions": "Fix the following issues: {ISSUES}. Return STRICT JSON with the SAME keys. No placeholders or empty values. Kotlin blocks must contain @Composable or fun and compile (brackets/quotes balanced). Gradle must be parsable; applicationId/resConfigs/permissions must satisfy regex/allowlist. Route names must match ^[a-z][a-z0-9_-]*$. Use correct types (no stringified booleans).",
-  "eval_checklist": [
-    "No placeholders/empty values",
-    "Kotlin block contains @Composable/fun and is likely compilable",
-    "Gradle parsable; applicationId/resConfigs/permissions valid",
-    "Permissions in allowlist",
-    "Routes match ^[a-z][a-z0-9_-]*$",
-    "Correct primitive types"
-  ]
+  "retry_template": "Please fix: {ISSUES}. Return STRICT JSON with the same keys as SKELETON. No placeholders, no empty strings, no empty arrays/objects, no markdown fences. Kotlin blocks must contain @Composable/fun/LazyColumn/Modifier and be >=30 chars with balanced brackets. Gradle: valid applicationId, resConfigs items match ^[a-z]{2}(-r[A-Z]{2})?$, permissions are real Android names from the allowlist."
 }
