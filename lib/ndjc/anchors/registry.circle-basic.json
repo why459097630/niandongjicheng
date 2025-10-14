@@ -1,114 +1,108 @@
 {
   "template": "circle-basic",
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.0.0",
 
   "text": [
     "NDJC:PACKAGE_NAME",
     "NDJC:APP_LABEL",
     "NDJC:HOME_TITLE",
     "NDJC:PRIMARY_BUTTON_TEXT",
+
     "NDJC:THEME_NAME",
     "NDJC:DARK_MODE",
+
     "NDJC:FONT_FAMILY_PRIMARY",
     "NDJC:FONT_FAMILY_SECONDARY",
+
     "NDJC:I18N_ENABLED",
     "NDJC:ANIM_ENABLED",
     "NDJC:ANIM_DURATION_MS",
+
     "NDJC:LAYOUT_DENSITY",
     "NDJC:DATA_SOURCE",
     "NDJC:SEED_ENABLED",
     "NDJC:FEED_SORT",
     "NDJC:PAGING_SIZE",
+
     "NDJC:OFFLINE_POLICY",
     "NDJC:PRIVACY_POLICY",
     "NDJC:DRAFT_ENABLED",
     "NDJC:USE_APP_BUNDLE",
-    "NDJC:BUILD_META_RUNID",
-    "NDJC:FEATURE_TOGGLE_MIN",
+
+    "NDJC:BUILD_META:RUNID",
+    "NDJC:FEATURE_TOGGLE:MIN",
     "NDJC:DEBUG_LOG_ENABLED",
-    "NDJC:RUN_ID",
     "NDJC:LOG_LEVEL",
-    "NDJC:METRICS_ENABLED",
     "NDJC:CRASHLYTICS_ENABLED",
-    "NDJC:EXPERIMENT_BUCKET"
+    "NDJC:EXPERIMENT_BUCKET",
+
+    "THEME_COLORS",
+    "TYPOCASE_OVERRIDES",
+    "STRINGS_EXTRA",
+
+    "ROUTE_HOME",
+    "ROUTE_DETAIL"
   ],
 
   "block": [
     "HOME_HEADER",
     "HOME_BODY",
     "HOME_ACTIONS",
-    "THEME_COLORS",
-    "TYPOCASE_OVERRIDES",
-    "STRINGS_EXTRA",
-    "ROUTE_HOME",
-    "ROUTE_DETAIL",
-    "ROUTE_POST",
-    "NAV_TRANSITIONS",
     "SPLASH_CONTENT",
     "EMPTY_STATE",
     "ERROR_STATE",
-    "DEPENDENCY_SNIPPETS",
     "DEBUG_PANEL",
-    "BUILD_SUMMARY",
     "HEADER_AD_SLOT",
-    "FEED_ITEM_BADGES",
     "USER_PROFILE_CARD",
     "SPONSORED_CARD",
     "PROFILE_SECTION",
-    "SETTINGS_SECTION"
+    "SETTINGS_SECTION",
+    "SETTINGS_SECTION:EXTRA"
   ],
 
   "list": [
+    "ROUTES",
+    "DEPENDENCY_SNIPPETS",
     "PROGUARD_EXTRA",
     "PACKAGING_RULES",
-    "ROUTES",
     "POST_FIELDS",
-    "COMMENT_FIELDS",
-    "ABI_SPLITS",
     "PLURAL_STRINGS",
     "COMPONENT_STYLES",
-    "REMOTE_FLAGS",
-    "DEEPLINK_PATTERNS"
+    "DEEPLINK_PATTERNS",
+    "NETWORK_CLEAR_TEXT",
+    "RES_CONFIGS_OVERRIDE"
   ],
 
   "if": [
-    "PERMISSION.CAMERA",
-    "PERMISSION.MEDIA",
-    "PERMISSION.NOTIFICATION",
-    "PERMISSION.LOCATION",
-    "PERMISSION.CONTACTS",
-    "PERMISSION.SCHEDULE_EXACT_ALARM",
-    "PERMISSION.CLIPBOARD",
-    "NETWORK.CLEAR_TEXT",
-    "FILE_PROVIDER",
-    "INTENT.SHARE"
+    "NAV_TRANSITIONS",
+    "BUILD_SUMMARY",
+    "NATIVE_SPLITS",
+    "AFTER_BUILD",
+    "PRE_COMMIT",
+    "AFTER_INSTALL",
+    "BEFORE_BUILD",
+    "POST_INJECT",
+    "BEFORE_BUNDLE",
+    "AFTER_BUNDLE"
   ],
 
   "hook": [
-    "BEFORE_BUILD",
-    "AFTER_BUILD",
-    "PRE_INJECT",
-    "POST_INJECT",
-    "PRE_COMMIT",
-    "AFTER_INSTALL"
+    "INTENT_SHARE",
+    "FILE_PROVIDER",
+    "PERMISSIONS:ON_REQUEST",
+    "PRE_COMMIT:HOOK",
+    "POST_BUILD:HOOK",
+    "AFTER_INSTALL:HOOK"
   ],
 
-  "resources": [
-    "RES:drawable/app_icon.png",
-    "RES:drawable/empty_illustration.png",
-    "RES:drawable/avatar_placeholder.png",
-    "RES:drawable/brand_cover.png",
-    "RES:drawable/ic_stat_notify.png",
-    "RES:font/primary.ttf",
-    "RES:font/secondary.ttf",
-    "RES:raw/theme_colors.json",
-    "RES:raw/seed_data.json"
-  ],
+  "resources": [],
 
   "aliases": {
-    "TEXT:NDJC:PACKAGE_NAME": "NDJC:PACKAGE_NAME",
-    "BLOCK:HOME_BODY": "HOME_BODY",
-    "LIST:ROUTES": "ROUTES"
+    "PACKAGE_NAME": "TEXT:NDJC:PACKAGE_NAME",
+    "APP_LABEL": "TEXT:NDJC:APP_LABEL",
+    "HOME_TITLE": "TEXT:NDJC:HOME_TITLE",
+    "PRIMARY_BUTTON_TEXT": "TEXT:NDJC:PRIMARY_BUTTON_TEXT",
+    "ROUTES": "LIST:ROUTES"
   },
 
   "required": {
@@ -116,10 +110,8 @@
       "NDJC:PACKAGE_NAME",
       "NDJC:APP_LABEL",
       "NDJC:HOME_TITLE",
-      "NDJC:PRIMARY_BUTTON_TEXT"
-    ],
-    "block": [
-      "HOME_BODY"
+      "NDJC:PRIMARY_BUTTON_TEXT",
+      "THEME_COLORS"
     ],
     "list": [
       "ROUTES"
@@ -133,28 +125,62 @@
 
   "defaults": {
     "text": {
+      "NDJC:PACKAGE_NAME": "com.ndjc.demo.core",
       "NDJC:APP_LABEL": "NDJC App",
-      "NDJC:HOME_TITLE": "NDJC Home",
+      "NDJC:HOME_TITLE": "Home",
       "NDJC:PRIMARY_BUTTON_TEXT": "Create",
-      "NDJC:THEME_NAME": "Material3",
-      "NDJC:DARK_MODE": "auto",
+
+      "NDJC:THEME_NAME": "Light",
+      "NDJC:DARK_MODE": "false",
+
+      "NDJC:FONT_FAMILY_PRIMARY": "OpenSans",
+      "NDJC:FONT_FAMILY_SECONDARY": "Montserrat",
+
       "NDJC:I18N_ENABLED": "true",
       "NDJC:ANIM_ENABLED": "true",
-      "NDJC:ANIM_DURATION_MS": "200",
-      "NDJC:PAGING_SIZE": "20",
-      "NDJC:DEBUG_LOG_ENABLED": "false",
-      "NDJC:LOG_LEVEL": "INFO"
+      "NDJC:ANIM_DURATION_MS": "300",
+
+      "NDJC:LAYOUT_DENSITY": "mdpi",
+      "NDJC:DATA_SOURCE": "api.example.com",
+      "NDJC:SEED_ENABLED": "true",
+      "NDJC:FEED_SORT": "date",
+      "NDJC:PAGING_SIZE": "10",
+
+      "NDJC:OFFLINE_POLICY": "cache",
+      "NDJC:PRIVACY_POLICY": "https://example.com/privacy",
+      "NDJC:DRAFT_ENABLED": "true",
+      "NDJC:USE_APP_BUNDLE": "true",
+
+      "NDJC:BUILD_META:RUNID": "auto",
+      "NDJC:FEATURE_TOGGLE:MIN": "1",
+      "NDJC:DEBUG_LOG_ENABLED": "true",
+      "NDJC:LOG_LEVEL": "INFO",
+      "NDJC:CRASHLYTICS_ENABLED": "true",
+      "NDJC:EXPERIMENT_BUCKET": "exp-001",
+
+      "THEME_COLORS": "{\"primary\":\"#7C3AED\",\"secondary\":\"#10B981\"}",
+
+      "TYPOCASE_OVERRIDES": "",
+      "STRINGS_EXTRA": "",
+
+      "ROUTE_HOME": "home",
+      "ROUTE_DETAIL": "detail"
     },
     "list": {
-      "ROUTES": ["home"]
+      "ROUTES": ["home"],
+      "DEPENDENCY_SNIPPETS": [],
+      "PROGUARD_EXTRA": [],
+      "PACKAGING_RULES": [],
+      "POST_FIELDS": [],
+      "PLURAL_STRINGS": [],
+      "COMPONENT_STYLES": [],
+      "DEEPLINK_PATTERNS": [],
+      "NETWORK_CLEAR_TEXT": [],
+      "RES_CONFIGS_OVERRIDE": []
     },
     "gradle": {
-      "applicationId": "com.ndjc.demo.core",
-      "resConfigs": ["en", "zh-rCN", "zh-rTW"],
-      "permissions": [
-        "android.permission.INTERNET",
-        "android.permission.ACCESS_NETWORK_STATE"
-      ]
+      "resConfigs": ["en", "zh-rCN"],
+      "permissions": ["android.permission.INTERNET"]
     }
   },
 
@@ -164,53 +190,31 @@
     "list": {},
     "if": {},
     "hook": {},
-    "resources": {},
     "gradle": {}
   },
 
   "valueFormat": {
     "text": {
-      "NDJC:PACKAGE_NAME": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" }
+      "NDJC:PACKAGE_NAME": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
+      "NDJC:DARK_MODE": { "enum": ["true", "false"] },
+      "NDJC:PAGING_SIZE": { "regex": "^[1-9][0-9]*$" },
+      "NDJC:ANIM_DURATION_MS": { "regex": "^[1-9][0-9]*$" },
+      "NDJC:FEED_SORT": { "enum": ["date", "popularity", "rating"] },
+      "THEME_COLORS": { "regex": "^\\{\\\"primary\\\":\\\"#[0-9A-Fa-f]{6}\\\",\\\"secondary\\\":\\\"#[0-9A-Fa-f]{6}\\\"\\}$" }
     },
     "block": {
-      "*": {
-        "minLen": 30,
-        "mustContainAny": ["@Composable", "fun ", "LazyColumn", "Modifier\\."],
-        "denyPatterns": ["^__.*__$", "\\{\\{.*\\}\\}", "(?i)placeholder|todo|sample|example|模板|样例"]
-      }
+      "HOME_HEADER": { "minLen": 30 },
+      "HOME_BODY": { "minLen": 30 },
+      "HOME_ACTIONS": { "minLen": 30 }
     },
     "list": {
-      "*": {
-        "minItems": 1,
-        "itemMinLen": 2,
-        "denyPatterns": ["^__.*__$", "\\{\\{.*\\}\\}", "(?i)placeholder|todo|sample|example|模板|样例"]
-      },
-      "ROUTES": {
-        "itemRegex": "^[a-z][a-z0-9_-]*$"
-      }
+      "ROUTES": { "itemRegex": "^[a-z][a-z0-9_-]*$", "minItems": 1 }
     },
-    "if": {},
-    "hook": {
-      "*": {
-        "minLen": 10,
-        "denyPatterns": ["^__.*__$", "\\{\\{.*\\}\\}", "(?i)placeholder|todo|sample|example|模板|样例"]
-      }
-    },
-    "resources": {},
     "gradle": {
       "applicationId": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
       "resConfigs": { "itemRegex": "^[a-z]{2}(-r[A-Z]{2})?$" },
       "permissions": {
-        "allowList": [
-          "android.permission.INTERNET",
-          "android.permission.ACCESS_NETWORK_STATE",
-          "android.permission.READ_MEDIA_IMAGES",
-          "android.permission.READ_MEDIA_VIDEO",
-          "android.permission.READ_MEDIA_AUDIO",
-          "android.permission.POST_NOTIFICATIONS",
-          "android.permission.CAMERA",
-          "android.permission.ACCESS_FINE_LOCATION"
-        ]
+        "itemRegex": "^(android\\.permission\\.(INTERNET|ACCESS_NETWORK_STATE|READ_MEDIA_IMAGES|READ_MEDIA_VIDEO|READ_MEDIA_AUDIO|POST_NOTIFICATIONS|CAMERA|ACCESS_FINE_LOCATION))$"
       }
     }
   }
