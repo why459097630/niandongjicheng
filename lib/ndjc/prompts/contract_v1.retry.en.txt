@@ -1,1 +1,17 @@
-{ "message": "Please replace {ISSUES} with a compilable value. Do NOT return placeholders or empty values. Keep EXACTLY the same keys as SKELETON. Kotlin blocks must contain @Composable/fun/LazyColumn/Modifier and have balanced brackets. Gradle must be parsable and satisfy: applicationId ^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$, resConfigs item ^[a-z]{2}(-r[A-Z]{2})?$, permissions in allowlist. Routes must match ^[a-z][a-z0-9_-]*$.\n\nGood:\n- Block: \"@Composable fun MenuList() { LazyColumn { /* ... */ } }\"\n- List: [\"home\", \"menu\", \"detail\"]\n- Gradle: { \"applicationId\": \"com.ndjc.demo.food\", \"resConfigs\": [\"en\"], \"permissions\": [\"android.permission.INTERNET\"] }\n\nBad:\n- Block: \"__FOO__\", \"{{BAR}}\", \"todo\"\n- List: []\n- Gradle: { \"applicationId\": \"__APP__\" }" }
+Fix the following violations and RETURN STRICT JSON with the SAME KEYS:
+
+{ISSUES}
+
+Rules to re-check:
+- Fill every whitelisted anchor with a BUILD-USABLE value.
+- No placeholders or empties: "", [], {}, null are forbidden.
+- Use native types (true/false, numbers). Do NOT stringify booleans or numbers.
+- BLOCK must be compilable Kotlin/Compose and contain at least one of: @Composable | fun | LazyColumn | Modifier. Brackets/quotes balanced.
+- GRADLE must be parsable and valid:
+  * applicationId matches ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$
+  * resConfigs items match ^[a-z]{2}(-r[A-Z]{2})?$
+  * permissions are from the allowlist only.
+- ROUTE-like lists: items match ^[a-z][a-z0-9_-]*$
+- THEME_COLORS is an object with primary/secondary #RRGGBB.
+
+Return JSON only, no explanations.
