@@ -212,17 +212,15 @@
     ]
   },
 
-  "defaults": {
-  },
+  "defaults": {},
 
   "placeholders": {
     "text": {
       "NDJC:PACKAGE_NAME": "com.example.ndjc",
-      "NDJC:APP_LABEL": "__APP_LABEL__",
-      "NDJC:HOME_TITLE": "__HOME_TITLE__",
-      "NDJC:PRIMARY_BUTTON_TEXT": "__PRIMARY_BUTTON__",
-      "NDJC:THEME_NAME": "__THEME__",
-
+      "NDJC:APP_LABEL": "NDJC App",
+      "NDJC:HOME_TITLE": "Home",
+      "NDJC:PRIMARY_BUTTON_TEXT": "Create",
+      "NDJC:THEME_NAME": "Material3",
       "NDJC:DARK_MODE": "auto",
       "NDJC:FONT_FAMILY_PRIMARY": "system",
       "NDJC:FONT_FAMILY_SECONDARY": "system",
@@ -230,67 +228,57 @@
       "NDJC:ANIM_ENABLED": "true",
       "NDJC:ANIM_DURATION_MS": "300",
       "NDJC:LAYOUT_DENSITY": "comfortable",
-
       "NDJC:DATA_SOURCE": "local",
       "NDJC:SEED_ENABLED": "false",
       "NDJC:FEED_SORT": "latest",
       "NDJC:PAGING_SIZE": "20",
       "NDJC:OFFLINE_POLICY": "read_through_cache",
-      "NDJC:PRIVACY_POLICY": "__PRIVACY_URL__",
+      "NDJC:PRIVACY_POLICY": "https://example.com/privacy",
       "NDJC:DRAFT_ENABLED": "true",
-
       "NDJC:USE_APP_BUNDLE": "true",
-      "NDJC:BUILD_META_RUNID": "__RUN_ID__",
+      "NDJC:BUILD_META_RUNID": "run_local",
       "NDJC:FEATURE_TOGGLE_MIN": "baseline",
       "NDJC:DEBUG_LOG_ENABLED": "false",
-
-      "NDJC:RUN_ID": "__RUN_ID__",
+      "NDJC:RUN_ID": "run_local",
       "NDJC:LOG_LEVEL": "info",
       "NDJC:METRICS_ENABLED": "false",
       "NDJC:CRASHLYTICS_ENABLED": "false",
-
-      "NDJC:EXPERIMENT_BUCKET": "__BUCKET__"
+      "NDJC:EXPERIMENT_BUCKET": "A"
     },
     "block": {
-      "BLOCK:HOME_HEADER": "__BLOCK_HOME_HEADER__",
-      "BLOCK:HOME_BODY": "__BLOCK_HOME_BODY__",
-      "BLOCK:HOME_ACTIONS": "__BLOCK_HOME_ACTIONS__",
-
-      "BLOCK:THEME_COLORS": "__BLOCK_THEME_COLORS__",
-      "BLOCK:TYPOCASE_OVERRIDES": "__BLOCK_TYPOCASE__",
-      "BLOCK:STRINGS_EXTRA": "__BLOCK_STRINGS_EXTRA__",
-
-      "BLOCK:ROUTE_HOME": "__BLOCK_ROUTE_HOME__",
-      "BLOCK:ROUTE_DETAIL": "__BLOCK_ROUTE_DETAIL__",
-      "BLOCK:ROUTE_POST": "__BLOCK_ROUTE_POST__",
-      "BLOCK:NAV_TRANSITIONS": "__BLOCK_NAV_TRANSITIONS__",
-
-      "BLOCK:SPLASH_CONTENT": "__BLOCK_SPLASH__",
-      "BLOCK:EMPTY_STATE": "__BLOCK_EMPTY__",
-      "BLOCK:ERROR_STATE": "__BLOCK_ERROR__",
-
-      "BLOCK:DEPENDENCY_SNIPPETS": "__BLOCK_DEPENDENCY__",
-      "BLOCK:DEBUG_PANEL": "__BLOCK_DEBUG__",
-      "BLOCK:BUILD_SUMMARY": "__BLOCK_BUILD_SUMMARY__",
-
-      "BLOCK:HEADER_AD_SLOT": "__BLOCK_HEADER_AD__",
-      "BLOCK:FEED_ITEM_BADGES": "__BLOCK_FEED_BADGES__",
-      "BLOCK:USER_PROFILE_CARD": "__BLOCK_USER_PROFILE__",
-      "BLOCK:SPONSORED_CARD": "__BLOCK_SPONSORED__",
-
-      "BLOCK:PROFILE_SECTION": "__BLOCK_PROFILE__",
-      "BLOCK:SETTINGS_SECTION": "__BLOCK_SETTINGS__"
+      "BLOCK:HOME_HEADER": "@Composable fun HomeHeader() { androidx.compose.material3.Text(\"NDJC Home\") }",
+      "BLOCK:HOME_BODY": "@Composable fun HomeBody() { androidx.compose.material3.Text(\"Feed placeholder\") }",
+      "BLOCK:HOME_ACTIONS": "@Composable fun FabCreate(onClick: ()->Unit) { /* ... */ }",
+      "BLOCK:THEME_COLORS": "/* theme overrides json/xml or Kotlin builder here */",
+      "BLOCK:TYPOCASE_OVERRIDES": "/* typography overrides */",
+      "BLOCK:STRINGS_EXTRA": "/* extra strings */",
+      "BLOCK:ROUTE_HOME": "/* nav: home */",
+      "BLOCK:ROUTE_DETAIL": "/* nav: detail/{id} */",
+      "BLOCK:ROUTE_POST": "/* nav: post */",
+      "BLOCK:NAV_TRANSITIONS": "/* transitions */",
+      "BLOCK:SPLASH_CONTENT": "@Composable fun Splash() { /* ... */ }",
+      "BLOCK:EMPTY_STATE": "@Composable fun EmptyState() { /* ... */ }",
+      "BLOCK:ERROR_STATE": "@Composable fun ErrorState(msg:String){ /* ... */ }",
+      "BLOCK:DEPENDENCY_SNIPPETS": "/* gradle deps */",
+      "BLOCK:DEBUG_PANEL": "@Composable fun DebugPanel(){ /* ... */ }",
+      "BLOCK:BUILD_SUMMARY": "/* summary */",
+      "BLOCK:HEADER_AD_SLOT": "@Composable fun HeaderAd(){ /* ... */ }",
+      "BLOCK:FEED_ITEM_BADGES": "@Composable fun Badges(){ /* ... */ }",
+      "BLOCK:USER_PROFILE_CARD": "@Composable fun ProfileCard(){ /* ... */ }",
+      "BLOCK:SPONSORED_CARD": "@Composable fun Sponsored(){ /* ... */ }",
+      "BLOCK:PROFILE_SECTION": "@Composable fun ProfileSection(){ /* ... */ }",
+      "BLOCK:SETTINGS_SECTION": "@Composable fun SettingsSection(){ /* ... */ }"
     },
     "list": {
-      "LIST:PROGUARD_EXTRA": ["__PROGUARD__"],
-      "LIST:PACKAGING_RULES": ["__PACKAGING_RULE__"],
-      "LIST:ROUTES": ["home"],
+      "LIST:PROGUARD_EXTRA": ["-keep class com.example.** { *; }"],
+      "LIST:PACKAGING_RULES": ["resources.**"],
+      "LIST:ROUTES": ["home", "detail/{id}", "post"],
       "LIST:POST_FIELDS": ["id", "title", "body"],
       "LIST:COMMENT_FIELDS": ["id", "postId", "body"],
       "LIST:ABI_SPLITS": ["arm64-v8a"],
       "LIST:PLURAL_STRINGS": ["item_count"],
       "LIST:COMPONENT_STYLES": ["card", "chip"],
-      "LIST:REMOTE_FLAGS": ["__REMOTE_FLAG__"],
+      "LIST:REMOTE_FLAGS": ["feed_enabled"],
       "LIST:DEEPLINK_PATTERNS": ["myapp://home"]
     },
     "if": {
@@ -306,12 +294,12 @@
       "IF:INTENT.SHARE": false
     },
     "hook": {
-      "HOOK:BEFORE_BUILD": "__HOOK_BEFORE_BUILD__",
-      "HOOK:AFTER_BUILD": "__HOOK_AFTER_BUILD__",
-      "HOOK:PRE_INJECT": "__HOOK_PRE_INJECT__",
-      "HOOK:POST_INJECT": "__HOOK_POST_INJECT__",
-      "HOOK:PRE_COMMIT": "__HOOK_PRE_COMMIT__",
-      "HOOK:AFTER_INSTALL": "__HOOK_AFTER_INSTALL__"
+      "HOOK:BEFORE_BUILD": "echo before-build",
+      "HOOK:AFTER_BUILD": "echo after-build",
+      "HOOK:PRE_INJECT": "echo pre-inject",
+      "HOOK:POST_INJECT": "echo post-inject",
+      "HOOK:PRE_COMMIT": "echo pre-commit",
+      "HOOK:AFTER_INSTALL": "echo after-install"
     },
     "resources": {},
     "gradle": {
