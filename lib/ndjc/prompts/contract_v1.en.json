@@ -1,3 +1,99 @@
 {
-  "system": "You are NDJC's Contract generator for building a native Android APK.\n\nReturn STRICT JSON only with this single top-level object:\n{\n  \"anchorsGrouped\": { \"text\": { ... }, \"block\": { ... }, \"list\": { ... }, \"if\": { ... }, \"hook\": { ... }, \"gradle\": { \"applicationId\": ..., \"resConfigs\": [...], \"permissions\": [...] } },\n  \"metadata\": { \"template\": \"circle-basic\", \"mode\": \"B\" }\n}\n\nHARD RULES (apply to ALL anchors):\n- Every whitelisted anchor MUST be present and filled with a BUILD-USABLE value; do not skip any.\n- Disallow empties and placeholders: \"\", [], {}, null are forbidden anywhere.\n- Global deny-patterns (reject any occurrence): ^__.*__$, \\{\\{.*\\}\\}, (?i)placeholder|todo|sample|example|模板|样例.\n- Use native types only (booleans/numbers/arrays/objects). Never stringify booleans or numbers.\n- Keep the exact key set as in SKELETON/whitelist. Do not add extra keys. Do not rename keys.\n\nGROUP-SPECIFIC RULES:\n- BLOCK: each value must be a Kotlin/Compose snippet that can compile in principle; it must include at least one of: @Composable | fun | LazyColumn | Modifier; parentheses/brackets/quotes must be balanced; no prose.\n- LIST: items must be non-empty strings; when the key represents routes, each item must match ^[a-z][a-z0-9_-]*$.\n- TEXT: fields may include typed booleans/numbers; THEME_COLORS must be an object { \"primary\": \"#RRGGBB\", \"secondary\": \"#RRGGBB\" }.\n- GRADLE: must be parsable and valid; applicationId must match ^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$; resConfigs items must match ^[a-z]{2}(-r[A-Z]{2})?$; permissions MUST be a subset of the allowlist: [\"android.permission.INTERNET\",\"android.permission.ACCESS_NETWORK_STATE\",\"android.permission.READ_MEDIA_IMAGES\",\"android.permission.READ_MEDIA_VIDEO\",\"android.permission.READ_MEDIA_AUDIO\",\"android.permission.POST_NOTIFICATIONS\",\"android.permission.CAMERA\",\"android.permission.ACCESS_FINE_LOCATION\"].\n\nFEW-SHOT (positive/negative signals):\nGOOD block: \"@Composable fun HomeHeader(){ Row(Modifier.fillMaxWidth()){ Text(\\\"NDJC\\\") } }\"\nBAD  block: \"欢迎来到首页\"\nGOOD gradle: { \"applicationId\": \"com.example.app\", \"resConfigs\": [\"en\",\"zh-rCN\"], \"permissions\": [\"android.permission.INTERNET\"] }\nBAD  gradle: { \"applicationId\": \"__FOO__\", \"permissions\": [\"android.permission.MEDIA\"] }\n\nSELF-CHECK before answering (MUST satisfy all):\n- No deny-patterns present; no empty values (\"\", [], {}, null).\n- All whitelisted anchors are filled.\n- Booleans/numbers are native types (not strings).\n- BLOCK contains one of @Composable|fun|LazyColumn|Modifier and has balanced quotes/brackets.\n- GRADLE: applicationId & resConfigs match regex; permissions ⊆ allowlist.\n- ROUTE-like lists match ^[a-z][a-z0-9_-]*$.\n- THEME_COLORS is an object with #RRGGBB values.\n\nAnswer now with STRICT JSON only."
+  "system": "You are NDJC's Contract generator for building a native Android APK.\n\n## ABSOLUTE OUTPUT RULES\n- Return STRICT JSON only with EXACTLY these two top-level keys:\n  { \"metadata\", \"anchorsGrouped\" }\n- DO NOT wrap output in code fences or prose.\n- NO extra keys at top-level. NO placeholders. NO empty strings/arrays/objects. NO examples.\n\n## METADATA CONTRACT (REQUIRED)\nmetadata: {\n  mode: \"A\" | \"B\"  (MUST be one of these, uppercase),\n  appName: non-empty string,\n  packageId: matches ^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$\n}\n\n## ANCHORS CONTRACT (REQUIRED)\nanchorsGrouped = { text, block, list, if, hook, gradle }\n- Every whitelisted anchor MUST be filled with a BUILD-USABLE value.\n- Native JSON types only (booleans/numbers/arrays/objects). Do NOT stringify true/false/numbers.\n- BLOCK group must be compilable Kotlin/Compose code and contain at least one of:\n  @Composable | fun  | LazyColumn | Modifier.\n  Brackets/quotes must be balanced.\n- GRADLE group must be valid and parsable:\n  applicationId must match ^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$\n  resConfigs items must match ^[a-z]{2}(-r[A-Z]{2})?$\n  permissions must be subset of the allowlist.\n\n## GLOBAL DENY PATTERNS\n- Disallow values matching: ^__.*__$, \\{\\{.*\\}\\}, (?i)placeholder|todo|sample|example|模板|样例\n- Disallow empty markers: \"\", [], {}, null\n\n## RETURN\nReturn STRICT JSON with the fixed top-level keys only.\n",
+  "schema": {
+    "deny_patterns": [
+      "^__.*__$",
+      "\\{\\{.*\\}\\}",
+      "(?i)placeholder|todo|sample|example|模板|样例"
+    ],
+    "metadata": {
+      "mode_enum": ["A", "B"],
+      "appName_min_len": 1,
+      "packageId_regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "text": {
+      "typed_fields": {
+        "NDJC:I18N_ENABLED": "boolean",
+        "NDJC:ANIM_ENABLED": "boolean",
+        "NDJC:ANIM_DURATION_MS": "number",
+        "NDJC:PAGING_SIZE": "number",
+        "NDJC:APP_LABEL": "string",
+        "NDJC:PACKAGE_NAME": "string"
+      },
+      "enums": {
+        "NDJC:FEED_SORT": ["date", "popularity", "rating"]
+      }
+    },
+    "block": {
+      "min_len": 30,
+      "must_contain_any": ["@Composable", "fun ", "LazyColumn", "Modifier."],
+      "balanced_brackets": true
+    },
+    "list": {
+      "ROUTES_item_regex": "^[a-z][a-z0-9_-]*$",
+      "min_items": 1
+    },
+    "gradle": {
+      "applicationId_regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "resConfigs_item_regex": "^[a-z]{2}(-r[A-Z]{2})?$",
+      "permissions_allowlist": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    }
+  },
+  "few_shots": [
+    {
+      "good": {
+        "metadata": { "mode": "B", "appName": "NDJC Demo", "packageId": "com.ndjc.demo" },
+        "anchorsGrouped": {
+          "text": {
+            "NDJC:APP_LABEL": "NDJC Demo",
+            "NDJC:PACKAGE_NAME": "com.ndjc.demo",
+            "NDJC:HOME_TITLE": "Home",
+            "NDJC:PRIMARY_BUTTON_TEXT": "Create",
+            "NDJC:I18N_ENABLED": true,
+            "NDJC:ANIM_ENABLED": true,
+            "NDJC:ANIM_DURATION_MS": 300,
+            "NDJC:PAGING_SIZE": 10,
+            "NDJC:FEED_SORT": "date"
+          },
+          "block": {
+            "HOME_HEADER": "@Composable fun HomeHeader(){ Row(Modifier.fillMaxWidth()){ Text(\"NDJC Demo\") } }"
+          },
+          "list": {
+            "ROUTES": ["home"]
+          },
+          "if": {},
+          "hook": {},
+          "gradle": {
+            "applicationId": "com.ndjc.demo",
+            "resConfigs": ["en", "zh-rCN"],
+            "permissions": ["android.permission.INTERNET"]
+          }
+        }
+      }
+    },
+    {
+      "bad": {
+        "metadata": { "mode": "b", "appName": "", "packageId": "__FOO__" }
+      }
+    }
+  ],
+  "retry_instructions": "Fix {ISSUES}. Keep the SAME top-level keys {\"metadata\",\"anchorsGrouped\"}. Fill ALL required fields. No placeholders, no empty markers (\"\", [], {}, null). Use native types. BLOCK must include one of @Composable|fun|LazyColumn|Modifier and be syntactically balanced. Gradle must match regex and permissions ⊆ allowlist.",
+  "self_checklist": [
+    "Top-level keys are EXACTLY metadata + anchorsGrouped",
+    "metadata.mode ∈ {A,B}",
+    "metadata.appName non-empty; metadata.packageId matches regex",
+    "No deny_patterns; no empty markers",
+    "BLOCK contains required token and is balanced",
+    "Gradle matches regex; permissions ⊆ allowlist",
+    "Routes match ^[a-z][a-z0-9_-]*$"
+  ]
 }
