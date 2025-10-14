@@ -1,17 +1,13 @@
-Your previous JSON violated the requirements. Please FIX and resend the FULL JSON (same keys as the SKELETON):
+Fix the following violations with concrete, compilable values only.
 
-- All anchors must be present and filled. If a key is not required by the business need, fill with the correct placeholder per value rules.
-- Follow value formats strictly:
-  * text: string (e.g., NDJC:PACKAGE_NAME matches ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$)
-  * block/hook: string (code/XML snippet; minimal & compilable where possible)
-  * list: string[] (e.g., ROUTES must have >=1 item)
-  * if: boolean
-  * gradle: { applicationId: string; resConfigs: string[]; permissions: string[] }
-- Do not add or remove keys. Do not return Markdown fences. Return only JSON.
+RULES (recap)
+- NO placeholders/dummies: forbidden ^__.*__$, values containing {{ or }}, __NDJC_PLACEHOLDER__, TODO/TBD/N/A/none, "-" etc.
+- NO empty values: "", [], {} or whitespace-only strings.
+- BLOCK/HOOK MUST be compilable Kotlin/Compose and include at least one token: @Composable, "fun ", LazyColumn, Modifier.
+- Lists must have ≥1 item. gradle arrays must have ≥1 valid item.
+- Permissions must be valid for modern Android; forbidden: MEDIA, READ_/WRITE_EXTERNAL_STORAGE, unknown/vendor-specific.
 
-Additionally fix the following when present:
-- Remove or replace example/default strings such as "NDJC App", "Home", "Start" with requirement-derived, meaningful values.
-- Keep EXACTLY the same key set and structure as SKELETON (no add/remove).
-- If the requirement is Chinese, prefer Chinese for anchors.text unless identifiers must remain English.
+ISSUES TO FIX:
+{ISSUES}
 
-Return only a single valid JSON object.
+RESPOND AGAIN with a single JSON object mirroring SKELETON exactly (same keys, structure, and types). Do not include any text outside the JSON.
