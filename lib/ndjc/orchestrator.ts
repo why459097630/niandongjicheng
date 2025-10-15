@@ -1,254 +1,136 @@
 // lib/ndjc/orchestrator.ts
-// 最小改动修正版：消除 ?raw 导入、保证 raw 非空、仅把 ChatMessage[] 传给 callGroqChat
-// 方案B：保证 Contract v1 的 metadata.template 一定存在（来源于 template_key）
-
-import fs from "node:fs/promises";
-import path from "node:path";
-import crypto from "node:crypto";
-
-import systemContract from "@/lib/ndjc/prompts/contract_v1.en.json";
 import { callGroqChat, ChatMessage } from "@/lib/ndjc/groq";
+import systemContract from "@/lib/ndjc/prompts/contract_v1.en.json"; // 作为 System Prompt
+import retryText from "@/lib/ndjc/prompts/contract_v1.retry.en.txt?raw"; // 作为文字模板（Vite/Next 可直接导入 txt；若不支持请改为 fs 读取）
 
 type AnyRecord = Record<string, any>;
 
-type OrchestrateInput = {
-  runId: string;
-  nl: string;
-  preset_hint?: string;
-  template_key: string;
-  mode?: "A" | "B";
-  allowCompanions?: boolean;
-};
-
-type OrchestrateOk = {
-  ok: true;
-  raw: string;         // 保持为 raw，便于与现有 route.ts 兼容
-  trace: AnyRecord;
-};
-
-type OrchestrateErr = {
-  ok: false;
-  reason: Array<{ code: string; message: string; path?: string }>;
-  trace: AnyRecord;
-};
-
-export type OrchestrateResult = OrchestrateOk | OrchestrateErr;
-
-/** 计算短 sha，便于 meta 观测 */
-async function fileSha256Short(filePath: string): Promise<string> {
+function parseJSONSafe(text: string): { ok: true; data: AnyRecord } | { ok: false; error: string } {
   try {
-    const buf = await fs.readFile(filePath);
-    const h = crypto.createHash("sha256").update(buf).digest("hex");
-    return h.slice(0, 12);
-  } catch {
-    return "unreadable";
+    const data = JSON.parse(text);
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "Invalid JSON" };
   }
 }
 
-/** 最小离线占位（与校验器对齐到 metadata.template） */
-async function generateOfflineContractV1(input: {
-  runId: string;
-  nl: string;
-  preset_hint?: string;
-  template_key: string;
-}) {
-  const payload = {
-    contract: "v1",
-    metadata: {
-      template: input.template_key,           // ✅ 关键字段：与校验器一致
-      // 其余信息可作为附属元数据（不被校验依赖）
-      ndjc: {
-        provider: "offline",
-        runId: input.runId,
-        preset_hint: input.preset_hint ?? "",
-      },
-    },
-    anchorsGrouped: {
-      text: {
-        APP_LABEL: "__NDJC_APP__",
-        PACKAGE_NAME: "com.ndjc.app",
-      },
-      block: {},
-      list: {},
-      if: {},
-      hook: {},
-      gradle: {},
-    },
-  };
-  return JSON.stringify(payload);
-}
-
-/** 如果 LLM 返回缺失 metadata.template，则强制补上 template_key */
-function ensureMetadataTemplate(raw: string, template_key: string, trace: AnyRecord) {
-  try {
-    const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== "object") return { raw, changed: false };
-
-    // 仅当没有 metadata.template 或为空字符串时补齐
-    const md = (obj.metadata ??= {});
-    if (
-      typeof md.template !== "string" ||
-      !md.template ||
-      md.template.trim().length === 0
-    ) {
-      md.template = template_key;
-      trace.postprocess = trace.postprocess || {};
-      trace.postprocess.injected_metadata_template = true;
-      return { raw: JSON.stringify(obj), changed: true };
-    }
-    return { raw, changed: false };
-  } catch {
-    // 不是 JSON（或解析失败）则保持原样交由后续严格解析报错
-    return { raw, changed: false };
-  }
-}
-
-function toMessages(args: {
-  systemPromptObj: AnyRecord;
-  nl: string;
-  preset_hint: string;
-  template_key: string;
-  runId: string;
-  registrySha?: string;
-  retryText?: string;
-}): ChatMessage[] {
-  const { systemPromptObj, nl, preset_hint, template_key, runId, registrySha, retryText } = args;
-
+function buildMessages(nl: string): ChatMessage[] {
   const sys = [
-    "You are a contract generator. Return STRICT JSON ONLY. No prose.",
-    "",
-    'Return STRICT JSON only with this top-level object: {"anchorsGrouped":{"text":{}, "block":{}, "list":{}, "if":{}, "hook":{}, "gradle":{}}}',
+    "You are NDJC’s Contract generator for building a native Android APK.",
+    "Return STRICT JSON only with this single top-level object:",
+    '`{"anchorsGrouped": {"text": {...}, "block": {...}, "list": {...}, "if": {...}, "hook": {...}, "gradle": {...}}}`',
     "Follow the schema and constraints below.",
     "",
-    JSON.stringify(systemPromptObj, null, 2), // system 一律字符串
+    JSON.stringify(systemContract, null, 2),
   ].join("\n");
 
-  const user = [
-    "# BUILD GOAL",
-    "We are building a native Android APK via a template system with strictly whitelisted anchors.",
-    "",
-    "# INPUT",
-    JSON.stringify({ nl, preset_hint, template_key, runId, registry_sha: registrySha ?? "" }, null, 2),
-    "",
-    "# RULES",
-    "- ONLY return strict JSON. No additional keys. No angle brackets. No empty strings/arrays.",
-    "- Prefer placeholders that compile if unsure (e.g., __NDJC_PLACEHOLDER__).",
-    "- Package name must be valid (e.g., com.example.app).",
-  ].join("\n");
-
-  const msgs: ChatMessage[] = [
+  return [
     { role: "system", content: sys },
-    { role: "user", content: user },
+    {
+      role: "user",
+      content:
+        [
+          "# BUILD GOAL",
+          "We are building a native Android APK from the user's requirement below.",
+          "Every anchor in the whitelist MUST be filled with a build-usable value (no placeholder/empty/default markers).",
+          "",
+          "# Requirement (natural language)",
+          nl,
+        ].join("\n"),
+    },
   ];
+}
 
-  if (retryText && retryText.trim()) {
-    msgs.push({ role: "system", content: retryText });
+function buildRetryMessages(rawFirst: string, issues: string): ChatMessage[] {
+  const content = `${retryText}`.replace("{ISSUES}", issues || "the invalid or missing fields");
+  return [
+    { role: "assistant", content: rawFirst },
+    { role: "user", content },
+  ];
+}
+
+function extractIssuesFrom(text: string): string {
+  // 简单提取：把 JSON.parse 的错误消息带回去；如果首轮是非 JSON，告诉模型“必须返回严格 JSON”
+  const err = parseJSONSafe(text);
+  if ("ok" in err && !err.ok) {
+    return `Your last reply was not valid JSON. Parser error: ${err.error}. You MUST return strictly one JSON object as described by the schema.`;
   }
+  return "Returned object did not match schema. Fill all anchors with build-usable values.";
+}
 
-  return msgs;
+export interface OrchestrateInput {
+  nl: string;                   // 用户自然语言需求
+  preset?: string;              // 例如 "social"
+  templateKey?: string;         // 例如 "circle-basic"
+  mode?: "A" | "B";             // 你的业务模式
+}
+
+export interface OrchestrateResult {
+  ok: boolean;
+  parsed?: AnyRecord;
+  raw?: string;
+  reason?: { code: string; message: string; path?: string }[];
+  trace: {
+    raw_llm_text: string;
+    retry_raw_llm_text?: string;
+    prompt_sha256?: string;
+  };
 }
 
 export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateResult> {
-  const { runId, nl, preset_hint = "", template_key, mode = "B" } = input;
+  const nl = (input?.nl || "").trim();
+  const trace: OrchestrateResult["trace"] = { raw_llm_text: "" };
 
-  const promptFile = path.join(process.cwd(), "lib/ndjc/prompts/contract_v1.en.json");
-  const retryFile = path.join(process.cwd(), "lib/ndjc/prompts/contract_v1.retry.en.txt"); // 继续用 .txt
-  const registryFile = path.join(process.cwd(), "lib/ndjc/anchors/registry.circle-basic.json");
-
-  const trace: AnyRecord = {
-    runId,
-    template_key,
-    preset_hint,
-    mode,
-    provider: process.env.LLM_PROVIDER || "groq",
-    meta: {
-      prompt_file: promptFile,
-      prompt_sha: await fileSha256Short(promptFile),
-      retry_file: retryFile,
-      retry_sha: await fileSha256Short(retryFile),
-      registry_file: registryFile,
-      registry_sha: await fileSha256Short(registryFile),
-    },
-  };
-
-  // 读取 retry 文本（不再用 ?raw）
-  let retryText = "";
-  try {
-    retryText = await fs.readFile(retryFile, "utf8");
-  } catch (e: any) {
-    trace.error_retry_read = String(e?.message || e);
+  if (!nl) {
+    return {
+      ok: false,
+      reason: [{ code: "E_NL_EMPTY", message: "Natural language requirement is empty" }],
+      trace,
+    };
   }
 
-  const messagesFirst = toMessages({
-    systemPromptObj: systemContract,
-    nl,
-    preset_hint,
-    template_key,
-    runId,
-    registrySha: trace.meta.registry_sha,
+  // 1) 首轮请求
+  const firstMsgs = buildMessages(nl);
+  const firstRaw = await callGroqChat(firstMsgs, {
+    temperature: 0,
+    top_p: 1,
+    max_tokens: 2048,
   });
 
-  const tryOnline =
-    Boolean(process.env.GROQ_API_KEY) && (process.env.LLM_PROVIDER ?? "groq") !== "offline";
+  trace.raw_llm_text = firstRaw ?? "";
 
-  let raw = "";
-  let usedRetry = false;
-
-  if (tryOnline) {
-    try {
-      // NOTE: 仅传 ChatMessage[]，其余配置在 groq.ts 内部用环境变量处理
-      raw = (await callGroqChat(messagesFirst))?.trim() || "";
-      trace.provider_used = "groq";
-      trace.raw_llm_text = raw;
-    } catch (e: any) {
-      trace.error_online = String(e?.message || e);
-    }
+  // 2) 解析
+  const firstParsed = parseJSONSafe(firstRaw);
+  if (firstParsed.ok) {
+    return { ok: true, parsed: firstParsed.data, raw: firstRaw, trace };
   }
 
-  if (!raw?.trim() && tryOnline && retryText?.trim()) {
-    usedRetry = true;
-    try {
-      const messagesRetry = toMessages({
-        systemPromptObj: systemContract,
-        nl,
-        preset_hint,
-        template_key,
-        runId,
-        registrySha: trace.meta.registry_sha,
-        retryText,
-      });
-      raw = (await callGroqChat(messagesRetry))?.trim() || "";
-      trace.provider_used = "groq";
-      trace.retry_raw_llm_text = raw;
-    } catch (e: any) {
-      trace.error_online_retry = String(e?.message || e);
-    }
+  // 3) 一次重试（精确说明问题）
+  const issues = extractIssuesFrom(firstRaw);
+  const retryMsgs = buildRetryMessages(firstRaw, issues);
+  const retryRaw = await callGroqChat(retryMsgs, {
+    temperature: 0,
+    top_p: 1,
+    max_tokens: 2048,
+  });
+  trace.retry_raw_llm_text = retryRaw ?? "";
+
+  const retryParsed = parseJSONSafe(retryRaw);
+  if (retryParsed.ok) {
+    return { ok: true, parsed: retryParsed.data, raw: retryRaw, trace };
   }
 
-  // 在线仍然没拿到文本 → 必走离线占位，保证 raw 非空
-  if (!raw?.trim()) {
-    try {
-      raw = await generateOfflineContractV1({ runId, nl, preset_hint, template_key });
-      trace.provider_used = "offline";
-      trace.fallback = true;
-      if (usedRetry) trace.retry_raw_llm_text = raw;
-      else trace.raw_llm_text = raw;
-    } catch (e: any) {
-      return {
-        ok: false,
-        reason: [{ code: "E_NO_TEXT", message: "No raw LLM text (online & offline both failed)" }],
-        trace,
-      };
-    }
-  }
-
-  // ✅ 统一后处理：确保 metadata.template 存在
-  const fixed = ensureMetadataTemplate(raw, template_key, trace);
-  raw = fixed.raw;
-
+  // 4) 还是失败 → 把两个原文都提供给上游，避免 “No raw LLM text to validate”
   return {
-    ok: true,
-    raw,
+    ok: false,
+    reason: [
+      {
+        code: "E_NOT_JSON",
+        message:
+          "Both first and retry replies are not valid strict JSON. See trace.raw_llm_text / trace.retry_raw_llm_text.",
+        path: "<root>",
+      },
+    ],
     trace,
   };
 }
