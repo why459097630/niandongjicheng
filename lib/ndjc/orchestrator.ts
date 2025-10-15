@@ -488,7 +488,8 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
         msgs.push({ role: "user", content: [retryText, feedback].filter(Boolean).join("\n\n") });
       }
 
-      const r = await callGroqChat(msgs, { json: true, temperature: 0 });
+      // ❗ 修复：去掉 { json: true }
+      const r = await callGroqChat(msgs, { temperature: 0 });
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
       lastText = text;
 
