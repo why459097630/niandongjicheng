@@ -1,17 +1,53 @@
-Fix the following violations and RETURN STRICT JSON with the SAME KEYS:
+Fix the following violations and RETURN STRICT JSON with the SAME KEYS and NESTING as SKELETON:
 
 {ISSUES}
 
-Rules to re-check:
-- Fill every whitelisted anchor with a BUILD-USABLE value.
-- No placeholders or empties: "", [], {}, null are forbidden.
-- Use native types (true/false, numbers). Do NOT stringify booleans or numbers.
-- BLOCK must be compilable Kotlin/Compose and contain at least one of: @Composable | fun | LazyColumn | Modifier. Brackets/quotes balanced.
-- GRADLE must be parsable and valid:
-  * applicationId matches ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$
-  * resConfigs items match ^[a-z]{2}(-r[A-Z]{2})?$
-  * permissions are from the allowlist only.
-- ROUTE-like lists: items match ^[a-z][a-z0-9_-]*$
-- THEME_COLORS is an object with primary/secondary #RRGGBB.
+HARD REQUIREMENTS (re-check all):
+- OUTPUT SHAPE
+  • Return STRICT JSON only: one JSON object, no prose/markdown/comments.
+  • Top-level keys are EXACTLY: "metadata", "anchorsGrouped", "files".
+  • Inside "anchorsGrouped" you MUST keep these groups exactly: "text", "block", "list", "if", "hook", "gradle".
+  • Mirror SKELETON exactly: no added/removed/renamed/reordered keys anywhere.
 
-Return JSON only, no explanations.
+- COMPLETENESS & PLACEHOLDERS
+  • Every anchor key present in SKELETON MUST be filled (no omissions).
+  • No empties: forbid "", [], {}, null, "N/A", "default", "tbd", "-".
+  • If information is unknown, use SAFE placeholders allowed by policy (no angle brackets):
+    - String-like (text/block/hook/resources): "__NDJC_PLACEHOLDER__"
+    - Lists (list): ["__NDJC_PLACEHOLDER__"]
+    - Booleans (if): true/false (as native boolean)
+    - Gradle arrays (resConfigs, permissions): ["__NDJC_PLACEHOLDER__"] when not applicable
+  • Arrays that are required (e.g., list.ROUTES, gradle.resConfigs, gradle.permissions) MUST be non-empty.
+
+- TYPE ENFORCEMENT
+  • Use native JSON types: booleans and numbers MUST NOT be strings.
+  • Example fixes: "false"→false, "300"→300, "10"→10.
+
+- ANDROID BUILD CONSTRAINTS
+  • Package/applicationId:
+    - gradle.applicationId matches ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$
+    - If metadata.packageId is present, it must follow the same regex.
+  • Permissions:
+    - Every item MUST match allowlist regex:
+      ^(android\.permission\.(INTERNET|ACCESS_NETWORK_STATE|READ_MEDIA_IMAGES|READ_MEDIA_VIDEO|READ_MEDIA_AUDIO|POST_NOTIFICATIONS|CAMERA|ACCESS_FINE_LOCATION))$
+    - Remove legacy/invalid permissions (e.g., READ_EXTERNAL_STORAGE/WRITE_EXTERNAL_STORAGE, MEDIA).
+    - If unsure, use the non-empty placeholder list as above (never []).
+  • resConfigs items match ^[a-z]{2}(-r[A-Z]{2})?$
+  • If SDK numbers appear: ensure COMPILE_SDK ≥ TARGET_SDK ≥ MIN_SDK (all integers).
+  • Resource/file-like names: lowercase [a-z0-9_.-], no spaces.
+
+- THEME_COLORS
+  • THEME_COLORS MUST be a JSON OBJECT: {"primary":"#RRGGBB","secondary":"#RRGGBB"}.
+  • Do NOT double-escape; it is an object, not a string.
+
+- BLOCK/HOOK SAFETY
+  • Provide Kotlin/Compose/Gradle/XML-safe content.
+  • BLOCK should be compilable and contain at least one of: @Composable | fun | LazyColumn | Modifier (when applicable).
+  • Quotes/brackets balanced. Keep values free of '<' or '>' characters.
+
+- GLOBAL SANITY
+  • No '<' or '>' anywhere in string values (avoid breaking Android XML).
+  • No placeholders like "sample", "示例", "样例", "__TODO__".
+  • Keep metadata as-is; do NOT add/modify/delete any metadata fields.
+
+Return ONLY the corrected JSON object with the same keys and nesting as SKELETON.
