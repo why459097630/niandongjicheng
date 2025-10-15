@@ -19,7 +19,7 @@ export interface ChatOpts {
 const API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 /**
- * 核心实现：与 OpenAI Chat Completions 兼容的 Groq API
+ * 与 OpenAI Chat Completions 兼容的 Groq API：
  * - 返回首条 message 的 content（字符串）
  * - 关闭流式，统一简单用法
  */
