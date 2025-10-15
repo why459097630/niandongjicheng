@@ -192,16 +192,14 @@ export async function POST(req: NextRequest) {
       if (process.env.NDJC_OFFLINE === "1" || input?.offline === true) throw new Error("force-offline");
       if (!process.env.GROQ_API_KEY) throw new Error("groq-key-missing");
       const model = process.env.GROQ_MODEL || input?.model || "llama-3.1-8b-instant";
+
+      // 让 orchestrator 自行处理在线调用；它内部失败会回退为 offline
       o = await orchestrate({ ...input, provider: "groq", model, forceProvider: "groq" });
       o = { ...o, _mode: `online(${model})` };
     } catch (err: any) {
-      o = {
-        mode: input?.mode || "A",
-        template: input?.template || "circle-basic",
-        appName: input?.appName || input?.appTitle || "NDJC App",
-        packageId: input?.packageId || input?.packageName || "com.ndjc.demo.app",
-        _mode: `offline(${String(err?.message ?? err)})`,
-      };
+      // 不中断，显式走 orchestrator 的 offline 兜底，确保返回里有 raw / trace
+      o = await orchestrate({ ...input, provider: "offline", forceProvider: "offline" });
+      o = { ...o, _mode: `offline(${String(err?.message ?? err)})` };
     }
 
     // —— Contract v1（严格开启）——
@@ -214,7 +212,13 @@ export async function POST(req: NextRequest) {
     }
 
     step = "contract-precheck";
-    const raw = extractRawTraceText(o?._trace);
+    // 兼容新老返回结构：o.raw -> o.trace.* -> o._trace(旧)
+    const raw =
+      (o as any)?.raw ??
+      (o as any)?.trace?.raw_llm_text ??
+      (o as any)?.trace?.retry_raw_llm_text ??
+      extractRawTraceText((o as any)?._trace) ??
+      "";
     if (!raw || !String(raw).trim()) {
       return NextResponse.json(
         {
@@ -223,6 +227,7 @@ export async function POST(req: NextRequest) {
           runId,
           step,
           reason: [{ code: "E_NOT_JSON", message: "No raw LLM text to validate", path: "<root>" }],
+          meta: { _trace: (o as any)?.trace ?? (o as any)?._trace ?? null },
         },
         { status: 400, headers: CORS }
       );
@@ -257,7 +262,7 @@ export async function POST(req: NextRequest) {
 
     // —— 合成带 trace 的 01（可控开关）——
     const includeTrace = (process.env.NDJC_TRACE_IN_CONTRACT || "1").trim() === "1";
-    const trace = o?._trace || {};
+    const trace = (o as any)?.trace || (o as any)?._trace || {};
     const promptFile = trace?.source?.prompt_file || null;
     const promptSha = trace?.source?.prompt_sha256 || null;
     const promptFromEnv = trace?.source?.loaded_from_env ?? null;
@@ -272,7 +277,7 @@ export async function POST(req: NextRequest) {
               prompt_file: promptFile,
               prompt_sha256: promptSha,
               prompt_loaded_from_env: promptFromEnv,
-              model_mode: o?._mode || null,
+              model_mode: (o as any)?._mode || null,
             },
           },
           _trace: trace,
@@ -297,17 +302,17 @@ export async function POST(req: NextRequest) {
     const applyStub = {
       runId,
       status: "pre-ci",
-      template: o?.template || planV1?.meta?.template || input?.template || "circle-basic",
-      appTitle: o?.appName || planV1?.meta?.appName,
-      packageName: o?.packageId || planV1?.meta?.packageId,
+      template: (o as any)?.template || (planV1 as any)?.meta?.template || (input as any)?.template || "circle-basic",
+      appTitle: (o as any)?.appName || (planV1 as any)?.meta?.appName,
+      packageName: (o as any)?.packageId || (planV1 as any)?.meta?.packageId,
       note: "Apply result will be finalized in CI pipeline.",
-      changes: [],
-      warnings: [],
+      changes: [] as any[],
+      warnings: [] as any[],
     };
 
     // 生成一个可读的 summary，带上提示词来源
     const summaryLines = [
-      `created by api; mode=${o?._mode || "unknown"}`,
+      `created by api; mode=${(o as any)?._mode || "unknown"}`,
       includeTrace ? `prompt_file=${promptFile || ""}` : "",
       includeTrace ? `prompt_sha256=${promptSha || ""}` : "",
       includeTrace ? `prompt_loaded_from_env=${promptFromEnv}` : "",
@@ -335,15 +340,15 @@ export async function POST(req: NextRequest) {
       template: applyStub.template,
       appTitle: applyStub.appTitle,
       packageName: applyStub.packageName,
-      mode: o?.mode || input?.mode || "A",
+      mode: (o as any)?.mode || (input as any)?.mode || "A",
       contract: "v1",
       planB64: b64(JSON.stringify(planV1)),
       orchestratorB64: undefined,
-      clientNote: o?._mode || "unknown",
-      preflight_mode: input?.preflight_mode || "strict",
+      clientNote: (o as any)?._mode || "unknown",
+      preflight_mode: (input as any)?.preflight_mode || "strict",
     };
 
-    if (process.env.NDJC_SKIP_ACTIONS === "1" || input?.skipActions === true) {
+    if (process.env.NDJC_SKIP_ACTIONS === "1" || (input as any)?.skipActions === true) {
       return NextResponse.json(
         {
           ok: true,
@@ -359,6 +364,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ⚠️ 按你的要求：保持现有触发 Actions 的实现不变
     const res = await dispatchWorkflow(inputs);
     const actionsUrl = `https://github.com/${res.owner}/${res.repo}/actions/workflows/${res.wf}`;
 
