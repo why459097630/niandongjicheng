@@ -128,17 +128,6 @@ export type OrchestrateOutput = {
 /** ---------------- helpers ---------------- */
 const ROOT = process.cwd();
 
-function wantV1(input: Partial<OrchestrateInput>): boolean {
-  const envRaw = (process.env.NDJC_CONTRACT_V1 || "").trim().toLowerCase();
-  return (
-    input.contract === "v1" ||
-    input.contractV1 === true ||
-    envRaw === "1" ||
-    envRaw === "true" ||
-    envRaw === "v1"
-  );
-}
-
 function ensurePackageId(input?: string, fallback = "com.ndjc.demo.core") {
   let v = (input || "").trim();
   if (!v) return fallback;
@@ -251,7 +240,7 @@ async function loadSystemPrompt() {
     try {
       const maybe = JSON.parse(raw);
       if (maybe && typeof maybe.system === "string") text = maybe.system;
-    } catch { /* treat as plain text */ }
+    } catch {/* treat as plain text */}
     console.log(
       `[NDJC:orchestrator] system prompt loaded: %s (size:%d, sha256:%s)`,
       abs,
@@ -280,7 +269,6 @@ async function loadRetryPrompt() {
     return { path: abs, text: raw, sha, size };
   } catch (e: any) {
     console.warn(`[NDJC:orchestrator] retry prompt load failed: ${e?.message}`);
-    // 修复：明确提供 sha 的默认值，避免 TS “shorthand property 'sha' not in scope”
     return { path: hint, text: "", sha: "", size: 0 };
   }
 }
@@ -455,20 +443,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     (input.requirement?.trim() ? `User requirement: ${input.requirement!.trim()}` : ``),
   ].filter(Boolean).join("\n");
 
-  // 控制台确认 prompt 文件
-  console.log(
-    `[NDJC:orchestrator] using system prompt: %s (sha256:%s, size:%d)`,
-    sysPrompt.path,
-    (sysPrompt.sha || "").slice(0, 12),
-    sysPrompt.size
-  );
-  console.log(
-    `[NDJC:orchestrator] using retry prompt : %s (sha256:%s, size:%d)`,
-    rtyPrompt.path,
-    (rtyPrompt.sha || "").slice(0, 12),
-    rtyPrompt.size
-  );
-
   // 生成 + 校验→重试
   const maxRetries = 2;
   let parsed: any = null;
@@ -489,7 +463,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
         msgs.push({ role: "user", content: [retryText, feedback].filter(Boolean).join("\n\n") });
       }
 
-      // ❗ 去掉 { json: true }，保持最小参数
       const r = await callGroqChat(msgs, { temperature: 0 });
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
       lastText = text;
@@ -507,8 +480,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       break; // 成功拿到一次即可
     } catch (e: any) {
       _trace.retries.push({ attempt, error: e?.message || String(e) });
-
-      // 如果本次调用失败，立刻给 lastText 一个可被预检解析的 JSON，避免 E_NOT_JSON
       if (!lastText) {
         lastText = JSON.stringify({ error: "llm_call_failed", skeleton });
       }
@@ -532,30 +503,27 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   if (Array.isArray(gradle.permissions)) permissions = gradle.permissions;
   if (allowCompanions && Array.isArray(parsed?._raw?.files)) companions = sanitizeCompanions(parsed._raw.files);
 
-  // 兜底 rawText：无论 wantV1 与否，只要没有拿到 LLM 原文，就写入一个合规 JSON
-  if (!parsed || !parsed._text) {
-    const v1doc = {
-      metadata: { runId: (input as any).runId || undefined, template, appName, packageId, mode },
-      anchors: {
-        text: {
-          "NDJC:PACKAGE_NAME": packageId,
-          "NDJC:APP_LABEL": appName,
-          "NDJC:HOME_TITLE": homeTitle,
-          "NDJC:PRIMARY_BUTTON_TEXT": mainButtonText,
-        },
-        block: {},
-        list: { "ROUTES": ["home"] },
-        if: {},
-        hook: {},
-        gradle: { applicationId: packageId, resConfigs: locales, permissions },
-      },
-      files: allowCompanions ? companions : [],
-    };
-    _trace.synthesized = true;
-    _trace.rawText = JSON.stringify(v1doc);
-  } else {
-    _trace.rawText = parsed._text;
-  }
+  /** ★ 关键修复：无论 LLM 返回什么，都把 rawText 规范化为 Contract v1 结构，并填上 metadata.template */
+  const contractV1Doc = {
+    contract: "v1",
+    metadata: {
+      template,            // 确保有值，避免 E_META_TEMPLATE
+      appName,
+      packageId,
+      mode,
+    },
+    anchorsGrouped: {
+      text: anchorsFinal.text || {},
+      block: anchorsFinal.block || {},
+      list: anchorsFinal.list || {},
+      if: anchorsFinal.if || {},
+      hook: anchorsFinal.hook || {},
+      gradle: anchorsFinal.gradle || {},
+    },
+    files: allowCompanions ? companions : [],
+  };
+
+  _trace.rawText = JSON.stringify(contractV1Doc);
 
   const permissionsXml = mkPermissionsXml(permissions);
   const intentFiltersXml = mkIntentFiltersXml(input.intentHost);
