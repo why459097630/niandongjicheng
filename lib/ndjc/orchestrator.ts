@@ -1,10 +1,15 @@
 // lib/ndjc/orchestrator.ts
+import fs from "node:fs/promises";
+import path from "node:path";
+
 import { callGroqChat, ChatMessage } from "@/lib/ndjc/groq";
 import systemContract from "@/lib/ndjc/prompts/contract_v1.en.json"; // 作为 System Prompt
-import retryText from "@/lib/ndjc/prompts/contract_v1.retry.en.txt?raw"; // 作为文字模板（Vite/Next 可直接导入 txt；若不支持请改为 fs 读取）
+// ❌ 删掉 ?raw 导入，构建期会失败
+// import retryText from "@/lib/ndjc/prompts/contract_v1.retry.en.txt?raw";
 
 type AnyRecord = Record<string, any>;
 
+/* ----------------- 小工具 ----------------- */
 function parseJSONSafe(text: string): { ok: true; data: AnyRecord } | { ok: false; error: string } {
   try {
     const data = JSON.parse(text);
@@ -14,6 +19,40 @@ function parseJSONSafe(text: string): { ok: true; data: AnyRecord } | { ok: fals
   }
 }
 
+/** 若缺失则注入 metadata.template / metadata.mode */
+function ensureMetadata(raw: string, templateKey?: string, mode?: "A" | "B") {
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return raw;
+
+    obj.metadata ??= {};
+    const tpl = templateKey || "circle-basic";
+    const m = mode || "B";
+
+    if (typeof obj.metadata.template !== "string" || !obj.metadata.template.trim()) {
+      obj.metadata.template = tpl;
+    }
+    if (obj.metadata.mode !== m) {
+      obj.metadata.mode = m;
+    }
+    return JSON.stringify(obj);
+  } catch {
+    // 不是 JSON，就保持原样（上层会继续处理）
+    return raw;
+  }
+}
+
+/** 读取 retry 文本（Node 运行时） */
+async function loadRetryText(): Promise<string> {
+  const retryFile = path.join(process.cwd(), "lib/ndjc/prompts/contract_v1.retry.en.txt");
+  try {
+    return await fs.readFile(retryFile, "utf8");
+  } catch {
+    return ""; // 读不到就不用 retry 提示，也不要阻塞
+  }
+}
+
+/* ----------------- Prompt 组装 ----------------- */
 function buildMessages(nl: string): ChatMessage[] {
   const sys = [
     "You are NDJC’s Contract generator for building a native Android APK.",
@@ -28,21 +67,20 @@ function buildMessages(nl: string): ChatMessage[] {
     { role: "system", content: sys },
     {
       role: "user",
-      content:
-        [
-          "# BUILD GOAL",
-          "We are building a native Android APK from the user's requirement below.",
-          "Every anchor in the whitelist MUST be filled with a build-usable value (no placeholder/empty/default markers).",
-          "",
-          "# Requirement (natural language)",
-          nl,
-        ].join("\n"),
+      content: [
+        "# BUILD GOAL",
+        "We are building a native Android APK from the user's requirement below.",
+        "Every anchor in the whitelist MUST be filled with a build-usable value (no placeholder/empty/default markers).",
+        "",
+        "# Requirement (natural language)",
+        nl,
+      ].join("\n"),
     },
   ];
 }
 
-function buildRetryMessages(rawFirst: string, issues: string): ChatMessage[] {
-  const content = `${retryText}`.replace("{ISSUES}", issues || "the invalid or missing fields");
+function buildRetryMessages(rawFirst: string, issues: string, retryText: string): ChatMessage[] {
+  const content = `${retryText || "Fix the following violations and RETURN STRICT JSON with the SAME KEYS:"}\n\n${issues || "{ISSUES}"}`;
   return [
     { role: "assistant", content: rawFirst },
     { role: "user", content },
@@ -50,7 +88,6 @@ function buildRetryMessages(rawFirst: string, issues: string): ChatMessage[] {
 }
 
 function extractIssuesFrom(text: string): string {
-  // 简单提取：把 JSON.parse 的错误消息带回去；如果首轮是非 JSON，告诉模型“必须返回严格 JSON”
   const err = parseJSONSafe(text);
   if ("ok" in err && !err.ok) {
     return `Your last reply was not valid JSON. Parser error: ${err.error}. You MUST return strictly one JSON object as described by the schema.`;
@@ -58,9 +95,10 @@ function extractIssuesFrom(text: string): string {
   return "Returned object did not match schema. Fill all anchors with build-usable values.";
 }
 
+/* ----------------- 类型 ----------------- */
 export interface OrchestrateInput {
   nl: string;                   // 用户自然语言需求
-  preset?: string;              // 例如 "social"
+  preset?: string;              // 例如 "social"（未使用，保留兼容）
   templateKey?: string;         // 例如 "circle-basic"
   mode?: "A" | "B";             // 你的业务模式
 }
@@ -74,11 +112,16 @@ export interface OrchestrateResult {
     raw_llm_text: string;
     retry_raw_llm_text?: string;
     prompt_sha256?: string;
+    fallback?: "offline";
   };
 }
 
+/* ----------------- 主流程 ----------------- */
 export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateResult> {
   const nl = (input?.nl || "").trim();
+  const templateKey = input?.templateKey || "circle-basic";
+  const mode = input?.mode || "B";
+
   const trace: OrchestrateResult["trace"] = { raw_llm_text: "" };
 
   if (!nl) {
@@ -102,12 +145,16 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateR
   // 2) 解析
   const firstParsed = parseJSONSafe(firstRaw);
   if (firstParsed.ok) {
-    return { ok: true, parsed: firstParsed.data, raw: firstRaw, trace };
+    // 注入/覆盖 metadata.template & metadata.mode
+    const fixedRaw = ensureMetadata(firstRaw!, templateKey, mode);
+    const fixedParsed = parseJSONSafe(fixedRaw);
+    return { ok: true, parsed: fixedParsed.ok ? fixedParsed.data : undefined, raw: fixedRaw, trace };
   }
 
   // 3) 一次重试（精确说明问题）
-  const issues = extractIssuesFrom(firstRaw);
-  const retryMsgs = buildRetryMessages(firstRaw, issues);
+  const retryText = await loadRetryText();
+  const issues = extractIssuesFrom(firstRaw || "");
+  const retryMsgs = buildRetryMessages(firstRaw || "", issues, retryText);
   const retryRaw = await callGroqChat(retryMsgs, {
     temperature: 0,
     top_p: 1,
@@ -117,20 +164,54 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateR
 
   const retryParsed = parseJSONSafe(retryRaw);
   if (retryParsed.ok) {
-    return { ok: true, parsed: retryParsed.data, raw: retryRaw, trace };
+    const fixedRaw = ensureMetadata(retryRaw!, templateKey, mode);
+    const fixedParsed = parseJSONSafe(fixedRaw);
+    return { ok: true, parsed: fixedParsed.ok ? fixedParsed.data : undefined, raw: fixedRaw, trace };
   }
 
-  // 4) 还是失败 → 把两个原文都提供给上游，避免 “No raw LLM text to validate”
+  // 4) 还是失败 → 给上游一个最小“可编译占位”JSON，避免 "No raw LLM text to validate"
+  const offlineObj = {
+    contract: "v1",
+    metadata: {
+      template: templateKey,
+      mode,
+      ndjc: { provider: "offline" },
+    },
+    anchorsGrouped: {
+      text: {
+        "NDJC:APP_LABEL": "NDJC App",
+        "NDJC:PACKAGE_NAME": "com.ndjc.app",
+        "NDJC:HOME_TITLE": "Home",
+        "NDJC:PRIMARY_BUTTON_TEXT": "Create",
+        "NDJC:I18N_ENABLED": true,
+        "NDJC:ANIM_ENABLED": true,
+        "NDJC:ANIM_DURATION_MS": 300,
+        "NDJC:PAGING_SIZE": 10,
+        "NDJC:FEED_SORT": "date",
+      },
+      block: "",
+      list: { ROUTES: ["home"] },
+      if: "",
+      hook: "",
+      gradle: { applicationId: "com.ndjc.app", resConfigs: ["en"] },
+      permissions: ["android.permission.INTERNET"],
+    },
+  };
+
+  const offlineRaw = JSON.stringify(offlineObj);
+  trace.fallback = "offline";
+
   return {
-    ok: false,
+    ok: false, // 维持原逻辑：表示在线两次都没产出合格 JSON
     reason: [
       {
         code: "E_NOT_JSON",
         message:
-          "Both first and retry replies are not valid strict JSON. See trace.raw_llm_text / trace.retry_raw_llm_text.",
+          "Both first and retry replies are not valid strict JSON. A minimal offline JSON has been provided in .raw for validation/materialization.",
         path: "<root>",
       },
     ],
+    raw: offlineRaw, // ✅ 关键：依然提供 raw，路由层可继续做严格解析/校验
     trace,
   };
 }
