@@ -251,7 +251,7 @@ async function loadSystemPrompt() {
     try {
       const maybe = JSON.parse(raw);
       if (maybe && typeof maybe.system === "string") text = maybe.system;
-    } catch {/* treat as plain text */}
+    } catch { /* treat as plain text */ }
     console.log(
       `[NDJC:orchestrator] system prompt loaded: %s (size:%d, sha256:%s)`,
       abs,
@@ -280,7 +280,8 @@ async function loadRetryPrompt() {
     return { path: abs, text: raw, sha, size };
   } catch (e: any) {
     console.warn(`[NDJC:orchestrator] retry prompt load failed: ${e?.message}`);
-    return { path: hint, text: "", sha, size: 0 };
+    // 修复：明确提供 sha 的默认值，避免 TS “shorthand property 'sha' not in scope”
+    return { path: hint, text: "", sha: "", size: 0 };
   }
 }
 
@@ -488,7 +489,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
         msgs.push({ role: "user", content: [retryText, feedback].filter(Boolean).join("\n\n") });
       }
 
-      // 去掉 { json: true }，统一返回文本
+      // ❗ 去掉 { json: true }，保持最小参数
       const r = await callGroqChat(msgs, { temperature: 0 });
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
       lastText = text;
@@ -507,7 +508,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     } catch (e: any) {
       _trace.retries.push({ attempt, error: e?.message || String(e) });
 
-      // [FIX] 如果本次调用失败，立刻给 lastText 一个可被预检解析的 JSON，避免 E_NOT_JSON
+      // 如果本次调用失败，立刻给 lastText 一个可被预检解析的 JSON，避免 E_NOT_JSON
       if (!lastText) {
         lastText = JSON.stringify({ error: "llm_call_failed", skeleton });
       }
@@ -531,12 +532,11 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   if (Array.isArray(gradle.permissions)) permissions = gradle.permissions;
   if (allowCompanions && Array.isArray(parsed?._raw?.files)) companions = sanitizeCompanions(parsed._raw.files);
 
-  // [FIX] —— 统一输出 rawText（补齐 metadata.template，强制 anchorsGrouped）
+  // 兜底 rawText：无论 wantV1 与否，只要没有拿到 LLM 原文，就写入一个合规 JSON
   if (!parsed || !parsed._text) {
-    // 无模型文本 → 生成合规 v1
     const v1doc = {
       metadata: { runId: (input as any).runId || undefined, template, appName, packageId, mode },
-      anchorsGrouped: {
+      anchors: {
         text: {
           "NDJC:PACKAGE_NAME": packageId,
           "NDJC:APP_LABEL": appName,
@@ -554,24 +554,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     _trace.synthesized = true;
     _trace.rawText = JSON.stringify(v1doc);
   } else {
-    // 有模型文本 → 解析并兜底补齐
-    const rawObj = parseJsonSafely(parsed._text) ?? {};
-    const anchorsAny = rawObj.anchorsGrouped ?? rawObj.anchors ?? {};
-    const anchorsPatched = ensureRequiredAndDefaults(
-      applyWhitelistAndAliases(anchorsAny, reg),
-      reg
-    );
-    const meta = rawObj.metadata ?? {};
-    meta.template = meta.template || template;
-    meta.appName = meta.appName || appName;
-    meta.packageId = ensurePackageId(meta.packageId || packageId, packageId);
-    meta.mode = meta.mode || mode;
-
-    const finalRaw: any = { metadata: meta, anchorsGrouped: anchorsPatched };
-    if (allowCompanions && Array.isArray(rawObj.files)) {
-      finalRaw.files = sanitizeCompanions(rawObj.files);
-    }
-    _trace.rawText = JSON.stringify(finalRaw);
+    _trace.rawText = parsed._text;
   }
 
   const permissionsXml = mkPermissionsXml(permissions);
