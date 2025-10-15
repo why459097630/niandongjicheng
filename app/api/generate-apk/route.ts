@@ -1,252 +1,380 @@
 // app/api/generate-apk/route.ts
-// 最小改动 + GitHub Actions 触发版
-// - 兼容提取 orchestrator 原文；空文本不进严格校验
-// - 成功后触发 GitHub Actions（workflow_dispatch 为默认；可切换 repository_dispatch）
-// - 返回 dispatched 状态与关键调试字段，避免“已触发但没有 run”的假阳性
+// 瘦路由（Node）：编排 /（可选）Contract v1 严格校验 / 写入 01/02/03 / 触发 GitHub Actions。
 
 import { NextRequest, NextResponse } from "next/server";
-
 import { orchestrate } from "@/lib/ndjc/orchestrator";
+
+// Contract v1 严格模式（→ 统一从 strict-json.ts 导入）
 import { parseStrictJson, validateContractV1 } from "@/lib/ndjc/llm/strict-json";
 import { contractV1ToPlan } from "@/lib/ndjc/contract/contractv1-to-plan";
 
-// 如果你已有真正的 sanitize 模块，可替换为实际导入；这里给一个安全占位实现，避免构建期找不到模块。
-function sanitizePlan<T = any>(plan: T): T {
-  return plan;
-}
-
-export const runtime = "nodejs"; // orchestrator 用 fs 读取 .txt，必须 Node 运行时
+export const runtime = "nodejs";
 
 /* ---------------- CORS ---------------- */
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 export async function OPTIONS() {
-  return new NextResponse(null, { status: 200, headers: CORS });
+  return new Response(null, { status: 204, headers: CORS });
 }
 
-/** 从 orchestrator 结果里提取“原始 LLM 文本” */
-function extractRaw(orchestrateResult: any): string {
-  const t = orchestrateResult?.trace || {};
-  const candidates = [
-    orchestrateResult?.raw,           // ✅ 新版编排器直接返回的 raw
-    t?.raw_llm_text,                  // ✅ 首次 LLM 返回记录在 trace
-    t?.retry_raw_llm_text,            // ✅ 重试 LLM 返回记录在 trace
-  ];
-  const picked = candidates.find((x) => typeof x === "string" && x.trim().length > 0);
-  return picked ?? "";
+/* -------------- 小工具 -------------- */
+function newRunId() {
+  // next/server 下可用的 web crypto
+  const r = crypto.getRandomValues(new Uint8Array(6));
+  const hex = Array.from(r).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}-${hex}`;
 }
-
-/* ---------------- GitHub Actions 触发辅助 ---------------- */
-
-// 从环境里拿一个可用的 PAT（优先顺序可按需调整）
-function getGhToken(): string | null {
+function b64(str: string) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  // Web 环境下有 btoa
+  // @ts-ignore
+  return btoa(bin);
+}
+function normalizeWorkflowId(wf: string) {
+  if (/^\d+$/.test(wf)) return wf;
+  return wf.endsWith(".yml") ? wf : `${wf}.yml`;
+}
+function extractRawTraceText(trace: any): string | null {
+  if (!trace) return null;
   return (
-    process.env.NDJC_GITHUB_PAT ||
-    process.env.GITHUB_PAT ||
-    process.env.GH_PAT ||
-    process.env.GITHUB_TOKEN || // 注意：这个通常仅对同仓库有效，跨仓库需 PAT
+    trace.rawText ??
+    trace.text ??
+    trace.response?.text ??
+    trace.response?.body ??
+    trace.response?.choices?.[0]?.message?.content ??
     null
   );
 }
-
-// workflow_dispatch 触发
-async function dispatchWorkflow(params: {
-  owner: string;
-  repo: string;
-  workflow: string; // e.g. "android-build.yml"
-  ref: string; // e.g. "main"
-  inputs?: Record<string, any>;
-  token: string;
-}) {
-  const { owner, repo, workflow, ref, inputs = {}, token } = params;
-  const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`;
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ ref, inputs }),
-  });
-  const text = await resp.text();
-  return {
-    url,
-    status: resp.status,
-    text: text?.slice(0, 500) || "",
-    // NOTE: 204 表示成功触发
-    ok: resp.status === 204,
-  };
+function wantContractV1From(input: any) {
+  const envRaw = (process.env.NDJC_CONTRACT_V1 || "").trim().toLowerCase();
+  return (
+    input?.contract === "v1" ||
+    input?.contractV1 === true ||
+    envRaw === "1" ||
+    envRaw === "true" ||
+    envRaw === "v1"
+  );
 }
 
-// repository_dispatch 触发（可选）
-async function dispatchRepository(params: {
-  owner: string;
-  repo: string;
-  eventType: string; // e.g. "ndjc-build"
-  clientPayload?: Record<string, any>;
-  token: string;
-}) {
-  const { owner, repo, eventType, clientPayload = {}, token } = params;
-  const url = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ event_type: eventType, client_payload: clientPayload }),
+/* -------------- GitHub 简易工具 -------------- */
+const GH_API = "https://api.github.com";
+
+async function gh(headers: Record<string, string>, method: string, url: string, body?: any) {
+  const r = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
   });
-  const text = await resp.text();
-  return {
-    url,
-    status: resp.status,
-    text: text?.slice(0, 500) || "",
-    ok: resp.status === 204,
-  };
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`${method} ${url} -> ${r.status} ${r.statusText}: ${text}`);
+  }
+  return r;
 }
 
-export async function POST(req: NextRequest) {
+async function ensureRunBranchAndCommitFiles(args: {
+  owner: string;
+  repo: string;
+  baseRef: string; // e.g. 'main'（工作流所在分支）
+  runBranch: string; // e.g. 'ndjc-run/<runId>'
+  token: string;
+  files: Array<{ path: string; content: string }>;
+}) {
+  const { owner, repo, baseRef, runBranch, token, files } = args;
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+  };
+
+  // 1) 读取 baseRef 最新 commit SHA
+  const baseRefData = await (await gh(headers, "GET", `${GH_API}/repos/${owner}/${repo}/git/ref/heads/${baseRef}`)).json();
+  const baseSha: string = baseRefData.object.sha;
+
+  // 2) 如果 runBranch 不存在，则创建
+  let hasRunBranch = true;
   try {
-    const body = await req.json();
-    const {
-      run_id: runId,
-      nl = "",
-      preset_hint = "",
-      template_key = "circle-basic",
-      mode = "B",
-      allowCompanions = true,
-    } = body || {};
+    await gh(headers, "GET", `${GH_API}/repos/${owner}/${repo}/git/ref/heads/${runBranch}`);
+  } catch {
+    hasRunBranch = false;
+  }
+  if (!hasRunBranch) {
+    await gh(headers, "POST", `${GH_API}/repos/${owner}/${repo}/git/refs`, {
+      ref: `refs/heads/${runBranch}`,
+      sha: baseSha,
+    });
+  }
 
-    if (!runId || !nl) {
-      return NextResponse.json(
-        { error: "Missing required fields: run_id, nl" },
-        { status: 400, headers: CORS }
-      );
+  // 3) 逐个以 contents API 提交（适合少量文件）
+  for (const f of files) {
+    const url = `${GH_API}/repos/${owner}/${repo}/contents/${encodeURIComponent(f.path)}`;
+    // 先查 sha（如果该文件在分支上已存在）
+    let sha: string | undefined;
+    try {
+      const existing = await (await gh(headers, "GET", `${url}?ref=${runBranch}`)).json();
+      sha = existing.sha;
+    } catch {
+      sha = undefined;
     }
+    await gh(headers, "PUT", url, {
+      message: `NDJC: materialize ${runBranch} -> ${f.path}`,
+      // @ts-ignore
+      content: btoa(unescape(encodeURIComponent(f.content))), // utf8 -> base64
+      branch: runBranch,
+      sha,
+    });
+  }
+}
 
-    // 1) 编排（orchestrate 会在在线失败时兜底，trace 内含 raw 线索）
-    const orch = await orchestrate({ runId, nl, preset_hint, template_key, mode, allowCompanions });
+async function dispatchWorkflow(inputs: any) {
+  const owner = process.env.GH_OWNER!;
+  const repo = process.env.GH_REPO!;
+  const branch = process.env.GH_BRANCH || "main";
+  const wf = normalizeWorkflowId(process.env.WORKFLOW_ID!);
+  const token = process.env.GH_PAT!;
+  if (!owner || !repo || !wf || !token) {
+    throw new Error("Missing GH_OWNER/GH_REPO/WORKFLOW_ID/GH_PAT");
+  }
 
-    // 2) 编排失败（离线也失败）——直接透传错误与 trace
-    if (!orch.ok) {
-      return NextResponse.json(
-        {
-          contract: "v1",
-          runId,
-          step: "contract-precheck",
-          reason: orch.reason,
-          meta: { _trace: orch.trace },
-        },
-        { status: 400, headers: CORS }
-      );
+  const url = `${GH_API}/repos/${owner}/${repo}/actions/workflows/${wf}/dispatches`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+  };
+
+  const r = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ref: branch, inputs }),
+  });
+
+  if (!r.ok) {
+    const text = await r.text();
+    if (r.status === 422) {
+      // Fallback: repository_dispatch
+      const url2 = `${GH_API}/repos/${owner}/${repo}/dispatches`;
+      const r2 = await fetch(url2, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ event_type: "generate-apk", client_payload: inputs }),
+      });
+      if (!r2.ok) throw new Error(`GitHub 422 fallback failed: ${await r2.text()}`);
+      return { degraded: true, owner, repo, wf, branch };
     }
+    throw new Error(`GitHub ${r.status} ${r.statusText}: ${text}`);
+  }
+  return { degraded: false, owner, repo, wf, branch };
+}
 
-    // 3) 预检：从 result / trace 里提取“原文”；取不到就直接 400（不进严格校验）
-    const raw = extractRaw(orch);
-    if (!raw.trim()) {
-      return NextResponse.json(
-        {
-          contract: "v1",
-          runId,
-          step: "contract-precheck",
-          reason: [{ code: "E_NOT_JSON", message: "No raw LLM text to validate", path: "<root>" }],
-          meta: { _trace: orch.trace },
-        },
-        { status: 400, headers: CORS }
-      );
-    }
+/* ---------------- 路由主逻辑 ---------------- */
+export async function POST(req: NextRequest) {
+  let step = "start";
+  const runId = newRunId();
 
-    // 4) 严格解析 + 验证（保持原有顺序与逻辑）
-    const parsed = parseStrictJson(raw);
-    const validated = validateContractV1(parsed);
+  try {
+    step = "parse-input";
+    const input = await req.json().catch(() => ({} as any));
 
-    // 5) Contract → Plan → Sanitize（Sanitize 这里用安全占位；如有真实实现可替换）
-    const plan = contractV1ToPlan(validated);
-    const planSanitized = sanitizePlan(plan);
-
-    /* ---------------- 6) 触发 GitHub Actions（新增） ---------------- */
-    // 环境变量约定（你可以在 Vercel 上配置）：
-    // NDJC_GH_OWNER：目标仓库 owner
-    // NDJC_GH_REPO： 目标仓库 repo
-    // NDJC_GH_WORKFLOW：workflow 文件名（例如 android-build.yml）
-    // NDJC_GH_REF：   触发分支（默认 main）
-    // NDJC_GH_MODE：  "workflow"（默认）或 "repo"（repository_dispatch）
-    // NDJC_GITHUB_PAT / GITHUB_PAT / GH_PAT / GITHUB_TOKEN：鉴权 Token（优先 PAT）
-    const GH_OWNER = process.env.NDJC_GH_OWNER || "";
-    const GH_REPO = process.env.NDJC_GH_REPO || "";
-    const GH_WORKFLOW = process.env.NDJC_GH_WORKFLOW || "android-build.yml";
-    const GH_REF = process.env.NDJC_GH_REF || "main";
-    const GH_MODE = (process.env.NDJC_GH_MODE || "workflow").toLowerCase(); // "workflow" | "repo"
-    const GH_TOKEN = getGhToken();
-
-    let dispatched = false;
-    let ghInfo:
-      | { url: string; status: number; text: string; ok: boolean }
-      | { skipped: true; reason: string }
-      | null = null;
-
-    if (GH_OWNER && GH_REPO && GH_TOKEN) {
-      if (GH_MODE === "repo") {
-        // repository_dispatch 触发
-        ghInfo = await dispatchRepository({
-          owner: GH_OWNER,
-          repo: GH_REPO,
-          eventType: "ndjc-build",
-          clientPayload: { run_id: runId, template_key, mode },
-          token: GH_TOKEN,
-        });
-        dispatched = !!ghInfo.ok;
-      } else {
-        // 默认：workflow_dispatch 触发
-        ghInfo = await dispatchWorkflow({
-          owner: GH_OWNER,
-          repo: GH_REPO,
-          workflow: GH_WORKFLOW,
-          ref: GH_REF,
-          inputs: { run_id: runId, template_key, mode },
-          token: GH_TOKEN,
-        });
-        dispatched = !!ghInfo.ok;
-      }
-    } else {
-      ghInfo = {
-        skipped: true,
-        reason:
-          "Missing NDJC_GH_OWNER/NDJC_GH_REPO or GitHub token (NDJC_GITHUB_PAT/GITHUB_PAT/GH_PAT/GITHUB_TOKEN).",
+    // —— 编排（在线为主，失败回退最小对象）——
+    step = "orchestrate";
+    let o: any;
+    try {
+      if (process.env.NDJC_OFFLINE === "1" || input?.offline === true) throw new Error("force-offline");
+      if (!process.env.GROQ_API_KEY) throw new Error("groq-key-missing");
+      const model = process.env.GROQ_MODEL || input?.model || "llama-3.1-8b-instant";
+      o = await orchestrate({ ...input, provider: "groq", model, forceProvider: "groq" });
+      o = { ...o, _mode: `online(${model})` };
+    } catch (err: any) {
+      o = {
+        mode: input?.mode || "A",
+        template: input?.template || "circle-basic",
+        appName: input?.appName || input?.appTitle || "NDJC App",
+        packageId: input?.packageId || input?.packageName || "com.ndjc.demo.app",
+        _mode: `offline(${String(err?.message ?? err)})`,
       };
     }
 
-    // 7) 成功返回（含最关键的 trace 与触发结果，便于前端/日志定位）
+    // —— Contract v1（严格开启）——
+    const mustV1 = wantContractV1From(input);
+    if (!mustV1) {
+      return NextResponse.json(
+        { ok: false, runId, step: "contract-required", error: "Contract v1 is required in strict mode." },
+        { status: 400, headers: CORS }
+      );
+    }
+
+    step = "contract-precheck";
+    const raw = extractRawTraceText(o?._trace);
+    if (!raw || !String(raw).trim()) {
+      return NextResponse.json(
+        {
+          ok: false,
+          contract: "v1",
+          runId,
+          step,
+          reason: [{ code: "E_NOT_JSON", message: "No raw LLM text to validate", path: "<root>" }],
+        },
+        { status: 400, headers: CORS }
+      );
+    }
+
+    step = "contract-parse";
+    const parsed = parseStrictJson(raw);
+    if (!parsed.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          contract: "v1",
+          runId,
+          step,
+          reason: [{ code: "E_NOT_JSON", message: parsed.error, path: "<root>" }],
+        },
+        { status: 400, headers: CORS }
+      );
+    }
+
+    step = "contract-validate";
+    const validation = await validateContractV1(parsed.data);
+    if (!validation.ok) {
+      return NextResponse.json(
+        { ok: false, contract: "v1", runId, step, reason: validation.issues },
+        { status: 400, headers: CORS }
+      );
+    }
+
+    step = "contract-to-plan";
+    const planV1 = contractV1ToPlan(parsed.data);
+
+    // —— 合成带 trace 的 01（可控开关）——
+    const includeTrace = (process.env.NDJC_TRACE_IN_CONTRACT || "1").trim() === "1";
+    const trace = o?._trace || {};
+    const promptFile = trace?.source?.prompt_file || null;
+    const promptSha = trace?.source?.prompt_sha256 || null;
+    const promptFromEnv = trace?.source?.loaded_from_env ?? null;
+
+    const contractOut = includeTrace
+      ? {
+          ...parsed.data,
+          // 把来源打点塞进 metadata，便于肉眼查看；同时保留完整 _trace
+          metadata: {
+            ...(parsed.data?.metadata || {}),
+            trace: {
+              prompt_file: promptFile,
+              prompt_sha256: promptSha,
+              prompt_loaded_from_env: promptFromEnv,
+              model_mode: o?._mode || null,
+            },
+          },
+          _trace: trace,
+        }
+      : parsed.data;
+
+    // —— 先把 01/02/03 提交到 run 分支（严格守卫所需）——
+    step = "commit-requests";
+    const owner = process.env.GH_OWNER!;
+    const repo = process.env.GH_REPO!;
+    const token = process.env.GH_PAT!;
+    const wfBranch = process.env.GH_BRANCH || "main";
+    if (!owner || !repo || !token) {
+      return NextResponse.json(
+        { ok: false, runId, step, error: "Missing GH_OWNER/GH_REPO/GH_PAT" },
+        { status: 500, headers: CORS }
+      );
+    }
+    const branch = `ndjc-run/${runId}`;
+    const runDir = `requests/${runId}`;
+
+    const applyStub = {
+      runId,
+      status: "pre-ci",
+      template: o?.template || planV1?.meta?.template || input?.template || "circle-basic",
+      appTitle: o?.appName || planV1?.meta?.appName,
+      packageName: o?.packageId || planV1?.meta?.packageId,
+      note: "Apply result will be finalized in CI pipeline.",
+      changes: [],
+      warnings: [],
+    };
+
+    // 生成一个可读的 summary，带上提示词来源
+    const summaryLines = [
+      `created by api; mode=${o?._mode || "unknown"}`,
+      includeTrace ? `prompt_file=${promptFile || ""}` : "",
+      includeTrace ? `prompt_sha256=${promptSha || ""}` : "",
+      includeTrace ? `prompt_loaded_from_env=${promptFromEnv}` : "",
+    ].filter(Boolean);
+
+    await ensureRunBranchAndCommitFiles({
+      owner,
+      repo,
+      baseRef: wfBranch,
+      runBranch: branch,
+      token,
+      files: [
+        { path: `${runDir}/01_contract.json`, content: JSON.stringify(contractOut, null, 2) },
+        { path: `${runDir}/02_plan.json`, content: JSON.stringify(planV1, null, 2) },
+        { path: `${runDir}/03_apply_result.json`, content: JSON.stringify(applyStub, null, 2) },
+        { path: `${runDir}/actions-summary.txt`, content: summaryLines.join("\n") },
+      ],
+    });
+
+    // —— 触发 CI（plan 仍作为 inputs 传过去，CI 可再次校验/物化）——
+    step = "dispatch";
+    const inputs = {
+      runId,
+      branch,
+      template: applyStub.template,
+      appTitle: applyStub.appTitle,
+      packageName: applyStub.packageName,
+      mode: o?.mode || input?.mode || "A",
+      contract: "v1",
+      planB64: b64(JSON.stringify(planV1)),
+      orchestratorB64: undefined,
+      clientNote: o?._mode || "unknown",
+      preflight_mode: input?.preflight_mode || "strict",
+    };
+
+    if (process.env.NDJC_SKIP_ACTIONS === "1" || input?.skipActions === true) {
+      return NextResponse.json(
+        {
+          ok: true,
+          runId,
+          branch,
+          skipped: "actions",
+          actionsUrl: null,
+          degraded: null,
+          mode: inputs.mode,
+          contract: inputs.contract,
+        },
+        { headers: CORS }
+      );
+    }
+
+    const res = await dispatchWorkflow(inputs);
+    const actionsUrl = `https://github.com/${res.owner}/${res.repo}/actions/workflows/${res.wf}`;
+
     return NextResponse.json(
       {
         ok: true,
         runId,
-        contract: "v1",
-        meta: { _trace: orch.trace },
-        contract_raw_len: raw.length,
-        plan: planSanitized,
-        // NOTE: 前端只有在 dispatched === true 时显示“已触发”
-        dispatched,
-        gh: ghInfo,
+        branch,
+        actionsUrl,
+        degraded: res.degraded,
+        mode: inputs.mode,
+        contract: inputs.contract,
       },
-      { status: 200, headers: CORS }
+      { headers: CORS }
     );
   } catch (e: any) {
-    return NextResponse.json(
-      {
-        ok: false,
-        step: "route-catch",
-        error: String(e?.message || e),
-      },
-      { status: 500, headers: CORS }
-    );
+    return NextResponse.json({ ok: false, runId, step, error: String(e?.message ?? e) }, { status: 500, headers: CORS });
   }
 }
