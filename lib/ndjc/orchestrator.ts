@@ -1,5 +1,6 @@
 // lib/ndjc/orchestrator.ts
 // 最小改动修正版：消除 ?raw 导入、保证 raw 非空、仅把 ChatMessage[] 传给 callGroqChat
+// 方案B：保证 Contract v1 的 metadata.template 一定存在（来源于 template_key）
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -44,7 +45,7 @@ async function fileSha256Short(filePath: string): Promise<string> {
   }
 }
 
-/** 最小离线占位（可后续替换为正式 offline 逻辑） */
+/** 最小离线占位（与校验器对齐到 metadata.template） */
 async function generateOfflineContractV1(input: {
   runId: string;
   nl: string;
@@ -53,11 +54,14 @@ async function generateOfflineContractV1(input: {
 }) {
   const payload = {
     contract: "v1",
-    meta: {
-      provider: "offline",
-      runId: input.runId,
-      template_key: input.template_key,
-      preset_hint: input.preset_hint ?? "",
+    metadata: {
+      template: input.template_key,           // ✅ 关键字段：与校验器一致
+      // 其余信息可作为附属元数据（不被校验依赖）
+      ndjc: {
+        provider: "offline",
+        runId: input.runId,
+        preset_hint: input.preset_hint ?? "",
+      },
     },
     anchorsGrouped: {
       text: {
@@ -72,6 +76,31 @@ async function generateOfflineContractV1(input: {
     },
   };
   return JSON.stringify(payload);
+}
+
+/** 如果 LLM 返回缺失 metadata.template，则强制补上 template_key */
+function ensureMetadataTemplate(raw: string, template_key: string, trace: AnyRecord) {
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return { raw, changed: false };
+
+    // 仅当没有 metadata.template 或为空字符串时补齐
+    const md = (obj.metadata ??= {});
+    if (
+      typeof md.template !== "string" ||
+      !md.template ||
+      md.template.trim().length === 0
+    ) {
+      md.template = template_key;
+      trace.postprocess = trace.postprocess || {};
+      trace.postprocess.injected_metadata_template = true;
+      return { raw: JSON.stringify(obj), changed: true };
+    }
+    return { raw, changed: false };
+  } catch {
+    // 不是 JSON（或解析失败）则保持原样交由后续严格解析报错
+    return { raw, changed: false };
+  }
 }
 
 function toMessages(args: {
@@ -212,6 +241,10 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateR
       };
     }
   }
+
+  // ✅ 统一后处理：确保 metadata.template 存在
+  const fixed = ensureMetadataTemplate(raw, template_key, trace);
+  raw = fixed.raw;
 
   return {
     ok: true,
