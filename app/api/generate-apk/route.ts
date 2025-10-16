@@ -23,7 +23,7 @@ export async function OPTIONS() {
 
 /* -------------- 小工具 -------------- */
 function newRunId() {
-  // next/server 下可用的 web crypto
+  // next/server 下可用的 web crypto（Node18+ 也有 globalThis.crypto）
   const r = crypto.getRandomValues(new Uint8Array(6));
   const hex = Array.from(r).map((b) => b.toString(16).padStart(2, "0")).join("");
   return `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}-${hex}`;
@@ -185,24 +185,7 @@ export async function POST(req: NextRequest) {
     step = "parse-input";
     const input = await req.json().catch(() => ({} as any));
 
-    // —— 编排（在线为主，失败回退最小对象）——
-    step = "orchestrate";
-    let o: any;
-    try {
-      if (process.env.NDJC_OFFLINE === "1" || input?.offline === true) throw new Error("force-offline");
-      if (!process.env.GROQ_API_KEY) throw new Error("groq-key-missing");
-      const model = process.env.GROQ_MODEL || input?.model || "llama-3.1-8b-instant";
-
-      // 让 orchestrator 自行处理在线调用；它内部失败会回退为 offline
-      o = await orchestrate({ ...input, provider: "groq", model, forceProvider: "groq" });
-      o = { ...o, _mode: `online(${model})` };
-    } catch (err: any) {
-      // 不中断，显式走 orchestrator 的 offline 兜底，确保返回里有 raw / trace
-      o = await orchestrate({ ...input, provider: "offline", forceProvider: "offline" });
-      o = { ...o, _mode: `offline(${String(err?.message ?? err)})` };
-    }
-
-    // —— Contract v1（严格开启）——
+    // —— 合同版本要求 —— //
     const mustV1 = wantContractV1From(input);
     if (!mustV1) {
       return NextResponse.json(
@@ -211,15 +194,63 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // —— 调用 orchestrator（优先在线，正确处理 429/5xx）——
+    step = "orchestrate";
+    let o: any;
+    const forceOffline = process.env.NDJC_OFFLINE === "1" || input?.offline === true;
+
+    if (forceOffline) {
+      // 强制离线（本地兜底）
+      o = await orchestrate({ ...input, provider: "offline", forceProvider: "offline" });
+      o = { ...o, _mode: "offline(forced)" };
+    } else {
+      try {
+        if (!process.env.GROQ_API_KEY) {
+          const err = new Error("groq-key-missing");
+          // 缺 key 直接 500
+          return NextResponse.json({ ok: false, runId, step, error: err.message }, { status: 500, headers: CORS });
+        }
+        const model = process.env.GROQ_MODEL || input?.model || "llama-3.1-8b-instant";
+        o = await orchestrate({ ...input, provider: "groq", model, forceProvider: "groq" });
+        o = { ...o, _mode: `online(${model})` };
+      } catch (err: any) {
+        // orchestrator 在 LLM 失败时会抛出带 status 的错误（429/5xx）
+        const code = Number(err?.status || 0);
+        const msg = String(err?.message || "LLM upstream error");
+        const trace = (err as any)?.trace || undefined;
+
+        // 仅对 429/5xx 直接向前端透传，避免之后被误判为 400
+        if (code === 429 || code >= 500) {
+          return NextResponse.json(
+            {
+              ok: false,
+              runId,
+              step: "orchestrate-online",
+              error: msg,
+              status: code,
+              meta: trace ? { _trace: trace } : undefined,
+            },
+            { status: code === 429 ? 429 : 503, headers: CORS }
+          );
+        }
+
+        // 其它错误：回退离线兜底生成（尽力而为）
+        o = await orchestrate({ ...input, provider: "offline", forceProvider: "offline" });
+        o = { ...o, _mode: `offline(${msg})` };
+      }
+    }
+
+    // —— Contract v1 预检：拿 LLM 原文（若 orchestrator 没提供则失败）——
     step = "contract-precheck";
-    // 兼容新老返回结构：o.raw -> o.trace.* -> o._trace(旧)
     const raw =
       (o as any)?.raw ??
       (o as any)?.trace?.raw_llm_text ??
       (o as any)?.trace?.retry_raw_llm_text ??
       extractRawTraceText((o as any)?._trace) ??
-      "";
+      ""; // 某些 orchestrator 实现里，在 _trace.* 里留有原文
+
     if (!raw || !String(raw).trim()) {
+      // 没有可校验的 JSON 原文（多半是上游失败/限流），改用 502 显式表示上游不可用
       return NextResponse.json(
         {
           ok: false,
@@ -227,12 +258,13 @@ export async function POST(req: NextRequest) {
           runId,
           step,
           reason: [{ code: "E_NOT_JSON", message: "No raw LLM text to validate", path: "<root>" }],
-          meta: { _trace: (o as any)?.trace ?? (o as any)?._trace ?? null },
+          meta: { _trace: (o as any)?.trace ?? (o as any)?._trace ?? null, mode: (o as any)?._mode ?? "unknown" },
         },
-        { status: 400, headers: CORS }
+        { status: 502, headers: CORS }
       );
     }
 
+    // —— 解析为 JSON —— //
     step = "contract-parse";
     const parsed = parseStrictJson(raw);
     if (!parsed.ok) {
@@ -248,6 +280,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // —— 严格校验（对照 registry） —— //
     step = "contract-validate";
     const validation = await validateContractV1(parsed.data);
     if (!validation.ok) {
@@ -257,6 +290,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // —— 生成 plan —— //
     step = "contract-to-plan";
     const planV1 = contractV1ToPlan(parsed.data);
 
@@ -270,7 +304,6 @@ export async function POST(req: NextRequest) {
     const contractOut = includeTrace
       ? {
           ...parsed.data,
-          // 把来源打点塞进 metadata，便于肉眼查看；同时保留完整 _trace
           metadata: {
             ...(parsed.data?.metadata || {}),
             trace: {
@@ -310,7 +343,6 @@ export async function POST(req: NextRequest) {
       warnings: [] as any[],
     };
 
-    // 生成一个可读的 summary，带上提示词来源
     const summaryLines = [
       `created by api; mode=${(o as any)?._mode || "unknown"}`,
       includeTrace ? `prompt_file=${promptFile || ""}` : "",
@@ -364,7 +396,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ⚠️ 按你的要求：保持现有触发 Actions 的实现不变
     const res = await dispatchWorkflow(inputs);
     const actionsUrl = `https://github.com/${res.owner}/${res.repo}/actions/workflows/${res.wf}`;
 
@@ -381,6 +412,7 @@ export async function POST(req: NextRequest) {
       { headers: CORS }
     );
   } catch (e: any) {
+    // 兜底：未知异常 -> 500
     return NextResponse.json({ ok: false, runId, step, error: String(e?.message ?? e) }, { status: 500, headers: CORS });
   }
 }
