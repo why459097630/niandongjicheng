@@ -668,7 +668,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
         msgs.push({ role: "user", content: [retryText, bullets.join("\n")].filter(Boolean).join("\n\n") });
       }
 
-      const r = await callGroqChat(msgs, { json: true, temperature: 0 });
+      const r = await callGroqChat(msgs, { temperature: 0 /*, max_tokens: 2048 */ });
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
       lastText = text;
       const maybe = parseJsonSafely(text) as any;
