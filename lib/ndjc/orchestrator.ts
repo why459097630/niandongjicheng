@@ -534,7 +534,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   if (Array.isArray(gradle.permissions)) permissions = gradle.permissions;
 
   // files：严格要求对象；若模型返回数组则不接入（避免“数组形态”扩散）
-  let companions: Companion[] = [];
   if (allowCompanions && parsed?.maybe && parsed.maybe.files && typeof parsed.maybe.files === "object" && !Array.isArray(parsed.maybe.files)) {
     // 如果你需要把 files 对象里的某些路径下发到 companions，可在这里按需映射；
     // 目前保持空，交由后续专门的物化步骤处理。
