@@ -32,11 +32,7 @@ type Registry = {
   defaults?: {
     text?: Record<string, string>;
     list?: Record<string, string[]>;
-    gradle?: {
-      applicationId?: string;
-      resConfigs?: string[];
-      permissions?: string[];
-    };
+    gradle?: { applicationId?: string; resConfigs?: string[]; permissions?: string[] };
   };
   placeholders?: {
     text?: Record<string, string>;
@@ -45,11 +41,7 @@ type Registry = {
     if?: Record<string, boolean>;
     hook?: Record<string, string>;
     resources?: Record<string, string>;
-    gradle?: {
-      applicationId?: string;
-      resConfigs?: string[];
-      permissions?: string[];
-    };
+    gradle?: { applicationId?: string; resConfigs?: string[]; permissions?: string[] };
   };
   valueFormat?: {
     text?: Record<string, { regex?: string; enum?: string[]; minLen?: number; maxLen?: number }>;
@@ -131,13 +123,11 @@ function ensurePackageId(input?: string, fallback = "com.example.ndjc") {
   if (!v) return fallback;
   return v.toLowerCase();
 }
-
 function mkPermissionsXml(perms?: string[]) {
   const list = (perms || []).map((p) => (p || "").trim()).filter(Boolean);
   if (!list.length) return undefined;
   return list.map((p) => `<uses-permission android:name="${p}"/>`).join("\n");
 }
-
 function mkIntentFiltersXml(host?: string | null) {
   const h = (host || "").trim();
   if (!h) return undefined;
@@ -148,7 +138,6 @@ function mkIntentFiltersXml(host?: string | null) {
   <data android:scheme="https" android:host="${h}"/>
 </intent-filter>`;
 }
-
 function normalizeLocales(locales?: string[]) {
   const arr = (locales || []).map((s) => (s || "").trim()).filter(Boolean);
   return arr.length ? arr : ["en"];
@@ -266,11 +255,11 @@ async function loadRetryPrompt() {
     return { path: abs, text: raw, sha, size };
   } catch (e: any) {
     console.warn(`[NDJC:orchestrator] retry prompt load failed: ${e?.message}`);
-    return { path: hint, text: "", sha: "", size: 0 };
+    return { path: hint, text: "", sha, size: 0 };
   }
 }
 
-/** ---------- 校验：只判断，不篡改 ---------- */
+/** ---------- 合同校验（不做值篡改） ---------- */
 function containsAngleBrackets(v: any) {
   if (v == null) return false;
   return /[<>]/.test(String(v));
@@ -295,10 +284,10 @@ function validateValue(group: AnchorGroup, key: string, val: any, reg: Registry)
     if (!s.length) return { ok: false, reason: "empty" };
     if (containsAngleBrackets(s)) return { ok: false, reason: "angle_brackets" };
     if (!c) return { ok: true };
-    if (c.minLen && s.length < c.minLen) return { ok: false, reason: `minLen` };
+    if ((c as any).minLen && s.length < (c as any).minLen) return { ok: false, reason: `minLen` };
     if ((c as any).maxLen && s.length > (c as any).maxLen) return { ok: false, reason: `maxLen` };
-    if (c.enum && Array.isArray(c.enum) && !c.enum.includes(s)) return { ok: false, reason: "enum" };
-    if (c.regex && !(new RegExp(c.regex).test(s))) return { ok: false, reason: "regex" };
+    if ((c as any).enum && Array.isArray((c as any).enum) && !(c as any).enum.includes(s)) return { ok: false, reason: "enum" };
+    if ((c as any).regex && !(new RegExp((c as any).regex).test(s))) return { ok: false, reason: "regex" };
     return { ok: true };
   }
 
@@ -339,7 +328,6 @@ function validateValue(group: AnchorGroup, key: string, val: any, reg: Registry)
   return { ok: true };
 }
 
-/** 顶层/分组/锚点 合规性检查（不做值替换） */
 function validateContractV1(maybe: any, reg: Registry) {
   const report = {
     topLevel: [] as string[],
@@ -424,7 +412,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   const sysPrompt = await loadSystemPrompt();
   const rtyPrompt = await loadRetryPrompt();
 
-  // 基础语义：仅用于生成 permissions/resConfigs 的派生（不会写回模型输出）
+  // 仅用于派生（不写回模型输出）
   let appName = input.appName || "NDJC App";
   let homeTitle = input.homeTitle || "Home";
   let mainButtonText = input.mainButtonText || "Start";
@@ -432,7 +420,6 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   let permissions = input.permissions || ["android.permission.INTERNET"];
   let locales = normalizeLocales(input.locales);
-
   let companions: Companion[] = Array.isArray(input._companions) ? sanitizeCompanions(input._companions) : [];
 
   const mode: "A" | "B" = "B";
@@ -452,7 +439,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     },
   };
 
-  /** 以“Playground 成功用法”直喂模型：system=硬约束；user=需求 + registry 原文 */
+  /** 与 Playground 一致的消息载荷：system=硬约束；user=需求 + registry 原文 */
   const baseUser = [
     "Use the following inputs to produce the final NDJC Contract v1 JSON (output only the JSON object; no explanations):",
     "",
@@ -480,6 +467,8 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   const maxRetries = 2;
   let parsed: any = null;
   let lastText = "";
+  let lastErrorStatus: number | undefined;
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const msgs: any[] = [
@@ -504,25 +493,42 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
         msgs.push({ role: "user", content: [retryText, bullets.join("\n")].filter(Boolean).join("\n\n") });
       }
 
-      // 关键：groq.ts 已把 JSON Mode / top_p / max_tokens 对齐
+      // groq.ts 内部已做 JSON Mode + 重试
       const text = await callGroqChat(msgs, { temperature: 0 });
       lastText = text;
 
-      const maybe = parseJsonSafely(text) as any;
-      const report = validateContractV1(maybe, reg);
+      const maybe = parseJsonSafely(text);
+      if (!maybe || typeof maybe !== "object") {
+        const err = Object.assign(new Error("LLM returned non-JSON or empty text"), { status: 502 });
+        _trace.retries.push({ attempt, ok: false, error: err.message });
+        throw err;
+      }
 
+      const report = validateContractV1(maybe, reg);
       parsed = { maybe, report, ok: report.ok, text };
       _trace.retries.push({ attempt, report, ok: report.ok });
 
       if (report.ok) break;
     } catch (e: any) {
-      _trace.retries.push({ attempt, error: e?.message || String(e) });
+      lastErrorStatus = e?.status;
+      _trace.retries.push({ attempt, error: e?.message || String(e), status: lastErrorStatus });
+      if (attempt >= maxRetries) throw e; // 最终失败：交由 API 层映射 429/503
+      // 进入下一轮提示式重试
     }
   }
 
-  // 将“最终可用的锚点信息”提取出来（不做篡改）
+  if (!parsed?.ok) {
+    // 理论上已在上面抛出；此处留守护
+    const err = Object.assign(new Error("Failed to obtain a valid NDJC Contract v1 JSON"), {
+      status: lastErrorStatus || 502,
+      trace: _trace,
+    });
+    throw err;
+  }
+
+  // 提取模型产物（不做本地篡改）
   let appName2 = appName, packageId2 = packageId, homeTitle2 = homeTitle, mainButtonText2 = mainButtonText;
-  const anchorsGrouped = parsed?.maybe?.anchorsGrouped || {};
+  const anchorsGrouped = parsed.maybe.anchorsGrouped || {};
   if (anchorsGrouped?.text) {
     appName2 = anchorsGrouped.text["NDJC:APP_LABEL"] || appName2;
     homeTitle2 = anchorsGrouped.text["NDJC:HOME_TITLE"] || homeTitle2;
@@ -533,13 +539,8 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   if (Array.isArray(gradle.resConfigs)) locales = normalizeLocales(gradle.resConfigs);
   if (Array.isArray(gradle.permissions)) permissions = gradle.permissions;
 
-  // files：严格要求对象；若模型返回数组则不接入（避免“数组形态”扩散）
-  if (allowCompanions && parsed?.maybe && parsed.maybe.files && typeof parsed.maybe.files === "object" && !Array.isArray(parsed.maybe.files)) {
-    // 如果你需要把 files 对象里的某些路径下发到 companions，可在这里按需映射；
-    // 目前保持空，交由后续专门的物化步骤处理。
-    companions = sanitizeCompanions([]);
-  }
-
+  // files：严格要求对象，当前阶段不物化 companions（保持为空或后续步骤处理）
+  // 不重复声明 companions 变量，避免 TS 冲突
   const _traceOut = {
     ..._trace,
     ok: !!parsed?.ok,
@@ -574,7 +575,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     intentFiltersXml,
     themeOverridesXml,
 
-    companions,
+    companions, // 若后续需要基于 files 物化，再在下游单独处理
     _trace: _traceOut,
   };
 }
