@@ -255,7 +255,7 @@ async function loadRetryPrompt() {
     return { path: abs, text: raw, sha, size };
   } catch (e: any) {
     console.warn(`[NDJC:orchestrator] retry prompt load failed: ${e?.message}`);
-    return { path: hint, text: "", sha, size: 0 };
+    return { path: hint, text: "", sha: "", size: 0 };
   }
 }
 
