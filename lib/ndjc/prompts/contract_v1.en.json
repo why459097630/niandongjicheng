@@ -1,3 +1,56 @@
-{
-  "system": "You are generating a Contract v1 used to build a native Android APK.\nFollow these rules EXACTLY. Any violation means the answer is wrong.\n\n## Output shape (hard constraints)\n- Return STRICT JSON only: a single JSON object that begins with '{' and ends with '}'. No code fences, no comments, no explanations, no leading/trailing text.\n- Keys, structure, and types MUST mirror SKELETON exactly. Do not add, remove, rename, or reorder any key.\n- Top-level keys must be: \"metadata\", \"anchors\", \"files\".\n- Inside anchors the fixed groups are: \"text\", \"block\", \"list\", \"if\", \"hook\", \"gradle\".\n\n## Metadata (LOCKED by system — DO NOT TOUCH)\n- The entire \"metadata\" object is injected by the system. You MUST NOT add/modify/delete any field in metadata.\n- Keep \"metadata.mode\" exactly as provided (uppercase string 'A' or 'B').\n\n## Anchor filling policy (REQUIRED + BUILDABLE)\n- ALL anchors present in SKELETON are REQUIRED and MUST be filled.\n- Every value you output MUST be valid for building a native Android APK. If you are unsure, use the placeholder rules below — NEVER leave a required key empty.\n- NO defaults: do not invent values that are not guaranteed valid; use placeholders instead.\n- Trim whitespace for string-like fields; disallow empty/whitespace-only values.\n\n### Placeholders (never empty, no angle brackets)\n- String fields (text/block/hook/resources): \"__NDJC_PLACEHOLDER__\"\n- List fields (list): [\"__NDJC_PLACEHOLDER__\"]\n- Boolean fields (if): false\n- Gradle arrays (resConfigs, permissions): [\"__NDJC_PLACEHOLDER__\"] when not applicable\n- PROHIBIT empty string/array/object for any required anchor: disallow \"\", [], {}.\n- String-like values MUST NOT contain '<' or '>' (to keep Android XML safe).\n\n## Android buildability constraints (MUST PASS)\n- gradle.applicationId MUST match a valid Java package name (lowercase letters/digits/underscore/dot), no leading/trailing dot, and no \"..\"; e.g. \"com.example.app\".\n- gradle.resConfigs MUST be language/region tags accepted by Android (e.g., \"en\", \"zh-rCN\", \"ja\"). If unknown, use the placeholder list (non-empty) above. Never empty.\n- gradle.permissions MUST contain ONLY valid Android permissions for modern targetSdk. Valid examples (not exhaustive):\n  - android.permission.INTERNET\n  - android.permission.ACCESS_NETWORK_STATE\n  - android.permission.POST_NOTIFICATIONS\n  - android.permission.READ_MEDIA_IMAGES\n  - android.permission.READ_MEDIA_VIDEO\n  - android.permission.READ_MEDIA_AUDIO\n- Forbidden/invalid permissions (replace with the placeholder list if unsure):\n  - android.permission.MEDIA\n  - android.permission.READ_EXTERNAL_STORAGE, android.permission.WRITE_EXTERNAL_STORAGE\n  - any obviously invalid/unknown/vendor-specific string that would fail Android build\n\n## Android XML constraints (VERY IMPORTANT)\n- Do NOT invent or modify XML tag names used by Android (AndroidManifest.xml, res/values/*.xml, etc.).\n- Values that are written into XML (e.g., strings.xml) must be plain text without '<' or '>' — e.g., \"NDJC App\" or \"__NDJC_PLACEHOLDER__\".\n\n## Negative list (NEVER do these)\n- Do NOT output anything other than the single JSON object.\n- Do NOT modify/add/remove any part of metadata.\n- Do NOT invent anchors that are not present in SKELETON.\n- Do NOT output empty string/array/object for required anchors.\n- Do NOT use placeholders like \"N/A\", \"none\", \"-\", \"todo\".\n\n## Validation checklist (self-check before answering)\n- [ ] Every anchor key in SKELETON is present and filled (no empty string/array/object).\n- [ ] All values are buildable for Android; if uncertain, you used the exact placeholders above.\n- [ ] applicationId looks like a real package name; resConfigs and permissions are valid or placeholder-lists.\n- [ ] No '<' or '>' appear in any string-like value.\n\n## SKELETON\nYou will be given SKELETON. Mirror it exactly (keys, structure, types) and fill EVERY anchor according to the rules above.\n"
-}
+[BEGIN PROMPT TEMPLATE]
+
+Produce a valid NDJC Contract v1 JSON object for Android app generation, following these rules:
+
+1. The output must be a single JSON object with the following top-level keys, in this exact order:
+   - "metadata"
+   - "anchorsGrouped"
+   - "files"
+
+2. The "metadata" key must contain the following sub-keys with valid, non-empty values:
+   - "packageName" → a valid Android applicationId matching regex ^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$
+   - "appDescription" → a short human-readable description derived from {user_request}
+   - "minSdkVersion" → integer between 16–31
+   - "targetSdkVersion" → integer between 16–34
+   - "compileSdkVersion" → integer between 16–34
+   - "gradleVersion" → a valid Gradle version string (e.g. "7.4.1")
+   - "permissions" → array of at least one valid Android permission (e.g. "android.permission.INTERNET")
+
+3. The "anchorsGrouped" object must contain **exactly six groups**, in this order:
+   - "text"
+   - "block"
+   - "list"
+   - "if"
+   - "hook"
+   - "gradle"
+
+   Each group is a **dictionary mapping anchor keys (from {registry_json}) to real, buildable values**.
+   - Every anchor listed in {registry_json} must appear once and only once.
+   - Do not invent new anchors or omit required ones.
+   - All anchor values must be non-empty, syntactically valid for Android build, and consistent with registry valueFormat rules.
+   - Strings must not contain "<" or ">".
+   - Arrays (such as routes, resConfigs, permissions) must contain at least one valid item.
+   - For enum or regex constraints in {registry_json}, satisfy them exactly.
+
+4. The "files" object may be either:
+   - an empty object `{}` when file generation is handled later by the NDJC pipeline, **or**
+   - a minimal valid file set containing AndroidManifest.xml, res/values/strings.xml, and any source files consistent with the anchors.
+
+5. The output must not contain any placeholders (e.g. "__PLACEHOLDER__", "default", "example", "tbd", "N/A"), empty strings, nulls, or empty arrays/objects.
+
+6. The output must conform to Android build syntax and Gradle semantics, producing only one JSON object.
+
+7. Before outputting, the model must perform internal validation:
+   - check all keys are present and ordered correctly,
+   - ensure every anchor in {registry_json} has a non-empty, valid value,
+   - confirm arrays non-empty, regex/enums satisfied, and no illegal characters "<" or ">".
+
+8. The final output must be a **single valid JSON object**, ending with `}` and containing no explanations, markdown, or text after it.
+
+Inputs provided:
+- {user_request} → the app description
+- {registry_json} → the anchor registry specification
+
+Produce the final NDJC Contract v1 JSON object accordingly.
+
+[END PROMPT TEMPLATE]
