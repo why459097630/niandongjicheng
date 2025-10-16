@@ -22,6 +22,7 @@ const API_URL = "https://api.groq.com/openai/v1/chat/completions";
  * 与 OpenAI Chat Completions 兼容的 Groq API：
  * - 返回首条 message 的 content（字符串）
  * - 关闭流式，统一简单用法
+ * - 默认开启 JSON 输出约束（与 Playground 的 JSON Mode 一致）
  */
 async function groqChat(messages: ChatMessage[], opts: ChatOpts = {}): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
@@ -35,10 +36,10 @@ async function groqChat(messages: ChatMessage[], opts: ChatOpts = {}): Promise<s
     model,
     messages,
     temperature: opts.temperature ?? 0,
-    top_p: opts.top_p ?? 1,
-    max_tokens: opts.max_tokens ?? 2048,
-    stream: false, // 一律关闭流式，避免类型不匹配
-    response_format: { type: "text" }, // 明确返回文本
+    top_p: opts.top_p ?? 0,            // 对齐 Playground：严格确定性
+    max_tokens: opts.max_tokens ?? 4096, // 防截断：NDJC 合同较长
+    stream: false,                     // 一律关闭流式，避免中途截断/拼接
+    response_format: { type: "json_object" }, // 与 Playground JSON Mode 等价
   };
 
   const res = await fetch(API_URL, {
@@ -65,6 +66,6 @@ async function groqChat(messages: ChatMessage[], opts: ChatOpts = {}): Promise<s
 }
 
 // 兼容多种导入写法
-export { groqChat };                 // 命名导出
-export { groqChat as callGroqChat }; // 兼容老代码命名
-export default groqChat;             // 默认导出
+export { groqChat };
+export { groqChat as callGroqChat };
+export default groqChat;
