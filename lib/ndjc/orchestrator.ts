@@ -348,21 +348,27 @@ function validateByRules(
   }
   // resConfigs
   {
-    let arr = Array.isArray(doc.gradle.resConfigs) ? doc.gradle.resConfigs.map(String) : seed.locales;
-    if (!arr.length) arr = seed.locales;
-    const re = new RegExp(rules.gradle?.resConfigs?.itemRegex || LOCALE_ITEM.source);
-    arr = arr.filter((x: string) => re.test(x));
-    if (!arr.length) arr = ["en"];
-    doc.gradle.resConfigs = arr;
+     let arr: string[] = Array.isArray(doc.gradle.resConfigs)
+      ? doc.gradle.resConfigs.map(String)
+      : [];
+
+     const re = new RegExp(rules.gradle?.resConfigs?.itemRegex || LOCALE_ITEM.source);
+     arr = arr.filter((x: string) => re.test(x));
+
+     if (!arr.length) arr = ["en"];
+     doc.gradle.resConfigs = arr;
   }
   // permissions
   {
-    let arr = Array.isArray(doc.gradle.permissions) ? doc.gradle.permissions.map(String) : seed.permissions;
-    if (!arr.length) arr = seed.permissions;
-    const re = new RegExp(rules.gradle?.permissions?.itemRegex || PERM_ITEM.source);
-    arr = arr.filter((x) => re.test(x));
-    if (!arr.length) arr = ["android.permission.INTERNET"];
-    doc.gradle.permissions = arr;
+     let arr: string[] = Array.isArray(doc.gradle.permissions)
+       ? doc.gradle.permissions.map(String)
+       : [];
+
+     const re = new RegExp(rules.gradle?.permissions?.itemRegex || PERM_ITEM.source);
+     arr = arr.filter((x: string) => re.test(x));
+
+     if (!arr.length) arr = ["android.permission.INTERNET"];
+     doc.gradle.permissions = arr;
   }
 
   return { doc, report };
