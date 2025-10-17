@@ -1,0 +1,91 @@
+{
+  "placeholders": ["__NDJC_PLACEHOLDER__", "default", "example", "tbd", "N/A", "-", ""],
+  "forbiddenChars": ["<", ">"],
+
+  "validation": {
+    "topLevelOrder": ["metadata", "anchorsGrouped", "files"],
+    "groupsOrder": ["text", "block", "list", "if", "hook", "gradle"],
+
+    "minLen": {
+      "block.HOME_HEADER": 30,
+      "block.HOME_BODY": 30,
+      "block.HOME_ACTIONS": 30
+    },
+
+    "enums": {
+      "text.NDJC:FEED_SORT": ["date", "popularity", "rating"]
+    },
+
+    "regex": {
+      "text.NDJC:PACKAGE_NAME": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$",
+      "gradle.applicationId": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$",
+      "text.THEME_COLORS": "^\\{\\\"primary\\\":\\\"#[0-9A-Fa-f]{6}\\\",\\\"secondary\\\":\\\"#[0-9A-Fa-f]{6}\\\"\\}$"
+    },
+
+    "listItemRegex": {
+      "list.ROUTES": "^[a-z][a-z0-9_-]*$",
+      "gradle.resConfigs": "^[a-z]{2}(-r[A-Z]{2})?$",
+      "gradle.permissions": "^android\\.permission\\.(INTERNET|ACCESS_NETWORK_STATE|READ_MEDIA_IMAGES|READ_MEDIA_VIDEO|READ_MEDIA_AUDIO|POST_NOTIFICATIONS|CAMERA|ACCESS_FINE_LOCATION)$"
+    },
+
+    "listMinItems": {
+      "list.ROUTES": 1,
+      "gradle.resConfigs": 1,
+      "gradle.permissions": 1
+    },
+
+    "booleans": [
+      "text.NDJC:DARK_MODE",
+      "text.NDJC:I18N_ENABLED",
+      "text.NDJC:ANIM_ENABLED",
+      "text.NDJC:SEED_ENABLED",
+      "text.NDJC:DRAFT_ENABLED",
+      "text.NDJC:USE_APP_BUNDLE",
+      "text.NDJC:DEBUG_LOG_ENABLED",
+      "text.NDJC:CRASHLYTICS_ENABLED"
+    ]
+  },
+
+  "normalize": {
+    "coerceBooleanStrings": true,
+    "localeMap": {
+      "zh-CN": "zh-rCN",
+      "en-US": "en"
+    }
+  },
+
+  "fix_table": {
+    "padTextMinLen": 30,
+
+    "defaults": {
+      "text.THEME_COLORS": "{\"primary\":\"#7C3AED\",\"secondary\":\"#10B981\"}",
+      "text.NDJC:FEED_SORT": "date",
+      "text.NDJC:FONT_FAMILY_PRIMARY": "OpenSans",
+      "text.NDJC:FONT_FAMILY_SECONDARY": "Montserrat",
+      "text.NDJC:PAGING_SIZE": "10",
+      "text.NDJC:ANIM_DURATION_MS": "300",
+      "text.NDJC:DATA_SOURCE": "api.example.com",
+      "text.NDJC:OFFLINE_POLICY": "cache",
+      "text.NDJC:PRIVACY_POLICY": "https://example.com/privacy",
+      "text.ROUTE_HOME": "home",
+      "text.ROUTE_DETAIL": "detail"
+    },
+
+    "listDefaults": {
+      "list.ROUTES": ["home"]
+    },
+
+    "gradleDefaults": {
+      "gradle.resConfigs": ["en", "zh-rCN"],
+      "gradle.permissions": ["android.permission.INTERNET"]
+    },
+
+    "fallbackByGroup": {
+      "text": "NDJC value",
+      "block": "Welcome to NDJC. This section provides useful content for your Android app experience. Enjoy exploring features and content seamlessly.",
+      "list": ["home"],
+      "if": { "ENABLED": "true" },
+      "hook": { "STATUS": "enabled" }
+    }
+  }
+}
