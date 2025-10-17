@@ -351,7 +351,7 @@ function validateByRules(
     let arr = Array.isArray(doc.gradle.resConfigs) ? doc.gradle.resConfigs.map(String) : seed.locales;
     if (!arr.length) arr = seed.locales;
     const re = new RegExp(rules.gradle?.resConfigs?.itemRegex || LOCALE_ITEM.source);
-    arr = arr.filter((x) => re.test(x));
+    arr = arr.filter((x: string) => re.test(x));
     if (!arr.length) arr = ["en"];
     doc.gradle.resConfigs = arr;
   }
