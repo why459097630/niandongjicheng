@@ -493,7 +493,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
         msgs.push({ role: "user", content: retryMsg });
       }
 
-      const r = await callGroqChat(msgs, { temperature: 0, response_format: { type: "json_object" } as any });
+      const r = await callGroqChat(msgs, { temperature: 0 });
       const text = typeof r === "string" ? r : (r as any)?.text ?? "";
       last = text;
       const json = parseJsonSafely(text) || {};
