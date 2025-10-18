@@ -5,6 +5,10 @@ import crypto from "node:crypto";
 import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
+// --- 方案A：静态导入 JSON，随函数一起打包 ---
+import registryJson from "@/lib/ndjc/anchors/registry.circle-basic.json";
+import rulesJson from "@/lib/ndjc/rules/ndjc-rules.json";
+
 /** ---------------- types ---------------- */
 type AnchorGroup = "text" | "block" | "list" | "if" | "hook" | "gradle";
 
@@ -101,10 +105,6 @@ const PERM_ITEM = /^android\.permission\.[A-Z_]+$/;
 function toUnixPath(p: string) {
   return (p || "").replace(/^[\\/]+/, "").replace(/\\/g, "/").replace(/\/+/g, "/");
 }
-function containsAngleBrackets(v: unknown) {
-  if (v == null) return false;
-  return /[<>]/.test(String(v));
-}
 function ensurePackageId(input?: string, fallback = "com.example.ndjc") {
   let v = (input || "").trim();
   if (!v) return fallback;
@@ -135,11 +135,13 @@ function localesToResConfigs(locales: string[]) {
   return locales.join(",");
 }
 async function readText(filePath: string) {
-  const abs = path.isAbsolute(filePath) ? filePath : path.join(ROOT, filePath);
+  const safe = filePath.replace(/^@\/+/, "");
+  const abs = path.isAbsolute(safe) ? safe : path.join(ROOT, safe);
   return fs.readFile(abs, "utf8");
 }
 async function readTextAndHash(filePath: string) {
-  const abs = path.isAbsolute(filePath) ? filePath : path.join(ROOT, filePath);
+  const safe = filePath.replace(/^@\/+/, "");
+  const abs = path.isAbsolute(safe) ? safe : path.join(ROOT, safe);
   const raw = await fs.readFile(abs, "utf8");
   const sha = crypto.createHash("sha256").update(raw, "utf8").digest("hex");
   return { abs, raw, sha, size: Buffer.byteLength(raw) };
@@ -151,29 +153,21 @@ function parseJsonSafely(text: string): any | null {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
-/** ---------- robust loaders: fs 优先，失败用静态 import 兜底 ---------- */
-async function loadJsonWithFallback<T>(fsPath: string, importPath: string): Promise<T> {
-  // 1) 尝试从文件系统读取
-  try {
-    const raw = await readText(fsPath);
-    return JSON.parse(raw) as T;
-  } catch {
-    // 2) 兜底：静态 import，确保被打包器收集到
-    //  - 需要 tsconfig 开了 resolveJsonModule；Next 默认也支持 json import
-    const mod: any = await import(/* @vite-ignore */ importPath);
-    return (mod?.default ?? mod) as T;
-  }
-}
-
 /** ---------------- load registry & rules & prompts ---------------- */
 async function loadRegistry(): Promise<Registry> {
-  const hintFs =
-    process.env.NDJC_REGISTRY_FILE ||
-    "lib/ndjc/anchors/registry.circle-basic.json";
-
-  // 重要：静态 import 的路径写死为源码相对路径，保证打包器能收集
-  const hintImport = "@/lib/ndjc/anchors/registry.circle-basic.json";
-  const json = await loadJsonWithFallback<Registry>(hintFs, hintImport);
+  // 1) 静态导入（最稳定）
+  if (registryJson) {
+    const j = JSON.parse(JSON.stringify(registryJson)) as Registry;
+    j.aliases ||= {};
+    j.required ||= {};
+    j.placeholders ||= {};
+    j.valueFormat ||= {};
+    return j;
+  }
+  // 2) 可选：使用环境变量覆盖（fs 读取，自动剥除 "@/")
+  const hint = (process.env.NDJC_REGISTRY_FILE || "lib/ndjc/anchors/registry.circle-basic.json").replace(/^@\/+/, "");
+  const raw = await readText(hint);
+  const json = JSON.parse(raw) as Registry;
   json.aliases ||= {};
   json.required ||= {};
   json.placeholders ||= {};
@@ -200,12 +194,14 @@ type Rules = {
 };
 
 async function loadRules(): Promise<Rules> {
-  const hintFs = process.env.NDJC_RULES_FILE || "lib/ndjc/rules/ndjc-rules.json";
-  const hintImport = "@/lib/ndjc/rules/ndjc-rules.json";
+  if (rulesJson) {
+    return JSON.parse(JSON.stringify(rulesJson)) as Rules;
+  }
+  const hint = (process.env.NDJC_RULES_FILE || "lib/ndjc/rules/ndjc-rules.json").replace(/^@\/+/, "");
   try {
-    return await loadJsonWithFallback<Rules>(hintFs, hintImport);
+    const raw = await readText(hint);
+    return JSON.parse(raw) as Rules;
   } catch {
-    // 最小兜底
     return {
       global: { forbidAngles: true, forbidPlaceholders: true },
       gradle: {
@@ -219,20 +215,24 @@ async function loadRules(): Promise<Rules> {
 }
 
 async function loadSystemPrompt() {
-  const hint = process.env.NDJC_PROMPT_SYSTEM_FILE || "lib/ndjc/prompts/contract_v1.en.json";
+  const hint = (process.env.NDJC_PROMPT_SYSTEM_FILE || "lib/ndjc/prompts/contract_v1.en.json").replace(/^@\/+/, "");
   try {
     const { abs, raw, sha, size } = await readTextAndHash(hint);
     let text = raw;
     try { const maybe = JSON.parse(raw); if (maybe?.system) text = String(maybe.system); } catch {}
     return { path: abs, text, sha, size };
-  } catch { return { path: hint, text: "Return JSON only.", sha: "", size: 0 }; }
+  } catch {
+    return { path: hint, text: "Return JSON only.", sha: "", size: 0 };
+  }
 }
 async function loadRetryPrompt() {
-  const hint = process.env.NDJC_PROMPT_RETRY_FILE || "lib/ndjc/prompts/contract_v1.retry.en.txt";
+  const hint = (process.env.NDJC_PROMPT_RETRY_FILE || "lib/ndjc/prompts/contract_v1.retry.en.txt").replace(/^@\/+/, "");
   try {
     const { abs, raw, sha, size } = await readTextAndHash(hint);
     return { path: abs, text: raw, sha, size };
-  } catch { return { path: hint, text: "Fix mistakes and return JSON only.", sha: "", size: 0 }; }
+  } catch {
+    return { path: hint, text: "Fix mistakes and return JSON only.", sha: "", size: 0 };
+  }
 }
 
 /** ---------------- normalize & whitelist ---------------- */
@@ -246,14 +246,16 @@ function pickWhitelist(group: AnchorGroup, reg: Registry): Set<string> {
     case "gradle": return new Set(["applicationId", "resConfigs", "permissions"]);
   }
 }
-function placeholderFor(group: AnchorGroup, key: string, reg: Registry): any {
-  const ph = reg.placeholders || {};
-  const g = (ph as any)[group] || {};
-  if ((g as any)[key] != null) return (g as any)[key];
-  if (group === "list" || group === "gradle") return PH_LIST;
-  if (group === "if") return false;
-  return PH_TEXT;
-}
+const PH = {
+  for(group: AnchorGroup, key: string, reg: Registry): any {
+    const ph = reg.placeholders || {};
+    const g = (ph as any)[group] || {};
+    if ((g as any)[key] != null) return (g as any)[key];
+    if (group === "list" || group === "gradle") return PH_LIST;
+    if (group === "if") return false;
+    return PH_TEXT;
+  }
+};
 function normalizeKey(k: string) {
   const s = (k || "").trim();
   if (/^(TEXT|BLOCK|LIST|IF|HOOK):/.test(s)) return s;
@@ -275,9 +277,7 @@ function applyWhitelist(raw: any, reg: Registry) {
   };
   for (const g of groups) {
     const m = src[g] || {};
-    for (const [k, v] of Object.entries(m)) {
-      put(out, normalizeKey(k), v);
-    }
+    for (const [k, v] of Object.entries(m)) put(out, normalizeKey(k), v);
   }
   if (src.gradle && typeof src.gradle === "object") out.gradle = { ...src.gradle };
 
@@ -297,19 +297,20 @@ function validateByRules(
 ) {
   const report = { missing: [] as string[], invalid: [] as string[], fixed: [] as string[] };
 
+  // required
   const req = reg.required || {};
   for (const g of ["text","block","list","if","hook"] as AnchorGroup[]) {
     const need = (req as any)[g] as string[] | undefined;
     if (!need) continue;
-    doc[g] ||= (g === "list" ? {} : {});
+    doc[g] ||= {};
     for (const k of need) {
       const v = doc[g][k];
       if (g === "list") {
-        if (!Array.isArray(v) || v.length === 0) { doc[g][k] = placeholderFor("list", k, reg); report.missing.push(`${g}:${k}`); }
+        if (!Array.isArray(v) || v.length === 0) { doc[g][k] = PH.for("list", k, reg); report.missing.push(`${g}:${k}`); }
       } else if (g === "if") {
         if (typeof v !== "boolean") { doc[g][k] = false; report.missing.push(`${g}:${k}`); }
       } else {
-        if (v == null || String(v) === "") { doc[g][k] = placeholderFor(g, k, reg); report.missing.push(`${g}:${k}`); }
+        if (v == null || String(v) === "") { doc[g][k] = PH.for(g, k, reg); report.missing.push(`${g}:${k}`); }
       }
     }
   }
@@ -323,7 +324,7 @@ function validateByRules(
     const fmt = (rules as any)[g] || {};
     for (const [k, v] of Object.entries<string>(doc[g] || {})) {
       let s = String(v ?? "");
-      if (!s.length || reject(s)) { doc[g][k] = placeholderFor(g, k, reg); report.invalid.push(`${g}:${k}`); continue; }
+      if (!s.length || reject(s)) { doc[g][k] = PH.for(g, k, reg); report.invalid.push(`${g}:${k}`); continue; }
       const rule = fmt[k];
       if (rule?.minLen && s.length < rule.minLen) { s = s.padEnd(rule.minLen, "."); doc[g][k] = s; report.fixed.push(`${g}:${k}(minLen)`); }
       if (rule?.regex && !(new RegExp(rule.regex)).test(s)) { report.invalid.push(`${g}:${k}(regex)`); }
@@ -331,18 +332,21 @@ function validateByRules(
   };
   checkTBH("text"); checkTBH("block"); checkTBH("hook");
 
+  // list
   for (const [k, arr] of Object.entries<any[]>(doc.list || {})) {
     const rule = rules.list?.[k];
     let a = Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
     if (!a.length && rule?.minItems) a = Array.from({ length: rule.minItems }, () => PH_TEXT);
     if (rule?.itemRegex) {
       const re = new RegExp(rule.itemRegex);
-      if (!a.every((x) => re.test(x))) { report.invalid.push(`list:${k}(itemRegex)`); }
+      if (!a.every((x) => re.test(x))) report.invalid.push(`list:${k}(itemRegex)`);
     }
     doc.list[k] = a;
   }
 
+  // gradle
   doc.gradle ||= {};
+  // applicationId
   {
     let appId = String(doc.gradle.applicationId ?? doc.text?.["NDJC:PACKAGE_NAME"] ?? "");
     appId = ensurePackageId(appId || seed.applicationId, seed.applicationId);
@@ -352,23 +356,21 @@ function validateByRules(
       doc.text ||= {}; doc.text["NDJC:PACKAGE_NAME"] = appId; report.fixed.push("text:NDJC:PACKAGE_NAME(sync)");
     }
   }
+  // resConfigs
   {
-     let arr: string[] = Array.isArray(doc.gradle.resConfigs)
-      ? doc.gradle.resConfigs.map(String)
-      : [];
-     const re = new RegExp(rules.gradle?.resConfigs?.itemRegex || LOCALE_ITEM.source);
-     arr = arr.filter((x: string) => re.test(x));
-     if (!arr.length) arr = ["en"];
-     doc.gradle.resConfigs = arr;
+    let arr: string[] = Array.isArray(doc.gradle.resConfigs) ? doc.gradle.resConfigs.map(String) : [];
+    const re = new RegExp(rules.gradle?.resConfigs?.itemRegex || LOCALE_ITEM.source);
+    arr = arr.filter((x) => re.test(x));
+    if (!arr.length) arr = ["en"];
+    doc.gradle.resConfigs = arr;
   }
+  // permissions
   {
-     let arr: string[] = Array.isArray(doc.gradle.permissions)
-       ? doc.gradle.permissions.map(String)
-       : [];
-     const re = new RegExp(rules.gradle?.permissions?.itemRegex || PERM_ITEM.source);
-     arr = arr.filter((x: string) => re.test(x));
-     if (!arr.length) arr = ["android.permission.INTERNET"];
-     doc.gradle.permissions = arr;
+    let arr: string[] = Array.isArray(doc.gradle.permissions) ? doc.gradle.permissions.map(String) : [];
+    const re = new RegExp(rules.gradle?.permissions?.itemRegex || PERM_ITEM.source);
+    arr = arr.filter((x) => re.test(x));
+    if (!arr.length) arr = ["android.permission.INTERNET"];
+    doc.gradle.permissions = arr;
   }
 
   return { doc, report };
@@ -383,15 +385,11 @@ function fixManifestIfNeeded(files: Companion[], applicationId: string, _rules: 
     if (!rel) continue;
     if (rel.endsWith("AndroidManifest.xml")) {
       let content = f.content || "";
-      if (content.includes(PH_TEXT)) {
-        content = content.replaceAll(PH_TEXT, "");
-      }
+      if (content.includes(PH_TEXT)) content = content.replaceAll(PH_TEXT, "");
       const m = content.match(rePkg);
       if (m) {
         const current = m[1] || "";
-        if (!PKG_REGEX.test(current)) {
-          content = content.replace(rePkg, `package="${applicationId}"`);
-        }
+        if (!PKG_REGEX.test(current)) content = content.replace(rePkg, `package="${applicationId}"`);
       } else {
         content = content.replace("<manifest", `<manifest package="${applicationId}"`);
       }
@@ -408,7 +406,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   const reg = await loadRegistry();
   const rules = await loadRules();
   const sysPrompt = await loadSystemPrompt();
-  const rtyPrompt = await loadRetryPrompt();
+  const rtyPrompt = await loadRetryPrompt(); // 仅记录到 trace
 
   // 种子值
   let appName = input.appName || "NDJC App";
@@ -418,8 +416,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   let locales = normalizeLocales(input.locales);
   let permissions = input.permissions?.length ? input.permissions : ["android.permission.INTERNET"];
 
-  // 方案B：默认不接收 LLM files
-  const allowCompanions = !!input.allowCompanions && false;
+  const allowCompanions = !!input.allowCompanions && false; // 方案B默认关
 
   // 1) 构造骨架
   const skeleton = {
@@ -436,11 +433,7 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       list: Object.fromEntries(reg.list.map((k) => [k, PH_LIST])),
       if: Object.fromEntries(reg.if.map((k) => [k, false])),
       hook: Object.fromEntries(reg.hook.map((k) => [k, PH_TEXT])),
-      gradle: {
-        applicationId: packageId,
-        resConfigs: locales,
-        permissions,
-      },
+      gradle: { applicationId: packageId, resConfigs: locales, permissions }
     },
     files: [] as any[],
   };
@@ -460,42 +453,44 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   const _trace: any = {
     retries: [],
     source: {
-      registry_file: process.env.NDJC_REGISTRY_FILE || "lib/ndjc/anchors/registry.circle-basic.json",
-      rules_file: process.env.NDJC_RULES_FILE || "lib/ndjc/rules/ndjc-rules.json",
+      registry_file: "static-import:lib/ndjc/anchors/registry.circle-basic.json",
+      rules_file: "static-import:lib/ndjc/rules/ndjc-rules.json",
       prompt_file: sysPrompt.path,
       retry_file: rtyPrompt.path,
       model: process.env.NDJC_MODEL || "groq",
+      mode: "single-call+local-fix"
     }
   };
 
-  // 2) 调一次 LLM（不重试；缺项靠本地规则修）
+  // 2) 单次 LLM 调用
   let parsed: any = null;
-  let last = "";
   try {
     const msgs: any[] = [
       { role: "system", content: sysPrompt.text },
       { role: "user", content: baseUser },
     ];
-
     const r = await callGroqChat(msgs, { temperature: 0 });
     const text = typeof r === "string" ? r : (r as any)?.text ?? "";
-    last = text;
     const json = parseJsonSafely(text) || {};
     const normalized = applyWhitelist(json?.anchors || json?.anchorsGrouped || {}, reg);
-
     const { doc, report } = validateByRules(
       { ...normalized, gradle: json?.anchors?.gradle || json?.gradle || {} },
       reg,
       rules,
       { applicationId: packageId, locales, permissions }
     );
-
     parsed = { metadata: json?.metadata || {}, anchors: doc, files: Array.isArray(json?.files) ? json.files : [], _report: report };
-    _trace.retries.push({ attempt: 0, ok: report.invalid.length === 0, report, raw: last?.slice(0, 2000) });
+    _trace.retries.push({ attempt: 0, ok: report.invalid.length === 0, report });
   } catch (e: any) {
     _trace.retries.push({ attempt: 0, error: e?.message || String(e) });
-    // 失败时用 skeleton 兜底
-    parsed = { metadata: { template: reg.template }, anchors: skeleton.anchors, files: [] };
+    // 出错则使用 skeleton 继续走后续本地修复
+    const { doc } = validateByRules(
+      { ...skeleton.anchors },
+      reg,
+      rules,
+      { applicationId: packageId, locales, permissions }
+    );
+    parsed = { metadata: skeleton.metadata, anchors: doc, files: [], _report: { missing: [], invalid: [], fixed: [] } };
   }
 
   // 3) 输出及衍生
