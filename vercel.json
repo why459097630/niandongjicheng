@@ -3,12 +3,7 @@
   "functions": {
     "app/**/route.js": {
       "runtime": "nodejs18.x",
-      "includeFiles": [
-        "lib/ndjc/anchors/registry.circle-basic.json",
-        "lib/ndjc/prompts/contract_v1.en.json",
-        "lib/ndjc/prompts/contract_v1.retry.en.txt",
-        "lib/ndjc/rules/ndjc-rules.json"
-      ]
+      "includeFiles": "lib/ndjc/**"
     }
   }
 }
