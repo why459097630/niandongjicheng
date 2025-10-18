@@ -29,7 +29,6 @@ function newRunId() {
     const hex = Array.from(r).map((b) => b.toString(16).padStart(2, "0")).join("");
     return `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}-${hex}`;
   }
-  // 极端兜底
   const rand = Math.random().toString(16).slice(2, 8);
   return `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}-${rand}`;
 }
@@ -194,11 +193,11 @@ export async function POST(req: NextRequest) {
     if (!mustV1) {
       return NextResponse.json(
         { ok: false, runId, step: "contract-required", error: "Contract v1 is required in strict mode." },
-        { status: 200, headers: CORS } // 业务失败 -> 200
+        { status: 422, headers: CORS }
       );
     }
 
-    // —— 调 orchestrator（默认在线，失败回退离线；不再返回 502/429，转 200 带状态）——
+    // —— 调 orchestrator（默认在线，失败回退离线；把错误映射为 422）——
     step = "orchestrate";
     let o: any;
     const forceOffline = process.env.NDJC_OFFLINE === "1" || input?.offline === true;
@@ -209,7 +208,6 @@ export async function POST(req: NextRequest) {
     } else {
       try {
         if (!process.env.GROQ_API_KEY) {
-          // 缺 key 属于配置错误，直接 500
           return NextResponse.json(
             { ok: false, runId, step, error: "groq-key-missing" },
             { status: 500, headers: CORS }
@@ -219,7 +217,6 @@ export async function POST(req: NextRequest) {
         o = await orchestrate({ ...input, provider: "groq", model, forceProvider: "groq" });
         o = { ...o, _mode: `online(${model})` };
       } catch (err: any) {
-        // 把上游状态塞进响应体，HTTP 始终 200，避免 502
         const code = Number(err?.status || 0);
         const msg = String(err?.message || "LLM upstream error");
         const trace = (err as any)?.trace || undefined;
@@ -233,12 +230,12 @@ export async function POST(req: NextRequest) {
             upstreamStatus: code || undefined,
             meta: trace ? { _trace: trace } : undefined,
           },
-          { status: 200, headers: CORS }
+          { status: 422, headers: CORS }
         );
       }
     }
 
-    // —— Contract v1 预检：需要拿到原始 LLM 文本 —— //
+    // —— Contract v1 预检（优先用 raw；没有 raw 时尝试对象态） —— //
     step = "contract-precheck";
     const raw =
       (o as any)?.raw ??
@@ -247,50 +244,70 @@ export async function POST(req: NextRequest) {
       extractRawTraceText((o as any)?._trace) ??
       "";
 
-    if (!raw || !String(raw).trim()) {
-      // 无可校验原文：属于上游不可用/未返回，不再用 502；业务失败 -> 200
-      return NextResponse.json(
-        {
-          ok: false,
-          contract: "v1",
-          runId,
-          step,
-          reason: [{ code: "E_NOT_JSON", message: "No raw LLM text to validate", path: "<root>" }],
-          meta: { _trace: (o as any)?.trace ?? (o as any)?._trace ?? null, mode: (o as any)?._mode ?? "unknown" },
-        },
-        { status: 200, headers: CORS }
-      );
-    }
+    let contractObj: any | null = null;
+    let precheckNote: string | null = null;
 
-    // —— 解析为 JSON —— //
-    step = "contract-parse";
-    const parsed = parseStrictJson(raw);
-    if (!parsed.ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          contract: "v1",
-          runId,
-          step,
-          reason: [{ code: "E_NOT_JSON", message: parsed.error, path: "<root>" }],
-        },
-        { status: 200, headers: CORS } // 业务失败 -> 200
-      );
+    if (raw && String(raw).trim().length > 0) {
+      // 有 raw：严格按纯文本解析
+      step = "contract-parse";
+      const parsed = parseStrictJson(raw);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            contract: "v1",
+            runId,
+            step,
+            reason: [{ code: "E_NOT_JSON", message: parsed.error, path: "<root>" }],
+          },
+          { status: 422, headers: CORS }
+        );
+      }
+      contractObj = parsed.data;
+    } else {
+      // 没有 raw：尝试对象态来源（single-call + local-fix 场景）
+      precheckNote = "no_raw_text_used_object_mode";
+      contractObj =
+        (o as any)?.contract ??
+        (o as any)?.data ??
+        (o as any)?.contractV1 ??
+        (o as any)?.parsed ??
+        null;
+
+      if (!contractObj) {
+        return NextResponse.json(
+          {
+            ok: false,
+            contract: "v1",
+            runId,
+            step,
+            reason: [{ code: "E_NOT_JSON", message: "No raw LLM text and no object-mode contract", path: "<root>" }],
+          },
+          { status: 422, headers: CORS }
+        );
+      }
     }
 
     // —— 严格校验 —— //
     step = "contract-validate";
-    const validation = await validateContractV1(parsed.data);
+    const validation = await validateContractV1(contractObj);
     if (!validation.ok) {
       return NextResponse.json(
-        { ok: false, contract: "v1", runId, step, reason: validation.issues },
-        { status: 200, headers: CORS } // 业务失败 -> 200
+        {
+          ok: false,
+          contract: "v1",
+          runId,
+          step,
+          reason: validation.issues,
+          meta: precheckNote ? { precheckNote } : undefined,
+        },
+        { status: 422, headers: CORS }
       );
     }
 
     // —— 生成 plan —— //
     step = "contract-to-plan";
-    const planV1 = contractV1ToPlan(parsed.data);
+    const planV1 = contractV1ToPlan(contractObj);
 
     // —— 合成带 trace 的 01（可控开关）——
     const includeTrace = (process.env.NDJC_TRACE_IN_CONTRACT || "1").trim() === "1";
@@ -301,19 +318,20 @@ export async function POST(req: NextRequest) {
 
     const contractOut = includeTrace
       ? {
-          ...parsed.data,
+          ...contractObj,
           metadata: {
-            ...(parsed.data?.metadata || {}),
+            ...(contractObj?.metadata || {}),
             trace: {
               prompt_file: promptFile,
               prompt_sha256: promptSha,
               prompt_loaded_from_env: promptFromEnv,
               model_mode: (o as any)?._mode || null,
+              precheck_note: precheckNote || null,
             },
           },
           _trace: trace,
         }
-      : parsed.data;
+      : contractObj;
 
     // —— 提交 01/02/03 到 run 分支 —— //
     step = "commit-requests";
@@ -346,6 +364,7 @@ export async function POST(req: NextRequest) {
       includeTrace ? `prompt_file=${promptFile || ""}` : "",
       includeTrace ? `prompt_sha256=${promptSha || ""}` : "",
       includeTrace ? `prompt_loaded_from_env=${promptFromEnv}` : "",
+      precheckNote ? `precheck_note=${precheckNote}` : "",
     ].filter(Boolean);
 
     await ensureRunBranchAndCommitFiles({
