@@ -1,6 +1,7 @@
 // app/api/generate-apk/route.ts
 // 瘦路由（Node）：编排 /（可选）Contract v1 严格校验 / 写入 01/02/03 / 触发 GitHub Actions。
 
+export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from "next/server";
 import { orchestrate } from "@/lib/ndjc/orchestrator";
 
@@ -8,7 +9,6 @@ import { orchestrate } from "@/lib/ndjc/orchestrator";
 import { parseStrictJson, validateContractV1 } from "@/lib/ndjc/llm/strict-json";
 import { contractV1ToPlan } from "@/lib/ndjc/contract/contractv1-to-plan";
 
-export const runtime = "nodejs";
 
 /* ---------------- CORS ---------------- */
 const CORS: Record<string, string> = {
