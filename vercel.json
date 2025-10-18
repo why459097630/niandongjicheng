@@ -1,11 +1,11 @@
 {
   "functions": {
-    "app/api/**": {
+    "app/api/**/route.ts": {
       "maxDuration": 60,
       "memory": 1024,
       "includeFiles": "lib/ndjc/**"
     },
-    "api/**/*.ts": {
+    "app/api/**/route.js": {
       "maxDuration": 60,
       "memory": 1024,
       "includeFiles": "lib/ndjc/**"
