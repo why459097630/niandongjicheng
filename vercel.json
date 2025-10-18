@@ -4,11 +4,7 @@
       "runtime": "nodejs18.x",
       "maxDuration": 60,
       "memory": 1024,
-      "includeFiles": [
-        "lib/ndjc/anchors/*.json",
-        "lib/ndjc/prompts/*",
-        "lib/ndjc/rules/*.json"
-      ]
+      "includeFiles": "lib/ndjc/{anchors/*.json,prompts/*,rules/*.json}"
     }
   }
 }
