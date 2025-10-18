@@ -5,41 +5,49 @@
   },
   "text": {
     "NDJC:PACKAGE_NAME": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$" },
-    "NDJC:APP_LABEL": { "minLen": 1 },
-    "NDJC:HOME_TITLE": { "minLen": 1 },
-    "NDJC:PRIMARY_BUTTON_TEXT": { "minLen": 1 }
+    "NDJC:APP_LABEL":   { "minLen": 1 },
+    "NDJC:HOME_TITLE":  { "minLen": 1 },
+    "NDJC:PRIMARY_BUTTON_TEXT": { "minLen": 1 },
+
+    // 允许逗号分隔的 6 位 HEX 色值，空格可选：#RRGGBB[, #RRGGBB]*
+    "THEME_COLORS": { "regex": "^#(?:[0-9A-Fa-f]{6})(?:\\s*,\\s*#(?:[0-9A-Fa-f]{6}))*$" }
   },
   "block": {
-    "HOME_HEADER": { "minLen": 30 },
-    "HOME_BODY": { "minLen": 30 },
-    "HOME_ACTIONS": { "minLen": 30 },
-    "SPLASH_CONTENT": { "minLen": 30 },
-    "EMPTY_STATE": { "minLen": 30 },
-    "ERROR_STATE": { "minLen": 30 },
-    "DEBUG_PANEL": { "minLen": 30 },
-    "HEADER_AD_SLOT": { "minLen": 10 },
-    "USER_PROFILE_CARD": { "minLen": 30 },
-    "SPONSORED_CARD": { "minLen": 30 },
-    "PROFILE_SECTION": { "minLen": 30 },
-    "SETTINGS_SECTION": { "minLen": 30 },
+    "HOME_HEADER":         { "minLen": 30 },
+    "HOME_BODY":           { "minLen": 30 },
+    "HOME_ACTIONS":        { "minLen": 30 },
+    "SPLASH_CONTENT":      { "minLen": 30 },
+    "EMPTY_STATE":         { "minLen": 30 },
+    "ERROR_STATE":         { "minLen": 30 },
+    "DEBUG_PANEL":         { "minLen": 30 },
+    "HEADER_AD_SLOT":      { "minLen": 10 },
+    "USER_PROFILE_CARD":   { "minLen": 30 },
+    "SPONSORED_CARD":      { "minLen": 30 },
+    "PROFILE_SECTION":     { "minLen": 30 },
+    "SETTINGS_SECTION":    { "minLen": 30 },
     "SETTINGS_SECTION:EXTRA": { "minLen": 30 }
   },
   "list": {
-    "ROUTES": { "minItems": 1, "itemRegex": "^[a-z][a-z0-9_-]{0,62}$" },
-    "DEPENDENCY_SNIPPETS": { "minItems": 0, "itemRegex": "^.+" },
-    "PROGUARD_EXTRA": { "minItems": 0, "itemRegex": "^.+" },
-    "PACKAGING_RULES": { "minItems": 0, "itemRegex": "^.+" },
-    "POST_FIELDS": { "minItems": 0, "itemRegex": "^.+" },
-    "PLURAL_STRINGS": { "minItems": 0, "itemRegex": "^.+" },
-    "COMPONENT_STYLES": { "minItems": 0, "itemRegex": "^.+" },
-    "DEEPLINK_PATTERNS": { "minItems": 0, "itemRegex": "^.+" },
-    "NETWORK_CLEAR_TEXT": { "minItems": 0, "itemRegex": "^https?://.+" },
-    "RES_CONFIGS_OVERRIDE": { "minItems": 0, "itemRegex": "^[a-z]{2,3}(-[A-Z]{2,3})?$" }
+    // 允许 slug 或 /slug ，长度 1-62，仅小写字母/数字/短横线
+    "ROUTES": { "minItems": 1, "itemRegex": "^\\/?[a-z0-9-]{1,62}$" },
+
+    "DEPENDENCY_SNIPPETS": { "minItems": 0, "itemRegex": "^.+$" },
+    "PROGUARD_EXTRA":      { "minItems": 0, "itemRegex": "^.+$" },
+    "PACKAGING_RULES":     { "minItems": 0, "itemRegex": "^.+$" },
+    "POST_FIELDS":         { "minItems": 0, "itemRegex": "^.+$" },
+    "PLURAL_STRINGS":      { "minItems": 0, "itemRegex": "^.+$" },
+    "COMPONENT_STYLES":    { "minItems": 0, "itemRegex": "^.+$" },
+
+    "DEEPLINK_PATTERNS":   { "minItems": 0, "itemRegex": "^https?://.+" },
+    "NETWORK_CLEAR_TEXT":  { "minItems": 0, "itemRegex": "^https?://.+" },
+
+    // 保持你现有覆写白名单规则
+    "RES_CONFIGS_OVERRIDE": { "minItems": 0, "itemRegex": "^[A-z]{2,3}(-[A-Z]{2,3})?$" }
   },
   "gradle": {
     "applicationId": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$" },
-    "resConfigs": { "minItems": 1, "itemRegex": "^[a-z]{2,3}(-[A-Z]{2,3})?$" },
-    "permissions": { "minItems": 1, "itemRegex": "^android\\.permission\\.[A-Z_]+$" }
+    "resConfigs":    { "minItems": 1, "itemRegex": "^[A-z]{2,3}(-[A-Z]{2,3})?$" },
+    "permissions":   { "minItems": 1, "itemRegex": "^android\\.permission\\.[A-Z_]+$" }
   },
   "fixes": {
     "onInvalidPackageUseApplicationId": true
