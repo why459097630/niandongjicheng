@@ -3,23 +3,12 @@
     "app/api/**": {
       "maxDuration": 60,
       "memory": 1024,
-      "includeFiles": [
-        "node_modules/styled-jsx/package.json",
-        "lib/ndjc/anchors/registry.circle-basic.json",
-        "lib/ndjc/rules/ndjc-rules.json",
-        "lib/ndjc/prompts/contract_v1.en.json",
-        "lib/ndjc/prompts/contract_v1.retry.en.txt"
-      ]
+      "includeFiles": "lib/ndjc/**"
     },
     "api/**/*.ts": {
       "maxDuration": 60,
       "memory": 1024,
-      "includeFiles": [
-        "lib/ndjc/anchors/registry.circle-basic.json",
-        "lib/ndjc/rules/ndjc-rules.json",
-        "lib/ndjc/prompts/contract_v1.en.json",
-        "lib/ndjc/prompts/contract_v1.retry.en.txt"
-      ]
+      "includeFiles": "lib/ndjc/**"
     }
   }
 }
