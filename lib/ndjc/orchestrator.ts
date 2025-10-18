@@ -91,6 +91,13 @@ export type OrchestrateOutput = {
 
   companions: Companion[];
   _trace?: any | null;
+
+  /** 👇 新增：给 route.ts 的 precheck 使用 */
+  raw?: string;                 // LLM 原文字符串
+  contract?: any;               // 对象态 Contract v1
+  data?: any;                   // 等价别名
+  contractV1?: any;             // 等价别名
+  parsed?: any;                 // 等价别名
 };
 
 /** ---------------- helpers ---------------- */
@@ -155,7 +162,6 @@ function parseJsonSafely(text: string): any | null {
 
 /** ---------------- load registry & rules & prompts ---------------- */
 async function loadRegistry(): Promise<Registry> {
-  // 1) 静态导入（最稳定）
   if (registryJson) {
     const j = JSON.parse(JSON.stringify(registryJson)) as Registry;
     j.aliases ||= {};
@@ -164,7 +170,6 @@ async function loadRegistry(): Promise<Registry> {
     j.valueFormat ||= {};
     return j;
   }
-  // 2) 可选：使用环境变量覆盖（fs 读取，自动剥除 "@/")
   const hint = (process.env.NDJC_REGISTRY_FILE || "lib/ndjc/anchors/registry.circle-basic.json").replace(/^@\/+/, "");
   const raw = await readText(hint);
   const json = JSON.parse(raw) as Registry;
@@ -464,22 +469,34 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   // 2) 单次 LLM 调用
   let parsed: any = null;
+  let rawText = ""; // 👈 新增：保存 LLM 原文
   try {
     const msgs: any[] = [
       { role: "system", content: sysPrompt.text },
       { role: "user", content: baseUser },
     ];
     const r = await callGroqChat(msgs, { temperature: 0 });
-    const text = typeof r === "string" ? r : (r as any)?.text ?? "";
-    const json = parseJsonSafely(text) || {};
+
+    rawText = typeof r === "string" ? r : (r as any)?.text ?? "";
+    _trace.raw_llm_text = rawText; // 👈 新增：trace 里也存一份
+
+    const json = parseJsonSafely(rawText) || {};
     const normalized = applyWhitelist(json?.anchors || json?.anchorsGrouped || {}, reg);
+
     const { doc, report } = validateByRules(
       { ...normalized, gradle: json?.anchors?.gradle || json?.gradle || {} },
       reg,
       rules,
       { applicationId: packageId, locales, permissions }
     );
-    parsed = { metadata: json?.metadata || {}, anchors: doc, files: Array.isArray(json?.files) ? json.files : [], _report: report };
+
+    parsed = {
+      metadata: json?.metadata || skeleton.metadata,
+      anchors: doc,
+      files: Array.isArray(json?.files) ? json.files : [],
+      _report: report
+    };
+
     _trace.retries.push({ attempt: 0, ok: report.invalid.length === 0, report });
   } catch (e: any) {
     _trace.retries.push({ attempt: 0, error: e?.message || String(e) });
@@ -514,8 +531,8 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
       overwrite: !!f?.overwrite,
       kind: (f?.kind || "txt"),
     })).filter((x: Companion) => x.path);
-    companions = fixManifestIfNeeded(companions, appId, rules);
   }
+  companions = fixManifestIfNeeded(companions, appId, rules);
 
   const permissionsXml = mkPermissionsXml(permissions);
   const intentFiltersXml = mkIntentFiltersXml(input.intentHost);
@@ -523,6 +540,14 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   const resConfigs = localesToResConfigs(locales);
 
   const template = reg.template || "circle-basic";
+
+  // 👇 关键：把 raw 与 对象态 contract 一并返回，供 route.ts 使用
+  const contractObject = {
+    metadata: parsed?.metadata || skeleton.metadata,
+    anchors,
+    files: parsed?.files || [],
+  };
+
   const out: OrchestrateOutput = {
     template,
     mode: "B",
@@ -538,6 +563,14 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
     themeOverridesXml,
     companions,
     _trace,
+
+    // 供 precheck 使用
+    raw: rawText,               // LLM 原文
+    contract: contractObject,   // 对象态 Contract v1
+    data: contractObject,       // 等价别名
+    contractV1: contractObject, // 等价别名
+    parsed: contractObject,     // 等价别名
   };
+
   return out;
 }
