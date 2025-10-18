@@ -1,10 +1,27 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "app/api/**/route.ts": {
+    // 覆盖所有 App Router 的 route 函数（包含 /app/api/generate-apk/route.ts 构建后的 JS）
+    "app/**/route.js": {
+      "runtime": "nodejs18.x",
       "maxDuration": 60,
       "memory": 1024,
-      "includeFiles": "lib/ndjc/**"
+      "includeFiles": [
+        "lib/ndjc/anchors/*.json",
+        "lib/ndjc/prompts/*",
+        "lib/ndjc/rules/*.json"
+      ]
+    },
+
+    // 保险起见，再单独为 generate-apk 指定一条（两条都留着，匹配到任一即可）
+    "app/api/generate-apk/route.js": {
+      "runtime": "nodejs18.x",
+      "maxDuration": 60,
+      "memory": 1024,
+      "includeFiles": [
+        "lib/ndjc/anchors/*.json",
+        "lib/ndjc/prompts/*",
+        "lib/ndjc/rules/*.json"
+      ]
     }
   }
 }
