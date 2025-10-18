@@ -1,14 +1,14 @@
 // app/api/generate-apk/route.ts
 // 瘦路由（Node）：编排 /（可选）Contract v1 严格校验 / 写入 01/02/03 / 触发 GitHub Actions。
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
 import { orchestrate } from "@/lib/ndjc/orchestrator";
 
-// Contract v1 严格模式（→ 统一从 strict-json.ts 导入）
+// Contract v1 严格模式
 import { parseStrictJson, validateContractV1 } from "@/lib/ndjc/llm/strict-json";
 import { contractV1ToPlan } from "@/lib/ndjc/contract/contractv1-to-plan";
-
 
 /* ---------------- CORS ---------------- */
 const CORS: Record<string, string> = {
@@ -23,16 +23,20 @@ export async function OPTIONS() {
 
 /* -------------- 小工具 -------------- */
 function newRunId() {
-  // next/server 下可用的 web crypto（Node18+ 也有 globalThis.crypto）
-  const r = crypto.getRandomValues(new Uint8Array(6));
-  const hex = Array.from(r).map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}-${hex}`;
+  const api: Crypto | undefined = (globalThis as any).crypto;
+  if (api?.getRandomValues) {
+    const r = api.getRandomValues(new Uint8Array(6));
+    const hex = Array.from(r).map((b) => b.toString(16).padStart(2, "0")).join("");
+    return `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}-${hex}`;
+  }
+  // 极端兜底
+  const rand = Math.random().toString(16).slice(2, 8);
+  return `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}-${rand}`;
 }
 function b64(str: string) {
   const bytes = new TextEncoder().encode(str);
   let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  // Web 环境下有 btoa
   // @ts-ignore
   return btoa(bin);
 }
@@ -81,7 +85,7 @@ async function gh(headers: Record<string, string>, method: string, url: string, 
 async function ensureRunBranchAndCommitFiles(args: {
   owner: string;
   repo: string;
-  baseRef: string; // e.g. 'main'（工作流所在分支）
+  baseRef: string; // e.g. 'main'
   runBranch: string; // e.g. 'ndjc-run/<runId>'
   token: string;
   files: Array<{ path: string; content: string }>;
@@ -95,11 +99,11 @@ async function ensureRunBranchAndCommitFiles(args: {
     "Content-Type": "application/json",
   };
 
-  // 1) 读取 baseRef 最新 commit SHA
+  // 1) 找 baseRef 最新 commit SHA
   const baseRefData = await (await gh(headers, "GET", `${GH_API}/repos/${owner}/${repo}/git/ref/heads/${baseRef}`)).json();
   const baseSha: string = baseRefData.object.sha;
 
-  // 2) 如果 runBranch 不存在，则创建
+  // 2) 创建 runBranch（若不存在）
   let hasRunBranch = true;
   try {
     await gh(headers, "GET", `${GH_API}/repos/${owner}/${repo}/git/ref/heads/${runBranch}`);
@@ -113,10 +117,10 @@ async function ensureRunBranchAndCommitFiles(args: {
     });
   }
 
-  // 3) 逐个以 contents API 提交（适合少量文件）
+  // 3) 以 contents API 提交少量文件
   for (const f of files) {
     const url = `${GH_API}/repos/${owner}/${repo}/contents/${encodeURIComponent(f.path)}`;
-    // 先查 sha（如果该文件在分支上已存在）
+    // 读取 sha（如果已存在）
     let sha: string | undefined;
     try {
       const existing = await (await gh(headers, "GET", `${url}?ref=${runBranch}`)).json();
@@ -190,67 +194,61 @@ export async function POST(req: NextRequest) {
     if (!mustV1) {
       return NextResponse.json(
         { ok: false, runId, step: "contract-required", error: "Contract v1 is required in strict mode." },
-        { status: 400, headers: CORS }
+        { status: 200, headers: CORS } // 业务失败 -> 200
       );
     }
 
-    // —— 调用 orchestrator（优先在线，正确处理 429/5xx）——
+    // —— 调 orchestrator（默认在线，失败回退离线；不再返回 502/429，转 200 带状态）——
     step = "orchestrate";
     let o: any;
     const forceOffline = process.env.NDJC_OFFLINE === "1" || input?.offline === true;
 
     if (forceOffline) {
-      // 强制离线（本地兜底）
       o = await orchestrate({ ...input, provider: "offline", forceProvider: "offline" });
       o = { ...o, _mode: "offline(forced)" };
     } else {
       try {
         if (!process.env.GROQ_API_KEY) {
-          const err = new Error("groq-key-missing");
-          // 缺 key 直接 500
-          return NextResponse.json({ ok: false, runId, step, error: err.message }, { status: 500, headers: CORS });
+          // 缺 key 属于配置错误，直接 500
+          return NextResponse.json(
+            { ok: false, runId, step, error: "groq-key-missing" },
+            { status: 500, headers: CORS }
+          );
         }
         const model = process.env.GROQ_MODEL || input?.model || "llama-3.1-8b-instant";
         o = await orchestrate({ ...input, provider: "groq", model, forceProvider: "groq" });
         o = { ...o, _mode: `online(${model})` };
       } catch (err: any) {
-        // orchestrator 在 LLM 失败时会抛出带 status 的错误（429/5xx）
+        // 把上游状态塞进响应体，HTTP 始终 200，避免 502
         const code = Number(err?.status || 0);
         const msg = String(err?.message || "LLM upstream error");
         const trace = (err as any)?.trace || undefined;
 
-        // 仅对 429/5xx 直接向前端透传，避免之后被误判为 400
-        if (code === 429 || code >= 500) {
-          return NextResponse.json(
-            {
-              ok: false,
-              runId,
-              step: "orchestrate-online",
-              error: msg,
-              status: code,
-              meta: trace ? { _trace: trace } : undefined,
-            },
-            { status: code === 429 ? 429 : 503, headers: CORS }
-          );
-        }
-
-        // 其它错误：回退离线兜底生成（尽力而为）
-        o = await orchestrate({ ...input, provider: "offline", forceProvider: "offline" });
-        o = { ...o, _mode: `offline(${msg})` };
+        return NextResponse.json(
+          {
+            ok: false,
+            runId,
+            step: "orchestrate-online",
+            error: msg,
+            upstreamStatus: code || undefined,
+            meta: trace ? { _trace: trace } : undefined,
+          },
+          { status: 200, headers: CORS }
+        );
       }
     }
 
-    // —— Contract v1 预检：拿 LLM 原文（若 orchestrator 没提供则失败）——
+    // —— Contract v1 预检：需要拿到原始 LLM 文本 —— //
     step = "contract-precheck";
     const raw =
       (o as any)?.raw ??
       (o as any)?.trace?.raw_llm_text ??
       (o as any)?.trace?.retry_raw_llm_text ??
       extractRawTraceText((o as any)?._trace) ??
-      ""; // 某些 orchestrator 实现里，在 _trace.* 里留有原文
+      "";
 
     if (!raw || !String(raw).trim()) {
-      // 没有可校验的 JSON 原文（多半是上游失败/限流），改用 502 显式表示上游不可用
+      // 无可校验原文：属于上游不可用/未返回，不再用 502；业务失败 -> 200
       return NextResponse.json(
         {
           ok: false,
@@ -260,7 +258,7 @@ export async function POST(req: NextRequest) {
           reason: [{ code: "E_NOT_JSON", message: "No raw LLM text to validate", path: "<root>" }],
           meta: { _trace: (o as any)?.trace ?? (o as any)?._trace ?? null, mode: (o as any)?._mode ?? "unknown" },
         },
-        { status: 502, headers: CORS }
+        { status: 200, headers: CORS }
       );
     }
 
@@ -276,17 +274,17 @@ export async function POST(req: NextRequest) {
           step,
           reason: [{ code: "E_NOT_JSON", message: parsed.error, path: "<root>" }],
         },
-        { status: 400, headers: CORS }
+        { status: 200, headers: CORS } // 业务失败 -> 200
       );
     }
 
-    // —— 严格校验（对照 registry） —— //
+    // —— 严格校验 —— //
     step = "contract-validate";
     const validation = await validateContractV1(parsed.data);
     if (!validation.ok) {
       return NextResponse.json(
         { ok: false, contract: "v1", runId, step, reason: validation.issues },
-        { status: 400, headers: CORS }
+        { status: 200, headers: CORS } // 业务失败 -> 200
       );
     }
 
@@ -317,7 +315,7 @@ export async function POST(req: NextRequest) {
         }
       : parsed.data;
 
-    // —— 先把 01/02/03 提交到 run 分支（严格守卫所需）——
+    // —— 提交 01/02/03 到 run 分支 —— //
     step = "commit-requests";
     const owner = process.env.GH_OWNER!;
     const repo = process.env.GH_REPO!;
@@ -364,7 +362,7 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    // —— 触发 CI（plan 仍作为 inputs 传过去，CI 可再次校验/物化）——
+    // —— 触发 CI —— //
     step = "dispatch";
     const inputs = {
       runId,
@@ -392,7 +390,7 @@ export async function POST(req: NextRequest) {
           mode: inputs.mode,
           contract: inputs.contract,
         },
-        { headers: CORS }
+        { status: 200, headers: CORS }
       );
     }
 
@@ -409,10 +407,10 @@ export async function POST(req: NextRequest) {
         mode: inputs.mode,
         contract: inputs.contract,
       },
-      { headers: CORS }
+      { status: 200, headers: CORS }
     );
   } catch (e: any) {
-    // 兜底：未知异常 -> 500
+    // 兜底：真正代码异常 -> 500
     return NextResponse.json({ ok: false, runId, step, error: String(e?.message ?? e) }, { status: 500, headers: CORS });
   }
 }
