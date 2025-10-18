@@ -1,9 +1,10 @@
 {
-  "version": 2,
   "functions": {
-    "app/**/route.js": {
+    "app/api/**/route.ts": {
       "runtime": "nodejs18.x",
-      "includeFiles": "lib/ndjc/**"
+      "maxDuration": 60,
+      "memory": 1024,
+      "includeFiles": "lib/ndjc/anchors/**"
     }
   }
 }
