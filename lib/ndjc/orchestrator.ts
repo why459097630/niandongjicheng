@@ -5,6 +5,10 @@ import crypto from "node:crypto";
 import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
+// ① —— 新增：静态导入 registry，构建期打进 bundle（Vercel 上最稳妥）
+// 如果未启用 resolveJsonModule，可改成 require 形式。
+import registryBundled from "@/lib/ndjc/anchors/registry.circle-basic.json";
+
 /** ---------------- types ---------------- */
 type AnchorGroup = "text" | "block" | "list" | "if" | "hook" | "gradle";
 
@@ -153,17 +157,41 @@ function parseJsonSafely(text: string): any | null {
 }
 
 /** ---------------- load registry & rules & prompts ---------------- */
+// ② —— 改造：优先返回静态导入的 registry；若显式指定 NDJC_REGISTRY_FILE，则按该路径读取；
+//    若静态导入失败（极少数配置下），再回退到文件读取。
 async function loadRegistry(): Promise<Registry> {
-  const hint =
-    process.env.NDJC_REGISTRY_FILE ||
-    "lib/ndjc/anchors/registry.circle-basic.json";
-  const raw = await readText(hint);
-  const json = JSON.parse(raw) as Registry;
-  json.aliases ||= {};
-  json.required ||= {};
-  json.placeholders ||= {};
-  json.valueFormat ||= {};
-  return json;
+  const envHint = process.env.NDJC_REGISTRY_FILE;
+  const defaultPath = "lib/ndjc/anchors/registry.circle-basic.json";
+
+  // 显式指定路径 → 使用 fs 读取（便于本地/调试切换不同 registry）
+  if (envHint && envHint !== defaultPath) {
+    const raw = await readText(envHint);
+    const json = JSON.parse(raw) as Registry;
+    json.aliases ||= {};
+    json.required ||= {};
+    json.placeholders ||= {};
+    json.valueFormat ||= {};
+    return json;
+  }
+
+  // 优先静态导入（Vercel/Serverless 环境最可靠）
+  try {
+    const json = (registryBundled as Registry) || ({} as Registry);
+    json.aliases ||= {};
+    json.required ||= {};
+    json.placeholders ||= {};
+    json.valueFormat ||= {};
+    return json;
+  } catch {
+    // 极端情况下静态导入失败 → 再尝试文件读取
+    const raw = await readText(envHint || defaultPath);
+    const json = JSON.parse(raw) as Registry;
+    json.aliases ||= {};
+    json.required ||= {};
+    json.placeholders ||= {};
+    json.valueFormat ||= {};
+    return json;
+  }
 }
 
 type Rules = {
@@ -267,7 +295,6 @@ function applyWhitelist(raw: any, reg: Registry) {
   }
   if (src.gradle && typeof src.gradle === "object") out.gradle = { ...src.gradle };
 
-  // 白名单裁剪
   (["text","block","list","if","hook"] as AnchorGroup[]).forEach((g) => {
     const allow = pickWhitelist(g, reg);
     out[g] = Object.fromEntries(Object.entries(out[g]).filter(([k]) => allow.has(k)));
@@ -284,7 +311,6 @@ function validateByRules(
 ) {
   const report = { missing: [] as string[], invalid: [] as string[], fixed: [] as string[] };
 
-  // required
   const req = reg.required || {};
   for (const g of ["text","block","list","if","hook"] as AnchorGroup[]) {
     const need = (req as any)[g] as string[] | undefined;
@@ -302,13 +328,11 @@ function validateByRules(
     }
   }
 
-  // global forbids
   const forbidAngles = rules.global?.forbidAngles !== false;
   const forbidPH = rules.global?.forbidPlaceholders !== false;
   const reject = (s: string) =>
     (forbidAngles && /[<>]/.test(s)) || (forbidPH && s.includes(PH_TEXT));
 
-  // text/block/hook
   const checkTBH = (g: "text" | "block" | "hook") => {
     const fmt = (rules as any)[g] || {};
     for (const [k, v] of Object.entries<string>(doc[g] || {})) {
@@ -321,7 +345,6 @@ function validateByRules(
   };
   checkTBH("text"); checkTBH("block"); checkTBH("hook");
 
-  // list
   for (const [k, arr] of Object.entries<any[]>(doc.list || {})) {
     const rule = rules.list?.[k];
     let a = Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
@@ -333,20 +356,16 @@ function validateByRules(
     doc.list[k] = a;
   }
 
-  // gradle
   doc.gradle ||= {};
-  // applicationId
   {
     let appId = String(doc.gradle.applicationId ?? doc.text?.["NDJC:PACKAGE_NAME"] ?? "");
     appId = ensurePackageId(appId || seed.applicationId, seed.applicationId);
     if (!PKG_REGEX.test(appId)) { appId = seed.applicationId; report.fixed.push("gradle:applicationId(fallback)"); }
     doc.gradle.applicationId = appId;
-    // 回写 text 的包名
     if (!PKG_REGEX.test(String(doc.text?.["NDJC:PACKAGE_NAME"]))) {
       doc.text ||= {}; doc.text["NDJC:PACKAGE_NAME"] = appId; report.fixed.push("text:NDJC:PACKAGE_NAME(sync)");
     }
   }
-  // resConfigs
   {
      let arr: string[] = Array.isArray(doc.gradle.resConfigs)
       ? doc.gradle.resConfigs.map(String)
@@ -358,7 +377,6 @@ function validateByRules(
      if (!arr.length) arr = ["en"];
      doc.gradle.resConfigs = arr;
   }
-  // permissions
   {
      let arr: string[] = Array.isArray(doc.gradle.permissions)
        ? doc.gradle.permissions.map(String)
@@ -384,9 +402,7 @@ function fixManifestIfNeeded(files: Companion[], applicationId: string, rules: R
     if (!rel) continue;
     if (rel.endsWith("AndroidManifest.xml")) {
       let content = f.content || "";
-      // 简单拒绝占位/尖括号注入（尖括号在 xml 合法，这里只针对明显占位）
       if (content.includes(PH_TEXT)) {
-        // 直接替换占位
         content = content.replaceAll(PH_TEXT, "");
       }
       const m = content.match(rePkg);
@@ -396,7 +412,6 @@ function fixManifestIfNeeded(files: Companion[], applicationId: string, rules: R
           content = content.replace(rePkg, `package="${applicationId}"`);
         }
       } else {
-        // 没有 package 属性，补上（极少见）
         content = content.replace("<manifest", `<manifest package="${applicationId}"`);
       }
       out.push({ ...f, content });
@@ -518,12 +533,10 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
 
   // 4) 输出及衍生
   const anchors = parsed?.anchors || skeleton.anchors;
-  // 最终一致性：applicationId ↔ NDJC:PACKAGE_NAME
   const appId = ensurePackageId(anchors?.gradle?.applicationId || anchors?.text?.["NDJC:PACKAGE_NAME"], packageId);
   anchors.gradle.applicationId = appId;
   anchors.text["NDJC:PACKAGE_NAME"] = appId;
 
-  // 覆盖 appName 等
   appName = anchors.text["NDJC:APP_LABEL"] || appName;
   homeTitle = anchors.text["NDJC:HOME_TITLE"] || homeTitle;
   mainButtonText = anchors.text["NDJC:PRIMARY_BUTTON_TEXT"] || mainButtonText;
