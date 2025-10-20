@@ -36,63 +36,63 @@
     "NDJC:CRASHLYTICS_ENABLED",
     "NDJC:EXPERIMENT_BUCKET",
 
-    "THEME_COLORS",
-    "TYPOCASE_OVERRIDES",
-    "STRINGS_EXTRA",
+    "NDJC:THEME_COLORS",
+    "NDJC:TYPOCASE_OVERRIDES",
+    "NDJC:STRINGS_EXTRA",
 
-    "ROUTE_HOME",
-    "ROUTE_DETAIL"
+    "NDJC:ROUTE_HOME",
+    "NDJC:ROUTE_DETAIL"
   ],
 
   "block": [
-    "HOME_HEADER",
-    "HOME_BODY",
-    "HOME_ACTIONS",
-    "SPLASH_CONTENT",
-    "EMPTY_STATE",
-    "ERROR_STATE",
-    "DEBUG_PANEL",
-    "HEADER_AD_SLOT",
-    "USER_PROFILE_CARD",
-    "SPONSORED_CARD",
-    "PROFILE_SECTION",
-    "SETTINGS_SECTION",
-    "SETTINGS_SECTION:EXTRA"
+    "BLOCK:HOME_HEADER",
+    "BLOCK:HOME_BODY",
+    "BLOCK:HOME_ACTIONS",
+    "BLOCK:SPLASH_CONTENT",
+    "BLOCK:EMPTY_STATE",
+    "BLOCK:ERROR_STATE",
+    "BLOCK:DEBUG_PANEL",
+    "BLOCK:HEADER_AD_SLOT",
+    "BLOCK:USER_PROFILE_CARD",
+    "BLOCK:SPONSORED_CARD",
+    "BLOCK:PROFILE_SECTION",
+    "BLOCK:SETTINGS_SECTION",
+    "BLOCK:SETTINGS_SECTION:EXTRA"
   ],
 
   "list": [
-    "ROUTES",
-    "DEPENDENCY_SNIPPETS",
-    "PROGUARD_EXTRA",
-    "PACKAGING_RULES",
-    "POST_FIELDS",
-    "PLURAL_STRINGS",
-    "COMPONENT_STYLES",
-    "DEEPLINK_PATTERNS",
-    "NETWORK_CLEAR_TEXT",
-    "RES_CONFIGS_OVERRIDE"
+    "LIST:ROUTES",
+    "LIST:DEPENDENCY_SNIPPETS",
+    "LIST:PROGUARD_EXTRA",
+    "LIST:PACKAGING_RULES",
+    "LIST:POST_FIELDS",
+    "LIST:PLURAL_STRINGS",
+    "LIST:COMPONENT_STYLES",
+    "LIST:DEEPLINK_PATTERNS",
+    "LIST:NETWORK_CLEAR_TEXT",
+    "LIST:RES_CONFIGS_OVERRIDE"
   ],
 
   "if": [
-    "NAV_TRANSITIONS",
-    "BUILD_SUMMARY",
-    "NATIVE_SPLITS",
-    "AFTER_BUILD",
-    "PRE_COMMIT",
-    "AFTER_INSTALL",
-    "BEFORE_BUILD",
-    "POST_INJECT",
-    "BEFORE_BUNDLE",
-    "AFTER_BUNDLE"
+    "IF:NAV_TRANSITIONS",
+    "IF:BUILD_SUMMARY",
+    "IF:NATIVE_SPLITS",
+    "IF:AFTER_BUILD",
+    "IF:PRE_COMMIT",
+    "IF:AFTER_INSTALL",
+    "IF:BEFORE_BUILD",
+    "IF:POST_INJECT",
+    "IF:BEFORE_BUNDLE",
+    "IF:AFTER_BUNDLE"
   ],
 
   "hook": [
-    "INTENT_SHARE",
-    "FILE_PROVIDER",
-    "PERMISSIONS:ON_REQUEST",
-    "PRE_COMMIT:HOOK",
-    "POST_BUILD:HOOK",
-    "AFTER_INSTALL:HOOK"
+    "HOOK:INTENT_SHARE",
+    "HOOK:FILE_PROVIDER",
+    "HOOK:PERMISSIONS:ON_REQUEST",
+    "HOOK:PRE_COMMIT:HOOK",
+    "HOOK:POST_BUILD:HOOK",
+    "HOOK:AFTER_INSTALL:HOOK"
   ],
 
   "resources": [],
@@ -111,10 +111,10 @@
       "NDJC:APP_LABEL",
       "NDJC:HOME_TITLE",
       "NDJC:PRIMARY_BUTTON_TEXT",
-      "THEME_COLORS"
+      "NDJC:THEME_COLORS"
     ],
     "list": [
-      "ROUTES"
+      "LIST:ROUTES"
     ],
     "gradle": [
       "applicationId",
@@ -158,25 +158,25 @@
       "NDJC:CRASHLYTICS_ENABLED": "true",
       "NDJC:EXPERIMENT_BUCKET": "exp-001",
 
-      "THEME_COLORS": "{\"primary\":\"#7C3AED\",\"secondary\":\"#10B981\"}",
+      "NDJC:THEME_COLORS": "{\"primary\":\"#7C3AED\",\"secondary\":\"#10B981\"}",
 
-      "TYPOCASE_OVERRIDES": "",
-      "STRINGS_EXTRA": "",
+      "NDJC:TYPOCASE_OVERRIDES": "",
+      "NDJC:STRINGS_EXTRA": "",
 
-      "ROUTE_HOME": "home",
-      "ROUTE_DETAIL": "detail"
+      "NDJC:ROUTE_HOME": "home",
+      "NDJC:ROUTE_DETAIL": "detail"
     },
     "list": {
-      "ROUTES": ["home"],
-      "DEPENDENCY_SNIPPETS": [],
-      "PROGUARD_EXTRA": [],
-      "PACKAGING_RULES": [],
-      "POST_FIELDS": [],
-      "PLURAL_STRINGS": [],
-      "COMPONENT_STYLES": [],
-      "DEEPLINK_PATTERNS": [],
-      "NETWORK_CLEAR_TEXT": [],
-      "RES_CONFIGS_OVERRIDE": []
+      "LIST:ROUTES": ["home"],
+      "LIST:DEPENDENCY_SNIPPETS": [],
+      "LIST:PROGUARD_EXTRA": [],
+      "LIST:PACKAGING_RULES": [],
+      "LIST:POST_FIELDS": [],
+      "LIST:PLURAL_STRINGS": [],
+      "LIST:COMPONENT_STYLES": [],
+      "LIST:DEEPLINK_PATTERNS": [],
+      "LIST:NETWORK_CLEAR_TEXT": [],
+      "LIST:RES_CONFIGS_OVERRIDE": []
     },
     "gradle": {
       "resConfigs": ["en", "zh-rCN"],
@@ -200,15 +200,15 @@
       "NDJC:PAGING_SIZE": { "regex": "^[1-9][0-9]*$" },
       "NDJC:ANIM_DURATION_MS": { "regex": "^[1-9][0-9]*$" },
       "NDJC:FEED_SORT": { "enum": ["date", "popularity", "rating"] },
-      "THEME_COLORS": { "regex": "^\\{\\\"primary\\\":\\\"#[0-9A-Fa-f]{6}\\\",\\\"secondary\\\":\\\"#[0-9A-Fa-f]{6}\\\"\\}$" }
+      "NDJC:THEME_COLORS": { "regex": "^\\{\\\"primary\\\":\\\"#[0-9A-Fa-f]{6}\\\",\\\"secondary\\\":\\\"#[0-9A-Fa-f]{6}\\\"\\}$" }
     },
     "block": {
-      "HOME_HEADER": { "minLen": 30 },
-      "HOME_BODY": { "minLen": 30 },
-      "HOME_ACTIONS": { "minLen": 30 }
+      "BLOCK:HOME_HEADER": { "minLen": 30 },
+      "BLOCK:HOME_BODY": { "minLen": 30 },
+      "BLOCK:HOME_ACTIONS": { "minLen": 30 }
     },
     "list": {
-      "ROUTES": { "itemRegex": "^[a-z][a-z0-9_-]*$", "minItems": 1 }
+      "LIST:ROUTES": { "itemRegex": "^[a-z][a-z0-9_-]*$", "minItems": 1 }
     },
     "gradle": {
       "applicationId": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
