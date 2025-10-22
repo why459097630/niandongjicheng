@@ -27,8 +27,14 @@ export type NdjcResources = {
 
 /** 前端/调用端传入（或者 LLM 抽取时也会复用这套键） */
 export type NdjcRequest = {
+  /** 可选：本次运行的唯一标识（不传则由后端生成） */
+  runId?: string;
+
   /** 模板选择（你现有 three 模板的枚举，保留兼容） */
   template?: 'core' | 'simple' | 'form' | string;
+
+  /** 兼容后端使用的模板键（如 circle-basic 等） */
+  template_key?: string;
 
   /** 自然语言需求 */
   requirement?: string;
