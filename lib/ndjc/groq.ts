@@ -44,8 +44,8 @@ async function groqChat(messages: ChatMessage[], opts: ChatOpts = {}): Promise<s
   }
 
   const model = opts.model || process.env.GROQ_MODEL || "llama-3.1-8b-instant";
-  const temperature = opts.temperature ?? 0;
-  const top_p = opts.top_p ?? 1;
+  const temperature = opts.temperature ?? 0.2;
+  const top_p = opts.top_p ?? 0.9;
   const max_tokens = opts.max_tokens ?? 8192;
   const retries = Math.max(0, opts.retries ?? 4);
 
