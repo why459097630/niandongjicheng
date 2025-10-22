@@ -75,14 +75,37 @@ export async function orchestrate(req: NdjcRequest) {
   let contract: any;
   try {
     contract = tryParseJson(rawText);
-  } catch (err) {
+  } catch {
     throw new Error(
       "Invalid JSON returned by LLM (not parsable). Ensure the model outputs JSON only."
     );
   }
 
-  /* ---------- strict validation ---------- */
+  /* ---------- strict validation (top-level keys) ---------- */
   validateTopLevel(contract);
+
+  /* ---------- NEW: force-complete metadata (avoid 422 in contract-validate) ---------- */
+  // Prefer LLM -> fall back to inputs/anchors -> final defaults
+  const grouped = contract.anchorsGrouped ?? {};
+  const appLabel =
+    req.appName ??
+    grouped?.text?.["NDJC:APP_LABEL"] ??
+    contract?.metadata?.appName ??
+    "NDJC App";
+  const applicationId =
+    grouped?.gradle?.applicationId ??
+    contract?.metadata?.packageId ??
+    "com.example.ndjc";
+
+  contract.metadata = {
+    ...(contract.metadata ?? {}),
+    template: templateKey || contract?.metadata?.template || "circle-basic",
+    appName: String(appLabel),
+    packageId: String(applicationId),
+    mode: "B", // we are in strict B pipeline
+  };
+
+  /* ---------- continue strict validation ---------- */
   validateAnchorsNonEmpty(contract);
   validateGradle(contract);
 
