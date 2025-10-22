@@ -14,7 +14,7 @@ import rulesJson from "@/lib/ndjc/rules/ndjc-rules.json";
  * =======================================================*/
 
 export async function orchestrate(req: NdjcRequest) {
-  const runId = req.run_id ?? `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  const runId = req.runId ?? `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}`;
   const templateKey = req.template_key ?? "circle-basic";
 
   /* ---------- build system prompt ---------- */
