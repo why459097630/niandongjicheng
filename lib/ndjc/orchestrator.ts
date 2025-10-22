@@ -187,9 +187,9 @@ export async function orchestrate(input: OrchestrateInput): Promise<OrchestrateO
   ].join("\n");
 
   /** 执行 LLM */
-  const msgs = [
-    { role: "system", content: sysPrompt },
-    { role: "user", content: userPrompt }
+  const msgs: { role: "system" | "user" | "assistant"; content: string }[] = [
+  { role: "system", content: sysPrompt },
+  { role: "user", content: userPrompt }
   ];
 
   const _trace: any = { model: process.env.NDJC_MODEL || "groq", mode: "strict-onecall" };
