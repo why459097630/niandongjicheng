@@ -104,7 +104,7 @@ export async function orchestrate(req: NdjcRequest) {
     mode: "B",
   };
 
-  /* ---------- NEW (Scheme A): 补齐所有锚点（无占位符） ---------- */
+  /* ---------- Scheme A: 补齐所有锚点（无占位符） ---------- */
   fillAllAnchorsNoPlaceholder(contract, registry);
 
   /* ---------- 规范化（routes/if/themeColors/gradle） ---------- */
@@ -171,13 +171,13 @@ function fillAllAnchorsNoPlaceholder(contract: any, registry: any) {
     }
   }
 
-  // if: 统一布尔，缺省 false（后续 normalize 会再布尔化一次，安全无冲突）
+  // if: 统一布尔，缺省 false
   for (const k of ifKeys) {
     const v = g.if[k];
     if (typeof v !== "boolean") g.if[k] = false;
   }
 
-  // hook: 缺省给短字符串（非空），避免被当占位符清空
+  // hook: 缺省给短字符串（非空）
   for (const k of hookKeys) {
     const v = g.hook[k];
     if (!hasNonEmpty(v)) {
@@ -188,7 +188,6 @@ function fillAllAnchorsNoPlaceholder(contract: any, registry: any) {
   // gradle: applicationId 先维持现值，resConfigs/permissions 留给 normalize 统一处理
   if (!g.gradle || typeof g.gradle !== "object") g.gradle = {};
   if (!hasNonEmpty(g.gradle.applicationId)) {
-    // 若 text 里有 NDJC:PACKAGE_NAME 就先同步；否则留给后续 normalize 决定
     g.gradle.applicationId =
       g.text["NDJC:PACKAGE_NAME"] ?? g.gradle.applicationId ?? "com.example.ndjc";
   }
@@ -196,20 +195,15 @@ function fillAllAnchorsNoPlaceholder(contract: any, registry: any) {
 
 /* ---------- text 默认值策略 ---------- */
 function ensureTextDefault(key: string, def: any, g: any): string {
-  // 优先使用 registry.defaults
   if (hasNonEmpty(def)) return String(def);
 
-  // 常见关键键的安全值
   if (key === "NDJC:PACKAGE_NAME") return String(g?.gradle?.applicationId ?? "com.example.ndjc");
   if (key === "NDJC:APP_LABEL") return "NDJC App";
   if (key === "NDJC:HOME_TITLE") return "Home";
   if (key === "NDJC:PRIMARY_BUTTON_TEXT") return "Create";
   if (key === "NDJC:THEME_COLORS") return JSON.stringify({ primary: "#7C3AED", secondary: "#10B981" });
-
-  // 看起来像 URL 的策略键
   if (key === "NDJC:PRIVACY_POLICY") return "https://example.com/privacy";
 
-  // 默认给 3+ 长度字符串，避免空/占位符
   return "value";
 }
 
@@ -227,7 +221,6 @@ function ensureListDefault(key: string, def: any[] | null): any[] {
   if (key === "LIST:PROGUARD_EXTRA") return ["-keep class com.ndjc.** { *; }"];
   if (key === "LIST:PACKAGING_RULES") return ["resources.exclude META-INF/DEPENDENCIES"];
   if (key === "LIST:RES_CONFIGS_OVERRIDE") return ["en"];
-  // 其余给一个中性元素，保持非空
   return ["item"];
 }
 
