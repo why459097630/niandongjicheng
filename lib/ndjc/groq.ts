@@ -1,6 +1,9 @@
 // lib/ndjc/groq.ts
-// 轻量封装 Groq Chat Completion，避免 SDK 依赖问题；统一返回纯文本
-// 环境变量：GROQ_API_KEY（必填）、GROQ_MODEL（可选，默认 llama-3.1-8b-instant）
+// 轻量封装 Groq Chat Completion。默认关闭“服务端 JSON 模式”，统一返回纯文本，必要时可手动开启。
+// 环境变量：
+//   - GROQ_API_KEY（必填）
+//   - GROQ_MODEL（可选，默认 llama-3.1-8b-instant）
+//   - NDJC_JSON_MODE=1  启用 JSON 模式（可选，不建议在方案A下开启）
 
 export type ChatRole = "system" | "user" | "assistant";
 
@@ -16,12 +19,12 @@ export interface ChatOpts {
   model?: string;
   /** 最大重试次数（仅对 429 / 5xx 生效）；默认 4 次 */
   retries?: number;
+  /** 可选：强制启用“服务端 JSON 模式”，默认关闭 */
+  jsonMode?: boolean;
 }
 
-const API_URL = "https://api/groq.com/openai/v1/chat/completions".replace(
-  "https://api/groq.com",
-  "https://api.groq.com"
-);
+// Groq 的 OpenAI 兼容端点
+const API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 /** 生成带抖动的指数退避时间（毫秒） */
 function backoff(attempt: number) {
@@ -34,7 +37,7 @@ function backoff(attempt: number) {
  * 与 OpenAI Chat Completions 兼容的 Groq API：
  * - 返回首条 message 的 content（字符串）
  * - 关闭流式，统一简单用法
- * - 开启 JSON 输出约束（与 Playground 的 JSON Mode 一致）
+ * - 默认关闭“服务端 JSON 模式”（避免 LLM 输出含 XML/代码时触发 json_validate_failed）
  * - 对 429/5xx 做指数退避重试
  */
 async function groqChat(messages: ChatMessage[], opts: ChatOpts = {}): Promise<string> {
@@ -49,19 +52,26 @@ async function groqChat(messages: ChatMessage[], opts: ChatOpts = {}): Promise<s
   const max_tokens = opts.max_tokens ?? 8192;
   const retries = Math.max(0, opts.retries ?? 4);
 
+  // 默认关闭；env 或 opts 显式打开时才启 JSON 模式
+  const jsonMode = opts.jsonMode === true || process.env.NDJC_JSON_MODE === "1";
+
   let lastErr: any = null;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const body = {
+      // 统一的请求体；是否附带 response_format 由 jsonMode 决定
+      const body: Record<string, any> = {
         model,
         messages,
         temperature,
-        top_p,                 // 对齐 Playground：确定性采样
-        max_tokens,            // 合同体量大，防截断
-        stream: false,         // 关闭流式，避免拼接/截断
-        response_format: { type: "json_object" }, // 等价 JSON Mode
+        top_p,
+        max_tokens,  // 合同体量大，防截断
+        stream: false,
       };
+      if (jsonMode) {
+        // 仅在明确需要时启用服务端 JSON 模式（会触发严格 JSON 校验）
+        body.response_format = { type: "json_object" };
+      }
 
       const res = await fetch(API_URL, {
         method: "POST",
