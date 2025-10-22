@@ -1,5 +1,5 @@
 // lib/ndjc/orchestrator.ts
-// (strict mode aligned with Contract V1 hard constraints, safe for Vercel build)
+// (strict mode aligned with Contract V1 hard constraints, using .txt prompt file)
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -8,7 +8,6 @@ import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 import registryJson from "@/lib/ndjc/anchors/registry.circle-basic.json";
 import rulesJson from "@/lib/ndjc/rules/ndjc-rules.json";
-import contractPrompt from "@/lib/ndjc/prompts/contract_v1.en.json";
 
 /* =========================================================
  * Orchestrator (strict Contract V1 pipeline)
@@ -26,13 +25,20 @@ export async function orchestrate(req: NdjcRequest) {
     "You are an expert language model tasked with generating an NDJC Contract V1 JSON. " +
     "Follow the schema strictly, fill every anchor with a non-empty, Android-buildable value.";
 
-  /* ---------- inject contract prompt text ---------- */
-  // ⬇ replace old fs.readFile logic
-  const promptText = JSON.stringify(contractPrompt);
+  /* ---------- read contract prompt text (.txt file) ---------- */
+  const promptPath = path.join(process.cwd(), "lib/ndjc/prompts/contract_v1.en.txt");
+  let promptText = "";
+  try {
+    promptText = await fs.readFile(promptPath, "utf8");
+  } catch (e: any) {
+    throw new Error(`[orchestrate] Prompt file not found or unreadable: ${promptPath}\n${e.message}`);
+  }
 
-  const fullPrompt = `${sysPrompt}\n\n---CONTRACT SPEC---\n${promptText}\n\n` +
+  /* ---------- merge all into a full system prompt ---------- */
+  const fullPrompt =
+    `${sysPrompt}\n\n---CONTRACT SPEC---\n${promptText}\n\n` +
     `Registry keys:\n${JSON.stringify(registry.required)}\n\n` +
-    `Rules:\n${JSON.stringify(rules.gradles ?? {})}\n\n` +
+    `Rules:\n${JSON.stringify(rules.gradle ?? {})}\n\n` +
     `User request:\n${req.requirement}`;
 
   /* ---------- build chat message ---------- */
