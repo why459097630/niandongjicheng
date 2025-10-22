@@ -131,90 +131,134 @@
       "NDJC:PRIMARY_BUTTON_TEXT": "Create",
 
       "NDJC:THEME_NAME": "Light",
-      "NDJC:DARK_MODE": "false",
+      "NDJC:DARK_MODE": true,
 
       "NDJC:FONT_FAMILY_PRIMARY": "OpenSans",
       "NDJC:FONT_FAMILY_SECONDARY": "Montserrat",
 
-      "NDJC:I18N_ENABLED": "true",
-      "NDJC:ANIM_ENABLED": "true",
+      "NDJC:I18N_ENABLED": true,
+      "NDJC:ANIM_ENABLED": true,
       "NDJC:ANIM_DURATION_MS": "300",
 
       "NDJC:LAYOUT_DENSITY": "mdpi",
-      "NDJC:DATA_SOURCE": "api.example.com",
-      "NDJC:SEED_ENABLED": "true",
+      "NDJC:DATA_SOURCE": "https://api.example.com",
+      "NDJC:SEED_ENABLED": true,
       "NDJC:FEED_SORT": "date",
       "NDJC:PAGING_SIZE": "10",
 
       "NDJC:OFFLINE_POLICY": "cache",
       "NDJC:PRIVACY_POLICY": "https://example.com/privacy",
-      "NDJC:DRAFT_ENABLED": "true",
-      "NDJC:USE_APP_BUNDLE": "true",
+      "NDJC:DRAFT_ENABLED": true,
+      "NDJC:USE_APP_BUNDLE": true,
 
       "NDJC:BUILD_META:RUNID": "auto",
       "NDJC:FEATURE_TOGGLE:MIN": "1",
-      "NDJC:DEBUG_LOG_ENABLED": "true",
+      "NDJC:DEBUG_LOG_ENABLED": true,
       "NDJC:LOG_LEVEL": "INFO",
-      "NDJC:CRASHLYTICS_ENABLED": "true",
+      "NDJC:CRASHLYTICS_ENABLED": true,
       "NDJC:EXPERIMENT_BUCKET": "exp-001",
 
       "NDJC:THEME_COLORS": "{\"primary\":\"#7C3AED\",\"secondary\":\"#10B981\"}",
 
-      "NDJC:TYPOCASE_OVERRIDES": "",
-      "NDJC:STRINGS_EXTRA": "",
+      "NDJC:TYPOCASE_OVERRIDES": "none",
+      "NDJC:STRINGS_EXTRA": "{\"extra\":\"value\"}",
 
       "NDJC:ROUTE_HOME": "home",
       "NDJC:ROUTE_DETAIL": "detail"
     },
     "list": {
       "LIST:ROUTES": ["home"],
-      "LIST:DEPENDENCY_SNIPPETS": [],
-      "LIST:PROGUARD_EXTRA": [],
-      "LIST:PACKAGING_RULES": [],
-      "LIST:POST_FIELDS": [],
-      "LIST:PLURAL_STRINGS": [],
-      "LIST:COMPONENT_STYLES": [],
-      "LIST:DEEPLINK_PATTERNS": [],
-      "LIST:NETWORK_CLEAR_TEXT": [],
-      "LIST:RES_CONFIGS_OVERRIDE": []
+      "LIST:DEPENDENCY_SNIPPETS": ["implementation 'androidx.core:core-ktx:1.10.0'"],
+      "LIST:PROGUARD_EXTRA": ["-keep class com.ndjc.** { *; }"],
+      "LIST:PACKAGING_RULES": ["resources.exclude META-INF/DEPENDENCIES"],
+      "LIST:POST_FIELDS": ["title", "description"],
+      "LIST:PLURAL_STRINGS": ["items_count"],
+      "LIST:COMPONENT_STYLES": ["material3"],
+      "LIST:DEEPLINK_PATTERNS": ["https://example.com/home"],
+      "LIST:NETWORK_CLEAR_TEXT": ["api.example.com"],
+      "LIST:RES_CONFIGS_OVERRIDE": ["en", "zh-rCN"]
     },
     "gradle": {
+      "applicationId": "com.ndjc.demo.core",
       "resConfigs": ["en", "zh-rCN"],
-      "permissions": ["android.permission.INTERNET"]
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ]
     }
   },
 
-  "placeholders": {
-    "text": {},
-    "block": {},
-    "list": {},
-    "if": {},
-    "hook": {},
-    "gradle": {}
-  },
+  "placeholders": {},
 
   "valueFormat": {
     "text": {
       "NDJC:PACKAGE_NAME": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
-      "NDJC:DARK_MODE": { "enum": ["true", "false"] },
-      "NDJC:PAGING_SIZE": { "regex": "^[1-9][0-9]*$" },
+      "NDJC:APP_LABEL": { "minLen": 3 },
+      "NDJC:HOME_TITLE": { "minLen": 3 },
+      "NDJC:PRIMARY_BUTTON_TEXT": { "minLen": 3 },
+      "NDJC:THEME_NAME": { "enum": ["Light", "Dark", "System"] },
+      "NDJC:DARK_MODE": { "enum": [true, false] },
+      "NDJC:FONT_FAMILY_PRIMARY": { "minLen": 3 },
+      "NDJC:FONT_FAMILY_SECONDARY": { "minLen": 3 },
+      "NDJC:I18N_ENABLED": { "enum": [true, false] },
+      "NDJC:ANIM_ENABLED": { "enum": [true, false] },
       "NDJC:ANIM_DURATION_MS": { "regex": "^[1-9][0-9]*$" },
+      "NDJC:LAYOUT_DENSITY": { "enum": ["ldpi", "mdpi", "hdpi", "xhdpi", "xxhdpi"] },
+      "NDJC:DATA_SOURCE": { "regex": "^https?://[\\w.-]+(:\\d+)?(/.*)?$" },
+      "NDJC:SEED_ENABLED": { "enum": [true, false] },
       "NDJC:FEED_SORT": { "enum": ["date", "popularity", "rating"] },
-      "NDJC:THEME_COLORS": { "regex": "^\\{\\\"primary\\\":\\\"#[0-9A-Fa-f]{6}\\\",\\\"secondary\\\":\\\"#[0-9A-Fa-f]{6}\\\"\\}$" }
+      "NDJC:PAGING_SIZE": { "regex": "^[1-9][0-9]*$" },
+      "NDJC:OFFLINE_POLICY": { "enum": ["cache", "network", "mixed"] },
+      "NDJC:PRIVACY_POLICY": { "regex": "^https://[\\w.-]+(/.*)?$" },
+      "NDJC:DRAFT_ENABLED": { "enum": [true, false] },
+      "NDJC:USE_APP_BUNDLE": { "enum": [true, false] },
+      "NDJC:BUILD_META:RUNID": { "minLen": 3 },
+      "NDJC:FEATURE_TOGGLE:MIN": { "regex": "^[0-9]+$" },
+      "NDJC:DEBUG_LOG_ENABLED": { "enum": [true, false] },
+      "NDJC:LOG_LEVEL": { "enum": ["DEBUG", "INFO", "WARN", "ERROR"] },
+      "NDJC:CRASHLYTICS_ENABLED": { "enum": [true, false] },
+      "NDJC:EXPERIMENT_BUCKET": { "minLen": 3 },
+      "NDJC:THEME_COLORS": {
+        "regex": "^\\{\\\"primary\\\":\\\"#[0-9A-Fa-f]{6}\\\",\\\"secondary\\\":\\\"#[0-9A-Fa-f]{6}\\\"\\}$"
+      },
+      "NDJC:TYPOCASE_OVERRIDES": { "minLen": 2 },
+      "NDJC:STRINGS_EXTRA": { "minLen": 2 },
+      "NDJC:ROUTE_HOME": { "regex": "^[a-z][a-z0-9_-]*$" },
+      "NDJC:ROUTE_DETAIL": { "regex": "^[a-z][a-z0-9_-]*$" }
     },
     "block": {
       "BLOCK:HOME_HEADER": { "minLen": 30 },
       "BLOCK:HOME_BODY": { "minLen": 30 },
-      "BLOCK:HOME_ACTIONS": { "minLen": 30 }
+      "BLOCK:HOME_ACTIONS": { "minLen": 30 },
+      "BLOCK:SPLASH_CONTENT": { "minLen": 30 },
+      "BLOCK:EMPTY_STATE": { "minLen": 30 },
+      "BLOCK:ERROR_STATE": { "minLen": 30 },
+      "BLOCK:DEBUG_PANEL": { "minLen": 30 },
+      "BLOCK:HEADER_AD_SLOT": { "minLen": 30 },
+      "BLOCK:USER_PROFILE_CARD": { "minLen": 30 },
+      "BLOCK:SPONSORED_CARD": { "minLen": 30 },
+      "BLOCK:PROFILE_SECTION": { "minLen": 30 },
+      "BLOCK:SETTINGS_SECTION": { "minLen": 30 },
+      "BLOCK:SETTINGS_SECTION:EXTRA": { "minLen": 30 }
     },
     "list": {
-      "LIST:ROUTES": { "itemRegex": "^[a-z][a-z0-9_-]*$", "minItems": 1 }
+      "LIST:ROUTES": { "itemRegex": "^[a-z][a-z0-9_-]*$", "minItems": 1 },
+      "LIST:DEPENDENCY_SNIPPETS": { "minItems": 1 },
+      "LIST:PROGUARD_EXTRA": { "minItems": 1 },
+      "LIST:PACKAGING_RULES": { "minItems": 1 },
+      "LIST:POST_FIELDS": { "minItems": 1 },
+      "LIST:PLURAL_STRINGS": { "minItems": 1 },
+      "LIST:COMPONENT_STYLES": { "minItems": 1 },
+      "LIST:DEEPLINK_PATTERNS": { "minItems": 1 },
+      "LIST:NETWORK_CLEAR_TEXT": { "minItems": 1 },
+      "LIST:RES_CONFIGS_OVERRIDE": { "minItems": 1 }
     },
     "gradle": {
       "applicationId": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
-      "resConfigs": { "itemRegex": "^[a-z]{2}(-r[A-Z]{2})?$" },
+      "resConfigs": { "itemRegex": "^[a-z]{2}(-r[A-Z]{2})?$", "minItems": 1 },
       "permissions": {
-        "itemRegex": "^(android\\.permission\\.(INTERNET|ACCESS_NETWORK_STATE|READ_MEDIA_IMAGES|READ_MEDIA_VIDEO|READ_MEDIA_AUDIO|POST_NOTIFICATIONS|CAMERA|ACCESS_FINE_LOCATION))$"
+        "itemRegex": "^(android\\.permission\\.(INTERNET|ACCESS_NETWORK_STATE|READ_MEDIA_IMAGES|READ_MEDIA_VIDEO|READ_MEDIA_AUDIO|POST_NOTIFICATIONS|CAMERA|ACCESS_FINE_LOCATION))$",
+        "minItems": 1
       }
     }
   }
