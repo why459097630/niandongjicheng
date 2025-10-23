@@ -161,7 +161,7 @@
     "LIST:COMPONENT_STYLES": { "group": "list", "type": "list<string>", "desc": "组件风格", "example": ["material3"] },
     "LIST:DEEPLINK_PATTERNS": { "group": "list", "type": "list<string:url|pattern>", "desc": "DeepLink URL 模式", "example": ["https://example.com/home"] },
     "LIST:NETWORK_CLEAR_TEXT": { "group": "list", "type": "list<string:domain>", "desc": "需允许 HTTP 明文的域名", "example": ["api.example.com"] },
-    "LIST:RES_CONFIGS_OVERRIDE": { "group": "list", "type": "list<string:locale>", "desc": "追加语言资源配置", "example": ["en","zh-CN"], "rules": { "itemPattern": "^[a-z]{2}(-[A-Z]{2,3})?$" } },
+    "LIST:RES_CONFIGS_OVERRIDE": { "group": "list", "type": "list<string:locale>", "desc": "追加语言资源配置", "example": ["en","zh-rCN"], "rules": { "itemPattern": "^[a-z]{2}(-[A-Z]{2,3})?$" } },
 
     "IF:NAV_TRANSITIONS": { "group": "if", "type": "boolean", "desc": "启用导航转场", "example": true },
     "IF:BUILD_SUMMARY": { "group": "if", "type": "boolean", "desc": "构建结束输出摘要", "example": true },
@@ -182,7 +182,7 @@
     "HOOK:AFTER_INSTALL:HOOK": { "group": "hook", "type": "hook:enum", "desc": "安装后 hook 实现", "example": "enabled", "rules": { "enum": ["noop","enabled"] } },
 
     "gradle.applicationId": { "group": "gradle", "type": "string:packageId", "desc": "Gradle applicationId（应与 NDJC:PACKAGE_NAME 一致）", "example": "com.ndjc.demo.core", "rules": { "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" } },
-    "gradle.resConfigs": { "group": "gradle", "type": "list<string:locale>", "desc": "包含的资源语言", "example": ["en","zh-CN"], "rules": { "itemPattern": "^[a-z]{2}(-[A-Z]{2,3})?$", "minItems": 1 } },
+    "gradle.resConfigs": { "group": "gradle", "type": "list<string:locale>", "desc": "包含的资源语言", "example": ["en","zh-rCN"], "rules": { "itemPattern": "^[a-z]{2}(-r[A-Z]{2,3})?$", "minItems": 1 } },
     "gradle.permissions": { "group": "gradle", "type": "list<string:androidPermission>", "desc": "Android 权限清单", "example": ["android.permission.INTERNET"], "rules": { "itemPattern": "^android\\.permission\\.[A-Z_]+$", "minItems": 1 } }
   },
 
@@ -202,7 +202,11 @@
       "NDJC:APP_LABEL",
       "NDJC:HOME_TITLE",
       "NDJC:PRIMARY_BUTTON_TEXT",
-      "NDJC:THEME_COLORS"
+      "NDJC:THEME_COLORS",
+      "NDJC:I18N_ENABLED",
+      "NDJC:ANIM_ENABLED",
+      "NDJC:ANIM_DURATION_MS",
+      "NDJC:DATA_SOURCE"
     ],
     "list": [
       "LIST:ROUTES"
@@ -294,12 +298,12 @@
       "NDJC:I18N_ENABLED": { "enum": [true, false] },
       "NDJC:ANIM_ENABLED": { "enum": [true, false] },
       "NDJC:ANIM_DURATION_MS": { "regex": "^[1-9][0-9]*$" },
-      "NDJC:LAYOUT_DENSITY": { "enum": ["ldpi", "mdpi", "hdpi", "xhdpi", "xxhdpi"] },
+      "NDJC:LAYOUT_DENSITY": { "enum": ["ldpi","mdpi","hdpi","xhdpi","xxhdpi"] },
       "NDJC:DATA_SOURCE": { "regex": "^https?://[\\w.-]+(:\\d+)?(/.*)?$" },
       "NDJC:SEED_ENABLED": { "enum": [true, false] },
-      "NDJC:FEED_SORT": { "enum": ["date", "popularity", "rating"] },
+      "NDJC:FEED_SORT": { "enum": ["date","popularity","rating"] },
       "NDJC:PAGING_SIZE": { "regex": "^[1-9][0-9]*$" },
-      "NDJC:OFFLINE_POLICY": { "enum": ["cache", "network", "mixed"] },
+      "NDJC:OFFLINE_POLICY": { "enum": ["cache","network","mixed"] },
       "NDJC:PRIVACY_POLICY": { "regex": "^https://[\\w.-]+(/.*)?$" },
       "NDJC:DRAFT_ENABLED": { "enum": [true, false] },
       "NDJC:USE_APP_BUNDLE": { "enum": [true, false] },
@@ -316,7 +320,7 @@
       "NDJC:ROUTE_DETAIL": { "regex": "^[a-z][a-z0-9_-]*$" }
     },
     "block": {
-      "BLOCK:HOME_HEADER": { "minLen": 80, "regex": "@Composable[\\s\\S]*?(Text\\(|Button\\(|Row\\(|Column\\(|Image\\()"},
+      "BLOCK:HOME_HEADER": { "minLen": 80, "regex": "@Composable[\\s\\S]*?(Text\\(|Button\\(|Row\\(|Column\\(|Image\\()" },
       "BLOCK:HOME_BODY": { "minLen": 80, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
       "BLOCK:HOME_ACTIONS": { "minLen": 80, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
       "BLOCK:SPLASH_CONTENT": { "minLen": 80, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
@@ -344,7 +348,7 @@
     },
     "gradle": {
       "applicationId": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
-      "resConfigs": { "itemRegex": "^[a-z]{2}(-r[A-Z]{2})?$", "minItems": 1 },
+      "resConfigs": { "itemRegex": "^[a-z]{2}(-r[A-Z]{2,3})?$", "minItems": 1 },
       "permissions": {
         "itemRegex": "^(android\\.permission\\.(INTERNET|ACCESS_NETWORK_STATE|READ_MEDIA_IMAGES|READ_MEDIA_VIDEO|READ_MEDIA_AUDIO|POST_NOTIFICATIONS|CAMERA|ACCESS_FINE_LOCATION))$",
         "minItems": 1
