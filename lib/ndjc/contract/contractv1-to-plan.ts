@@ -143,7 +143,6 @@ function toAndroidResConfig(code: string): string | null {
   if (!norm) return null;
   const [lang, region] = norm.split("-");
   if (!region) return lang;
-  // 只有 region 时转为 -rREGION(大写)
   return `${lang}-r${region.toUpperCase()}`;
 }
 
@@ -258,7 +257,7 @@ export function contractV1ToPlan(v1Raw: unknown, defaultTemplate = "circle-basic
       }
       continue;
     }
-    // 3) JSON 对象（典型：STRINGS_EXTRA 等）
+    // 3) JSON 对象（典型：STRINGS_EXTRA/ THEME_COLORS 等）
     if (/NDJC:.*(JSON|EXTRA|MAP|DICT|COLORS)$/i.test(key)) {
       const pj = parseJsonObjectLoose(v as JSONValue);
       if (pj.ok) {
@@ -365,7 +364,7 @@ export function contractV1ToPlan(v1Raw: unknown, defaultTemplate = "circle-basic
     }
 
     if (normalized.length) {
-      plan.lists[key] = Array.from(new Set(normalized));
+      plan.lists[key] = Array.from(new Set<string>(normalized));
       plan.listKinds[key] = kind;
     }
   }
@@ -443,21 +442,22 @@ export function contractV1ToPlan(v1Raw: unknown, defaultTemplate = "circle-basic
 
   const mergedRes = [...(plan.gradle.resConfigs || []), ...listRes];
   const normalizedRes = Array.from(
-    new Set(
+    new Set<string>(
       mergedRes
-        .map((s) => toAndroidResConfig(s))
-        .filter((x): x is string => !!x)
+        .map((s: string) => toAndroidResConfig(s))
+        .filter((x: string | null): x is string => !!x)
     )
   );
   plan.gradle.resConfigs = normalizedRes;
 
-  // Gradle permissions 去重/规范
+  // Gradle permissions 去重/规范（显式类型以通过 noImplicitAny）
   if (Array.isArray(plan.gradle.permissions)) {
+    const perms = plan.gradle.permissions as string[];
     plan.gradle.permissions = Array.from(
-      new Set(
-        plan.gradle.permissions
-          .map((p) => String(p || "").trim())
-          .filter((p) => /^android\.permission\.[A-Z_]+$/.test(p))
+      new Set<string>(
+        perms
+          .map((p: string) => String(p ?? "").trim())
+          .filter((p: string): p is string => /^android\.permission\.[A-Z_]+$/.test(p))
       )
     );
   } else {
