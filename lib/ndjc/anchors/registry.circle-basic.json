@@ -1,56 +1,44 @@
 {
   "template": "circle-basic",
   "schemaVersion": "1.0.0",
-
   "text": [
     "NDJC:PACKAGE_NAME",
     "NDJC:APP_LABEL",
     "NDJC:HOME_TITLE",
     "NDJC:PRIMARY_BUTTON_TEXT",
-
     "NDJC:THEME_NAME",
     "NDJC:DARK_MODE",
-
     "NDJC:FONT_FAMILY_PRIMARY",
     "NDJC:FONT_FAMILY_SECONDARY",
-
     "NDJC:I18N_ENABLED",
     "NDJC:ANIM_ENABLED",
     "NDJC:ANIM_DURATION_MS",
-
     "NDJC:LAYOUT_DENSITY",
     "NDJC:DATA_SOURCE",
     "NDJC:SEED_ENABLED",
     "NDJC:FEED_SORT",
     "NDJC:PAGING_SIZE",
-
     "NDJC:OFFLINE_POLICY",
     "NDJC:PRIVACY_POLICY",
     "NDJC:DRAFT_ENABLED",
     "NDJC:USE_APP_BUNDLE",
-
     "NDJC:BUILD_META:RUNID",
     "NDJC:FEATURE_TOGGLE:MIN",
     "NDJC:DEBUG_LOG_ENABLED",
     "NDJC:LOG_LEVEL",
     "NDJC:CRASHLYTICS_ENABLED",
     "NDJC:EXPERIMENT_BUCKET",
-
     "NDJC:THEME_COLORS",
     "NDJC:TYPOCASE_OVERRIDES",
     "NDJC:STRINGS_EXTRA",
-
     "NDJC:ROUTE_HOME",
     "NDJC:ROUTE_DETAIL",
-
-    /* ==== 新增 · 社交功能开关（text） ==== */
     "NDJC:ENABLE_POSTING",
     "NDJC:ENABLE_COMMENTS",
     "NDJC:ENABLE_LIKES",
     "NDJC:PROFILE_EDIT_ENABLED",
     "NDJC:NOTIFICATIONS_ENABLED"
   ],
-
   "block": [
     "BLOCK:HOME_HEADER",
     "BLOCK:HOME_BODY",
@@ -65,8 +53,6 @@
     "BLOCK:PROFILE_SECTION",
     "BLOCK:SETTINGS_SECTION",
     "BLOCK:SETTINGS_SECTION:EXTRA",
-
-    /* ==== 新增 · 社交页面/组件（block） ==== */
     "BLOCK:POST_COMPOSER",
     "BLOCK:POST_CARD",
     "BLOCK:FEED_LIST",
@@ -79,7 +65,6 @@
     "BLOCK:SEARCH_SCREEN",
     "BLOCK:MEDIA_PICKER"
   ],
-
   "list": [
     "LIST:ROUTES",
     "LIST:DEPENDENCY_SNIPPETS",
@@ -91,15 +76,12 @@
     "LIST:DEEPLINK_PATTERNS",
     "LIST:NETWORK_CLEAR_TEXT",
     "LIST:RES_CONFIGS_OVERRIDE",
-
-    /* ==== 新增 · 社交相关列表（list） ==== */
     "LIST:COMMENT_FIELDS",
     "LIST:FEED_QUERY_PARAMS",
     "LIST:PROFILE_FIELDS",
     "LIST:NOTIFICATION_TYPES",
     "LIST:UPLOAD_MIME_TYPES"
   ],
-
   "if": [
     "IF:NAV_TRANSITIONS",
     "IF:BUILD_SUMMARY",
@@ -111,15 +93,12 @@
     "IF:POST_INJECT",
     "IF:BEFORE_BUNDLE",
     "IF:AFTER_BUNDLE",
-
-    /* ==== 新增 · 社交条件开关（if） ==== */
     "IF:ENABLE_POSTING",
     "IF:ENABLE_COMMENTS",
     "IF:ENABLE_LIKES",
     "IF:REQUIRE_LOGIN",
     "IF:SHOW_NOTIFICATIONS"
   ],
-
   "hook": [
     "HOOK:INTENT_SHARE",
     "HOOK:FILE_PROVIDER",
@@ -127,8 +106,6 @@
     "HOOK:PRE_COMMIT:HOOK",
     "HOOK:POST_BUILD:HOOK",
     "HOOK:AFTER_INSTALL:HOOK",
-
-    /* ==== 新增 · 社交行为/数据钩子（hook） ==== */
     "HOOK:POST_SUBMIT",
     "HOOK:FETCH_FEED",
     "HOOK:FETCH_POST",
@@ -138,57 +115,44 @@
     "HOOK:UPLOAD_MEDIA",
     "HOOK:FETCH_NOTIFICATIONS"
   ],
-
   "resources": [],
-
   "hints": {
     "NDJC:PACKAGE_NAME": { "group": "text", "type": "string:packageId", "desc": "Android applicationId / 包名", "example": "com.ndjc.demo.core", "rules": { "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" } },
     "NDJC:APP_LABEL": { "group": "text", "type": "string", "desc": "应用显示名称", "example": "NDJC App", "rules": { "minLen": 3, "maxLen": 30 } },
     "NDJC:HOME_TITLE": { "group": "text", "type": "string", "desc": "首页标题", "example": "Home", "rules": { "minLen": 3 } },
     "NDJC:PRIMARY_BUTTON_TEXT": { "group": "text", "type": "string", "desc": "首页主按钮文案", "example": "Create", "rules": { "minLen": 3 } },
-
     "NDJC:THEME_NAME": { "group": "text", "type": "enum", "desc": "主题模式", "example": "Light", "rules": { "enum": ["Light","Dark","System"] } },
     "NDJC:DARK_MODE": { "group": "text", "type": "boolean", "desc": "启用深色模式", "example": true },
-
     "NDJC:FONT_FAMILY_PRIMARY": { "group": "text", "type": "string", "desc": "主字体族", "example": "OpenSans", "rules": { "minLen": 3 } },
     "NDJC:FONT_FAMILY_SECONDARY": { "group": "text", "type": "string", "desc": "次字体族", "example": "Montserrat", "rules": { "minLen": 3 } },
-
     "NDJC:I18N_ENABLED": { "group": "text", "type": "boolean", "desc": "是否启用多语言", "example": true },
     "NDJC:ANIM_ENABLED": { "group": "text", "type": "boolean", "desc": "是否启用动画", "example": true },
     "NDJC:ANIM_DURATION_MS": { "group": "text", "type": "number", "desc": "动画时长(ms)", "example": 300, "rules": { "min": 50, "max": 2000 } },
-
     "NDJC:LAYOUT_DENSITY": { "group": "text", "type": "enum", "desc": "版式密度", "example": "mdpi", "rules": { "enum": ["ldpi","mdpi","hdpi","xhdpi","xxhdpi"] } },
     "NDJC:DATA_SOURCE": { "group": "text", "type": "string:url", "desc": "远端数据源根URL", "example": "https://api.example.com" },
     "NDJC:SEED_ENABLED": { "group": "text", "type": "boolean", "desc": "启用种子数据", "example": true },
     "NDJC:FEED_SORT": { "group": "text", "type": "enum", "desc": "列表排序", "example": "date", "rules": { "enum": ["date","popularity","rating"] } },
     "NDJC:PAGING_SIZE": { "group": "text", "type": "number", "desc": "分页大小", "example": 10, "rules": { "min": 1, "max": 200 } },
-
     "NDJC:OFFLINE_POLICY": { "group": "text", "type": "enum", "desc": "离线策略", "example": "cache", "rules": { "enum": ["cache","network","mixed"] } },
     "NDJC:PRIVACY_POLICY": { "group": "text", "type": "string:https-url", "desc": "隐私政策链接", "example": "https://example.com/privacy" },
     "NDJC:DRAFT_ENABLED": { "group": "text", "type": "boolean", "desc": "启用草稿功能", "example": true },
     "NDJC:USE_APP_BUNDLE": { "group": "text", "type": "boolean", "desc": "构建 AAB", "example": true },
-
     "NDJC:BUILD_META:RUNID": { "group": "text", "type": "string", "desc": "本次构建运行ID（若生成此锚点，其值必须与 metadata.NDJC:BUILD_META:RUNID 一致）", "example": "run_20251022_001", "rules": { "minLen": 3 } },
     "NDJC:FEATURE_TOGGLE:MIN": { "group": "text", "type": "number", "desc": "最小功能开关级别", "example": 1 },
     "NDJC:DEBUG_LOG_ENABLED": { "group": "text", "type": "boolean", "desc": "调试日志开", "example": true },
     "NDJC:LOG_LEVEL": { "group": "text", "type": "enum", "desc": "日志级别", "example": "INFO", "rules": { "enum": ["DEBUG","INFO","WARN","ERROR"] } },
     "NDJC:CRASHLYTICS_ENABLED": { "group": "text", "type": "boolean", "desc": "崩溃上报开", "example": true },
     "NDJC:EXPERIMENT_BUCKET": { "group": "text", "type": "string", "desc": "实验分桶名", "example": "exp-001", "rules": { "minLen": 3 } },
-
     "NDJC:THEME_COLORS": { "group": "text", "type": "object", "desc": "主题主副色", "example": { "primary": "#7C3AED", "secondary": "#10B981" } },
     "NDJC:TYPOCASE_OVERRIDES": { "group": "text", "type": "string", "desc": "文案大小写覆盖", "example": "none" },
     "NDJC:STRINGS_EXTRA": { "group": "text", "type": "object", "desc": "额外字符串资源", "example": { "extra": "value" } },
-
     "NDJC:ROUTE_HOME": { "group": "text", "type": "string:routeId", "desc": "首页路由ID", "example": "home" },
     "NDJC:ROUTE_DETAIL": { "group": "text", "type": "string:routeId", "desc": "详情页路由ID", "example": "detail" },
-
-    /* ==== 新增 · 社交功能开关（text 注释） ==== */
     "NDJC:ENABLE_POSTING": { "group": "text", "type": "boolean", "desc": "是否启用发帖能力（用于灰度/模板开关）", "example": true },
     "NDJC:ENABLE_COMMENTS": { "group": "text", "type": "boolean", "desc": "是否启用评论能力", "example": true },
     "NDJC:ENABLE_LIKES": { "group": "text", "type": "boolean", "desc": "是否启用点赞能力", "example": true },
     "NDJC:PROFILE_EDIT_ENABLED": { "group": "text", "type": "boolean", "desc": "是否允许编辑个人资料", "example": true },
     "NDJC:NOTIFICATIONS_ENABLED": { "group": "text", "type": "boolean", "desc": "是否启用站内通知页面/拉取", "example": true },
-
     "BLOCK:HOME_HEADER": { "group": "block", "type": "block:compose", "desc": "首页头部可替换 UI 片段", "example": "@Composable fun HomeHeader(){ Row{ Text(\"NDJC App\") ; Button(onClick={}){ Text(\"Create\") } } }", "rules": { "mustCompile": true } },
     "BLOCK:HOME_BODY": { "group": "block", "type": "block:compose", "desc": "首页主体内容片段", "example": "Column { Text(\"Welcome\") }" },
     "BLOCK:HOME_ACTIONS": { "group": "block", "type": "block:compose", "desc": "首页操作区片段", "example": "Row { Button(onClick={}){ Text(\"Go\") } }" },
@@ -202,20 +166,17 @@
     "BLOCK:PROFILE_SECTION": { "group": "block", "type": "block:compose", "desc": "个人资料区片段", "example": "Column { Text(\"Profile\") }" },
     "BLOCK:SETTINGS_SECTION": { "group": "block", "type": "block:compose", "desc": "设置页片段", "example": "Column { Text(\"Settings\") }" },
     "BLOCK:SETTINGS_SECTION:EXTRA": { "group": "block", "type": "block:compose", "desc": "设置页扩展片段", "example": "Column { Text(\"Extra\") }" },
-
-    /* ==== 新增 · 社交页面/组件（block 注释） ==== */
     "BLOCK:POST_COMPOSER": { "group": "block", "type": "block:compose", "desc": "发帖编辑器（文本输入、多图选择/预览、发布按钮）", "example": "@Composable fun PostComposer(){ Column{ TextField(value=\"\",onValueChange={}); Button({}){ Text(\"Post\") } } }" },
     "BLOCK:POST_CARD": { "group": "block", "type": "block:compose", "desc": "帖子卡片（含头像、正文、点赞/评论入口）", "example": "@Composable fun PostCard(){ Column{ Text(\"Hello NDJC\") ; Row{ Text(\"Like\"); Text(\"Comment\") } } }" },
-    "BLOCK:FEED_LIST": { "group": "block", "type": "block:compose", "desc": "动态流/时间线列表", "example": "@Composable fun FeedList(){ /* LazyColumn of PostCard */ }" },
+    "BLOCK:FEED_LIST": { "group": "block", "type": "block:compose", "desc": "动态流/时间线列表", "example": "@Composable fun FeedList(){  }" },
     "BLOCK:POST_DETAIL": { "group": "block", "type": "block:compose", "desc": "帖子详情页（含点赞、评论入口）", "example": "@Composable fun PostDetail(){ Column{ Text(\"Detail\") } }" },
-    "BLOCK:COMMENTS_SCREEN": { "group": "block", "type": "block:compose", "desc": "评论页面（列表 + 输入框 + 发送）", "example": "@Composable fun CommentsScreen(){ Column{ /* list + input */ } }" },
+    "BLOCK:COMMENTS_SCREEN": { "group": "block", "type": "block:compose", "desc": "评论页面（列表 + 输入框 + 发送）", "example": "@Composable fun CommentsScreen(){ Column{  } }" },
     "BLOCK:COMMENT_ITEM": { "group": "block", "type": "block:compose", "desc": "单条评论项（头像/昵称/正文/时间）", "example": "@Composable fun CommentItem(){ Row{ Text(\"user\"); Text(\"nice!\") } }" },
     "BLOCK:LIKE_BUTTON": { "group": "block", "type": "block:compose", "desc": "点赞按钮（含计数/切换态）", "example": "@Composable fun LikeButton(){ Row{ Text(\"Like 12\") } }" },
-    "BLOCK:NOTIFICATIONS_SCREEN": { "group": "block", "type": "block:compose", "desc": "站内通知列表页", "example": "@Composable fun Notifications(){ /* list */ }" },
-    "BLOCK:EDIT_PROFILE_SCREEN": { "group": "block", "type": "block:compose", "desc": "编辑个人资料页（昵称/签名/头像等）", "example": "@Composable fun EditProfile(){ /* form */ }" },
-    "BLOCK:SEARCH_SCREEN": { "group": "block", "type": "block:compose", "desc": "搜索页（帖子/用户）", "example": "@Composable fun SearchScreen(){ /* search */ }" },
-    "BLOCK:MEDIA_PICKER": { "group": "block", "type": "block:compose", "desc": "媒体选择器（拍照/相册、多图选择）", "example": "@Composable fun MediaPicker(){ /* picker */ }" },
-
+    "BLOCK:NOTIFICATIONS_SCREEN": { "group": "block", "type": "block:compose", "desc": "站内通知列表页", "example": "@Composable fun Notifications(){  }" },
+    "BLOCK:EDIT_PROFILE_SCREEN": { "group": "block", "type": "block:compose", "desc": "编辑个人资料页（昵称/签名/头像等）", "example": "@Composable fun EditProfile(){  }" },
+    "BLOCK:SEARCH_SCREEN": { "group": "block", "type": "block:compose", "desc": "搜索页（帖子/用户）", "example": "@Composable fun SearchScreen(){  }" },
+    "BLOCK:MEDIA_PICKER": { "group": "block", "type": "block:compose", "desc": "媒体选择器（拍照/相册、多图选择）", "example": "@Composable fun MediaPicker(){  }" },
     "LIST:ROUTES": { "group": "list", "type": "list<string:routeId>", "desc": "路由ID列表", "example": ["home","detail"], "rules": { "itemPattern": "^[a-z][a-z0-9_-]*$", "minItems": 1 } },
     "LIST:DEPENDENCY_SNIPPETS": { "group": "list", "type": "list<string>", "desc": "额外 Gradle 依赖行", "example": ["implementation 'androidx.core:core-ktx:1.10.0'"] },
     "LIST:PROGUARD_EXTRA": { "group": "list", "type": "list<string>", "desc": "额外 Proguard 规则", "example": ["-keep class com.ndjc.** { *; }"] },
@@ -226,14 +187,11 @@
     "LIST:DEEPLINK_PATTERNS": { "group": "list", "type": "list<string:url|pattern>", "desc": "DeepLink URL 模式", "example": ["https://example.com/home"] },
     "LIST:NETWORK_CLEAR_TEXT": { "group": "list", "type": "list<string:domain>", "desc": "需允许 HTTP 明文的域名", "example": ["api.example.com"] },
     "LIST:RES_CONFIGS_OVERRIDE": { "group": "list", "type": "list<string:locale>", "desc": "追加语言资源配置", "example": ["en","zh-rCN"], "rules": { "itemPattern": "^[a-z]{2}(-[A-Z]{2,3})?$" } },
-
-    /* ==== 新增 · 社交相关列表（list 注释） ==== */
     "LIST:COMMENT_FIELDS": { "group": "list", "type": "list<string>", "desc": "评论提交字段（如 postId、content）", "example": ["postId","content"], "rules": { "minItems": 1 } },
     "LIST:FEED_QUERY_PARAMS": { "group": "list", "type": "list<string>", "desc": "Feed 拉取的查询参数（分页/排序/过滤）", "example": ["page","pageSize","orderBy"], "rules": { "minItems": 1 } },
     "LIST:PROFILE_FIELDS": { "group": "list", "type": "list<string>", "desc": "个人资料编辑字段", "example": ["nickname","bio","avatarUrl"], "rules": { "minItems": 1 } },
     "LIST:NOTIFICATION_TYPES": { "group": "list", "type": "list<string>", "desc": "通知类型枚举清单", "example": ["like","comment","follow"], "rules": { "minItems": 1 } },
     "LIST:UPLOAD_MIME_TYPES": { "group": "list", "type": "list<string>", "desc": "允许上传的 MIME 类型", "example": ["image/jpeg","image/png"], "rules": { "minItems": 1 } },
-
     "IF:NAV_TRANSITIONS": { "group": "if", "type": "boolean", "desc": "启用导航转场", "example": true },
     "IF:BUILD_SUMMARY": { "group": "if", "type": "boolean", "desc": "构建结束输出摘要", "example": true },
     "IF:NATIVE_SPLITS": { "group": "if", "type": "boolean", "desc": "启用 ABI 拆分", "example": false },
@@ -244,22 +202,17 @@
     "IF:POST_INJECT": { "group": "if", "type": "boolean", "desc": "模板注入后执行 hook", "example": true },
     "IF:BEFORE_BUNDLE": { "group": "if", "type": "boolean", "desc": "打 AAB 前执行 hook", "example": false },
     "IF:AFTER_BUNDLE": { "group": "if", "type": "boolean", "desc": "打 AAB 后执行 hook", "example": false },
-
-    /* ==== 新增 · 社交条件开关（if 注释） ==== */
     "IF:ENABLE_POSTING": { "group": "if", "type": "boolean", "desc": "是否在 UI 中展示发帖入口/页面", "example": true },
     "IF:ENABLE_COMMENTS": { "group": "if", "type": "boolean", "desc": "是否展示评论 UI 和交互", "example": true },
     "IF:ENABLE_LIKES": { "group": "if", "type": "boolean", "desc": "是否展示点赞 UI 和交互", "example": true },
     "IF:REQUIRE_LOGIN": { "group": "if", "type": "boolean", "desc": "发布/评论是否要求登录", "example": true },
     "IF:SHOW_NOTIFICATIONS": { "group": "if", "type": "boolean", "desc": "是否展示站内通知页面入口", "example": true },
-
     "HOOK:INTENT_SHARE": { "group": "hook", "type": "hook:enum", "desc": "分享意图 hook", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:SHARE"] } },
     "HOOK:FILE_PROVIDER": { "group": "hook", "type": "hook:enum", "desc": "文件提供器 hook", "example": "enabled", "rules": { "enum": ["noop","enabled"] } },
     "HOOK:PERMISSIONS:ON_REQUEST": { "group": "hook", "type": "hook:enum", "desc": "动态权限请求 hook", "example": "emit_event:PERM_REQUESTED", "rules": { "enum": ["noop","enabled","emit_event:PERM_REQUESTED"] } },
     "HOOK:PRE_COMMIT:HOOK": { "group": "hook", "type": "hook:enum", "desc": "提交前 hook 实现", "example": "noop", "rules": { "enum": ["noop","enabled"] } },
     "HOOK:POST_BUILD:HOOK": { "group": "hook", "type": "hook:enum", "desc": "构建后 hook 实现", "example": "emit_event:BUILD_DONE", "rules": { "enum": ["noop","enabled","emit_event:BUILD_DONE"] } },
     "HOOK:AFTER_INSTALL:HOOK": { "group": "hook", "type": "hook:enum", "desc": "安装后 hook 实现", "example": "enabled", "rules": { "enum": ["noop","enabled"] } },
-
-    /* ==== 新增 · 社交行为/数据钩子（hook 注释） ==== */
     "HOOK:POST_SUBMIT": { "group": "hook", "type": "hook:enum", "desc": "发帖提交动作（占位：enabled/noop/emit_event:POST_SUBMIT）", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:POST_SUBMIT"] } },
     "HOOK:FETCH_FEED": { "group": "hook", "type": "hook:enum", "desc": "拉取时间线 Feed（占位枚举）", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:FETCH_FEED"] } },
     "HOOK:FETCH_POST": { "group": "hook", "type": "hook:enum", "desc": "拉取单帖详情（占位枚举）", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:FETCH_POST"] } },
@@ -268,14 +221,11 @@
     "HOOK:LIKE_TOGGLE": { "group": "hook", "type": "hook:enum", "desc": "点赞/取消赞动作（占位枚举）", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:LIKE_TOGGLE"] } },
     "HOOK:UPLOAD_MEDIA": { "group": "hook", "type": "hook:enum", "desc": "媒体上传（图片/视频）动作（占位枚举）", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:UPLOAD_MEDIA"] } },
     "HOOK:FETCH_NOTIFICATIONS": { "group": "hook", "type": "hook:enum", "desc": "拉取站内通知列表（占位枚举）", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:FETCH_NOTIFICATIONS"] } },
-
     "gradle.applicationId": { "group": "gradle", "type": "string:packageId", "desc": "Gradle applicationId（应与 NDJC:PACKAGE_NAME 一致）", "example": "com.ndjc.demo.core", "rules": { "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" } },
     "gradle.resConfigs": { "group": "gradle", "type": "list<string:locale>", "desc": "包含的资源语言", "example": ["en","zh-rCN"], "rules": { "itemPattern": "^[a-z]{2}(-r[A-Z]{2,3})?$", "minItems": 1 } },
     "gradle.permissions": { "group": "gradle", "type": "list<string:androidPermission>", "desc": "Android 权限清单", "example": ["android.permission.INTERNET"], "rules": { "itemPattern": "^android\\.permission\\.[A-Z_]+$", "minItems": 1 } }
   },
-
   "placeholderBlacklist": ["value","item","ready","content ready for rendering...","lorem","tbd","n/a","-"],
-
   "aliases": {
     "PACKAGE_NAME": "TEXT:NDJC:PACKAGE_NAME",
     "APP_LABEL": "TEXT:NDJC:APP_LABEL",
@@ -283,7 +233,6 @@
     "PRIMARY_BUTTON_TEXT": "TEXT:NDJC:PRIMARY_BUTTON_TEXT",
     "ROUTES": "LIST:ROUTES"
   },
-
   "required": {
     "text": [
       "NDJC:PACKAGE_NAME",
@@ -296,60 +245,42 @@
       "NDJC:ANIM_DURATION_MS",
       "NDJC:DATA_SOURCE"
     ],
-    "list": [
-      "LIST:ROUTES"
-    ],
-    "gradle": [
-      "applicationId",
-      "resConfigs",
-      "permissions"
-    ]
+    "list": ["LIST:ROUTES"],
+    "gradle": ["applicationId","resConfigs","permissions"]
   },
-
   "defaults": {
     "text": {
       "NDJC:PACKAGE_NAME": "com.ndjc.demo.core",
       "NDJC:APP_LABEL": "NDJC App",
       "NDJC:HOME_TITLE": "Home",
       "NDJC:PRIMARY_BUTTON_TEXT": "Create",
-
       "NDJC:THEME_NAME": "Light",
       "NDJC:DARK_MODE": true,
-
       "NDJC:FONT_FAMILY_PRIMARY": "OpenSans",
       "NDJC:FONT_FAMILY_SECONDARY": "Montserrat",
-
       "NDJC:I18N_ENABLED": true,
       "NDJC:ANIM_ENABLED": true,
       "NDJC:ANIM_DURATION_MS": 300,
-
       "NDJC:LAYOUT_DENSITY": "mdpi",
       "NDJC:DATA_SOURCE": "https://api.example.com",
       "NDJC:SEED_ENABLED": true,
       "NDJC:FEED_SORT": "date",
       "NDJC:PAGING_SIZE": "10",
-
       "NDJC:OFFLINE_POLICY": "cache",
       "NDJC:PRIVACY_POLICY": "https://example.com/privacy",
       "NDJC:DRAFT_ENABLED": true,
       "NDJC:USE_APP_BUNDLE": true,
-
       "NDJC:BUILD_META:RUNID": "auto",
       "NDJC:FEATURE_TOGGLE:MIN": "1",
       "NDJC:DEBUG_LOG_ENABLED": true,
       "NDJC:LOG_LEVEL": "INFO",
       "NDJC:CRASHLYTICS_ENABLED": true,
       "NDJC:EXPERIMENT_BUCKET": "exp-001",
-
       "NDJC:THEME_COLORS": "{\"primary\":\"#7C3AED\",\"secondary\":\"#10B981\"}",
-
       "NDJC:TYPOCASE_OVERRIDES": "none",
       "NDJC:STRINGS_EXTRA": "{\"extra\":\"value\"}",
-
       "NDJC:ROUTE_HOME": "home",
       "NDJC:ROUTE_DETAIL": "detail",
-
-      /* 新增开关默认值（可按需改） */
       "NDJC:ENABLE_POSTING": true,
       "NDJC:ENABLE_COMMENTS": true,
       "NDJC:ENABLE_LIKES": true,
@@ -361,14 +292,12 @@
       "LIST:DEPENDENCY_SNIPPETS": ["implementation 'androidx.core:core-ktx:1.10.0'"],
       "LIST:PROGUARD_EXTRA": ["-keep class com.ndjc.** { *; }"],
       "LIST:PACKAGING_RULES": ["resources.exclude('META-INF/DEPENDENCIES')"],
-      "LIST:POST_FIELDS": ["title", "description"],
+      "LIST:POST_FIELDS": ["title","description"],
       "LIST:PLURAL_STRINGS": ["items_count"],
       "LIST:COMPONENT_STYLES": ["material3"],
       "LIST:DEEPLINK_PATTERNS": ["https://example.com/home"],
       "LIST:NETWORK_CLEAR_TEXT": ["api.example.com"],
-      "LIST:RES_CONFIGS_OVERRIDE": ["en", "zh-rCN"],
-
-      /* 新增 list 默认值 */
+      "LIST:RES_CONFIGS_OVERRIDE": ["en","zh-rCN"],
       "LIST:COMMENT_FIELDS": ["postId","content"],
       "LIST:FEED_QUERY_PARAMS": ["page","pageSize","orderBy"],
       "LIST:PROFILE_FIELDS": ["nickname","bio","avatarUrl"],
@@ -377,56 +306,49 @@
     },
     "gradle": {
       "applicationId": "com.ndjc.demo.core",
-      "resConfigs": ["en", "zh-rCN"],
-      "permissions": [
-        "android.permission.INTERNET",
-        "android.permission.ACCESS_NETWORK_STATE"
-      ]
+      "resConfigs": ["en","zh-rCN"],
+      "permissions": ["android.permission.INTERNET","android.permission.ACCESS_NETWORK_STATE"]
     }
   },
-
   "placeholders": {},
-
   "valueFormat": {
     "text": {
       "NDJC:PACKAGE_NAME": { "regex": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
       "NDJC:APP_LABEL": { "minLen": 3 },
       "NDJC:HOME_TITLE": { "minLen": 3 },
       "NDJC:PRIMARY_BUTTON_TEXT": { "minLen": 3 },
-      "NDJC:THEME_NAME": { "enum": ["Light", "Dark", "System"] },
-      "NDJC:DARK_MODE": { "enum": [true, false] },
+      "NDJC:THEME_NAME": { "enum": ["Light","Dark","System"] },
+      "NDJC:DARK_MODE": { "enum": [true,false] },
       "NDJC:FONT_FAMILY_PRIMARY": { "minLen": 3 },
       "NDJC:FONT_FAMILY_SECONDARY": { "minLen": 3 },
-      "NDJC:I18N_ENABLED": { "enum": [true, false] },
-      "NDJC:ANIM_ENABLED": { "enum": [true, false] },
+      "NDJC:I18N_ENABLED": { "enum": [true,false] },
+      "NDJC:ANIM_ENABLED": { "enum": [true,false] },
       "NDJC:ANIM_DURATION_MS": { "regex": "^[1-9][0-9]*$" },
       "NDJC:LAYOUT_DENSITY": { "enum": ["ldpi","mdpi","hdpi","xhdpi","xxhdpi"] },
       "NDJC:DATA_SOURCE": { "regex": "^https?://[\\w.-]+(:\\d+)?(/.*)?$" },
-      "NDJC:SEED_ENABLED": { "enum": [true, false] },
+      "NDJC:SEED_ENABLED": { "enum": [true,false] },
       "NDJC:FEED_SORT": { "enum": ["date","popularity","rating"] },
       "NDJC:PAGING_SIZE": { "regex": "^[1-9][0-9]*$" },
       "NDJC:OFFLINE_POLICY": { "enum": ["cache","network","mixed"] },
       "NDJC:PRIVACY_POLICY": { "regex": "^https://[\\w.-]+(/.*)?$" },
-      "NDJC:DRAFT_ENABLED": { "enum": [true, false] },
-      "NDJC:USE_APP_BUNDLE": { "enum": [true, false] },
+      "NDJC:DRAFT_ENABLED": { "enum": [true,false] },
+      "NDJC:USE_APP_BUNDLE": { "enum": [true,false] },
       "NDJC:BUILD_META:RUNID": { "minLen": 3 },
       "NDJC:FEATURE_TOGGLE:MIN": { "regex": "^[0-9]+$" },
-      "NDJC:DEBUG_LOG_ENABLED": { "enum": [true, false] },
-      "NDJC:LOG_LEVEL": { "enum": ["DEBUG", "INFO", "WARN", "ERROR"] },
-      "NDJC:CRASHLYTICS_ENABLED": { "enum": [true, false] },
+      "NDJC:DEBUG_LOG_ENABLED": { "enum": [true,false] },
+      "NDJC:LOG_LEVEL": { "enum": ["DEBUG","INFO","WARN","ERROR"] },
+      "NDJC:CRASHLYTICS_ENABLED": { "enum": [true,false] },
       "NDJC:EXPERIMENT_BUCKET": { "minLen": 3 },
       "NDJC:THEME_COLORS": { "regex": "^\\{\\\"primary\\\":\\\"#[0-9A-Fa-f]{6}\\\",\\\"secondary\\\":\\\"#[0-9A-Fa-f]{6}\\\"\\}$" },
       "NDJC:TYPOCASE_OVERRIDES": { "minLen": 2 },
       "NDJC:STRINGS_EXTRA": { "minLen": 2 },
       "NDJC:ROUTE_HOME": { "regex": "^[a-z][a-z0-9_-]*$" },
       "NDJC:ROUTE_DETAIL": { "regex": "^[a-z][a-z0-9_-]*$" },
-
-      /* 新增 text 校验 */
-      "NDJC:ENABLE_POSTING": { "enum": [true, false] },
-      "NDJC:ENABLE_COMMENTS": { "enum": [true, false] },
-      "NDJC:ENABLE_LIKES": { "enum": [true, false] },
-      "NDJC:PROFILE_EDIT_ENABLED": { "enum": [true, false] },
-      "NDJC:NOTIFICATIONS_ENABLED": { "enum": [true, false] }
+      "NDJC:ENABLE_POSTING": { "enum": [true,false] },
+      "NDJC:ENABLE_COMMENTS": { "enum": [true,false] },
+      "NDJC:ENABLE_LIKES": { "enum": [true,false] },
+      "NDJC:PROFILE_EDIT_ENABLED": { "enum": [true,false] },
+      "NDJC:NOTIFICATIONS_ENABLED": { "enum": [true,false] }
     },
     "block": {
       "BLOCK:HOME_HEADER": { "minLen": 80, "regex": "@Composable[\\s\\S]*?(Text\\(|Button\\(|Row\\(|Column\\(|Image\\()" },
@@ -442,8 +364,6 @@
       "BLOCK:PROFILE_SECTION": { "minLen": 80, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
       "BLOCK:SETTINGS_SECTION": { "minLen": 80, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
       "BLOCK:SETTINGS_SECTION:EXTRA": { "minLen": 80, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
-
-      /* 新增 block 校验（同样要求含 Compose/常见 UI 组件） */
       "BLOCK:POST_COMPOSER": { "minLen": 80, "regex": "@Composable|TextField\\(|Text\\(|Button\\(" },
       "BLOCK:POST_CARD": { "minLen": 80, "regex": "@Composable|Text\\(|Row\\(" },
       "BLOCK:FEED_LIST": { "minLen": 80, "regex": "@Composable|LazyColumn\\(|Column\\(" },
@@ -467,8 +387,6 @@
       "LIST:DEEPLINK_PATTERNS": { "minItems": 1 },
       "LIST:NETWORK_CLEAR_TEXT": { "minItems": 1 },
       "LIST:RES_CONFIGS_OVERRIDE": { "minItems": 1 },
-
-      /* 新增 list 校验 */
       "LIST:COMMENT_FIELDS": { "minItems": 1 },
       "LIST:FEED_QUERY_PARAMS": { "minItems": 1 },
       "LIST:PROFILE_FIELDS": { "minItems": 1 },
