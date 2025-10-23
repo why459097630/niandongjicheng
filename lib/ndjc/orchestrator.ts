@@ -87,13 +87,14 @@ export async function orchestrate(req: NdjcRequest) {
     contract?.metadata?.packageId ??
     "com.example.ndjc";
 
-  contract.metadata = {
-    ...(contract.metadata ?? {}),
-    template: contract?.metadata?.template ?? templateKey,
-    appName: typeof appLabel === "string" ? appLabel : String(appLabel ?? "NDJC App"),
-    packageId: typeof applicationId === "string" ? applicationId : String(applicationId ?? "com.example.ndjc"),
-    contract.metadata.mode = "A"
-  };
+ contract.metadata = {
+   ...(contract.metadata ?? {}),
+   template: contract?.metadata?.template ?? templateKey,
+   appName: typeof appLabel === "string" ? appLabel : String(appLabel ?? "NDJC App"),
+   packageId: typeof applicationId === "string" ? applicationId : String(applicationId ?? "com.example.ndjc"),
+   mode: "A",   // ← 这里
+};
+
 
   /* ---------- JSON-only: ensure files is an empty array ---------- */
   contract.files = [];
