@@ -92,6 +92,7 @@ export async function orchestrate(req: NdjcRequest) {
     template: contract?.metadata?.template ?? templateKey,
     appName: typeof appLabel === "string" ? appLabel : String(appLabel ?? "NDJC App"),
     packageId: typeof applicationId === "string" ? applicationId : String(applicationId ?? "com.example.ndjc"),
+    contract.metadata.mode = "A"
   };
 
   /* ---------- JSON-only: ensure files is an empty array ---------- */
