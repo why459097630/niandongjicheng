@@ -82,3 +82,20 @@ You are an expert language model tasked with generating an NDJC Contract v1 JSON
   • No {"type": "...", "value": ...} wrappers and no forbidden placeholders.
   • The top-level "files" is [].
 - If any rule is violated (missing anchors, empty/placeholder values, invalid regex, etc.), fix it internally and return ONLY the final valid JSON object.
+
+16. Relevance & Feature Coverage (CRITICAL)
+- Beyond the required anchors, you MUST also include ALL anchors from the registry that are **relevant to the user's natural-language request** (features, screens, flows, data).
+- Do NOT minimize to the required set. Prefer **completeness over minimal compliance**: if an anchor contributes to implementing the requested app behavior, you MUST populate it with a valid, buildable value.
+- When the user does not specify details (e.g., exact fields or limits), choose **sensible, Android-safe defaults** that satisfy the registry constraints. Still, do NOT omit the relevant anchors.
+
+17. Feature→Anchor Mapping Hints (apply when the user’s request implies the capability)
+- Posting (create/edit): include e.g. BLOCK:POST_COMPOSER, LIST:POST_FIELDS, IF:ENABLE_POSTING, NDJC:ENABLE_POSTING, HOOK:POST_SUBMIT.
+- Comments: include e.g. LIST:COMMENT_FIELDS, BLOCK:COMMENTS_SCREEN, IF:ENABLE_COMMENTS, NDJC:ENABLE_COMMENTS, HOOK:FETCH_COMMENTS, HOOK:COMMENT_SUBMIT.
+- Likes/Reactions: include e.g. BLOCK:LIKE_BUTTON, IF:ENABLE_LIKES, NDJC:ENABLE_LIKES, HOOK:LIKE_TOGGLE.
+- Media Uploads: include e.g. BLOCK:MEDIA_PICKER, LIST:UPLOAD_MIME_TYPES, HOOK:UPLOAD_MEDIA.
+- Notifications/Inbox: include e.g. IF:SHOW_NOTIFICATIONS, NDJC:NOTIFICATIONS_ENABLED, HOOK:FETCH_NOTIFICATIONS.
+- Profiles: include e.g. BLOCK:USER_PROFILE_CARD or BLOCK:PROFILE_SECTION, BLOCK:EDIT_PROFILE_SCREEN, LIST:PROFILE_FIELDS, NDJC:PROFILE_EDIT_ENABLED.
+- Feed/Discovery/Search: include e.g. BLOCK:FEED_LIST, BLOCK:SEARCH_SCREEN, LIST:FEED_QUERY_PARAMS, HOOK:FETCH_FEED, HOOK:FETCH_POST.
+- Navigation: ensure LIST:ROUTES covers all screens implied above; provide route IDs as valid slugs.
+- These hints are binding: if the user’s request implies any capability above, treat the corresponding anchors as **mandatory for this response** (still respecting all constraints in sections 1–15).
+
