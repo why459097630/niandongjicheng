@@ -101,7 +101,7 @@ export async function orchestrate(req: NdjcRequest) {
     template: templateKey || contract?.metadata?.template || "circle-basic",
     appName: String(appLabel),
     packageId: String(applicationId),
-    mode: "B",
+    mode: "A",
   };
 
   /* ---------- Scheme A: 补齐所有锚点（无占位符） ---------- */
