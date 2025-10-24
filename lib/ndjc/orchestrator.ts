@@ -141,7 +141,6 @@ export async function orchestrate(req: NdjcRequest) {
   try {
     contract = tryParseJson(rawText);
   } catch {
-    // 仍然把原文带回去，便于排查
     return {
       ok: false,
       runId,
@@ -152,7 +151,8 @@ export async function orchestrate(req: NdjcRequest) {
   }
 
   /* ---------- ensure top-level (soft) ---------- */
-  const ensureReport = ensureTopLevel(contract);
+  ensureTopLevel(contract);
+
   /* ---------- JSON-only: ensure files is an empty array ---------- */
   contract.files = Array.isArray(contract.files) ? [] : [];
 
@@ -163,7 +163,6 @@ export async function orchestrate(req: NdjcRequest) {
   const report: ValidationReport = { warnings: [], fixes: [] };
   lintAnchors(contract, report);
   lintGradle(contract, report);
-
   trace.validation = report;
 
   /* ---------- output ---------- */
@@ -322,7 +321,8 @@ function lintAnchors(contract: any, report: ValidationReport) {
       if (v == null) report.warnings.push(`Null value at ${g}:${k}`);
       if (typeof v === "string" && v.trim() === "") report.warnings.push(`Empty string at ${g}:${k}`);
       if (Array.isArray(v) && v.length === 0) report.warnings.push(`Empty array at ${g}:${k}`);
-      if (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) {
+      // ✅ null-safe：避免 TS 报 “Type 'null' is not assignable to type 'object'”
+      if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) {
         report.warnings.push(`Empty object at ${g}:${k}`);
       }
     }
