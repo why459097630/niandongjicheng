@@ -115,7 +115,6 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
 
   // 4. Optionally persist phase2 artifacts
   if (canWriteToDisk()) {
-    // runDir computed above
     await fs.writeFile(
       path.join(runDir, "03_phase2_raw.json"),
       JSON.stringify(phase2.raw, null, 2),
@@ -373,25 +372,21 @@ function buildSkeletonPhase1(regP1: any) {
     "NDJC:BUILD_META:RUNID": "",
   };
 
-  // text anchors
   const gText: Record<string, any> = {};
   (regP1.text ?? []).forEach((k: string) => {
     gText[k] = "";
   });
 
-  // list anchors
   const gList: Record<string, any> = {};
   (regP1.list ?? []).forEach((k: string) => {
     gList[k] = [];
   });
 
-  // if anchors (boolean feature toggles)
   const gIf: Record<string, any> = {};
   (regP1.if ?? []).forEach((k: string) => {
     gIf[k] = false;
   });
 
-  // gradle group
   const gGradle: Record<string, any> = {
     applicationId: "",
     resConfigs: [],
@@ -421,13 +416,11 @@ function buildSkeletonPhase2(regP2: any, phase1Clean: any) {
   const gIf = { ...(locked.if || {}) };
   const gGradle = { ...(locked.gradle || {}) };
 
-  // block anchors from regP2
   const gBlock: Record<string, any> = {};
   (regP2.block ?? []).forEach((k: string) => {
     gBlock[k] = "";
   });
 
-  // hook anchors from regP2
   const gHook: Record<string, any> = {};
   (regP2.hook ?? []).forEach((k: string) => {
     gHook[k] = "noop";
@@ -514,25 +507,22 @@ function buildSchemaFragmentPhase2(regP2: any) {
  * SANITIZE + GUARD PHASE1
  * =======================================================*/
 
-function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
+function sanitizePhase1(rawJson: any, _regP1: any, templateKey: string) {
   const out: any = {
     metadata: rawJson.metadata || {},
     anchorsGrouped: rawJson.anchorsGrouped || {},
     files: [],
   };
 
-  // Ensure groups exist
   out.anchorsGrouped.text = out.anchorsGrouped.text || {};
   out.anchorsGrouped.list = out.anchorsGrouped.list || {};
   out.anchorsGrouped.if = out.anchorsGrouped.if || {};
   out.anchorsGrouped.gradle = out.anchorsGrouped.gradle || {};
 
-  // Coerce IF to booleans
   for (const k of Object.keys(out.anchorsGrouped.if)) {
     out.anchorsGrouped.if[k] = toBool(out.anchorsGrouped.if[k]);
   }
 
-  // THEME_COLORS / STRINGS_EXTRA normalize to objects
   if (out.anchorsGrouped.text["NDJC:THEME_COLORS"] !== undefined) {
     out.anchorsGrouped.text["NDJC:THEME_COLORS"] = normalizeJsonObject(
       out.anchorsGrouped.text["NDJC:THEME_COLORS"],
@@ -546,7 +536,6 @@ function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
     );
   }
 
-  // Gradle normalization
   const g = out.anchorsGrouped.gradle;
   g.applicationId = ensurePkg(
     g.applicationId ||
@@ -554,7 +543,6 @@ function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
       "com.example.ndjc"
   );
 
-  // resConfigs fallback
   let resCfgs: string[] = Array.isArray(g.resConfigs)
     ? g.resConfigs.map(String)
     : [];
@@ -562,7 +550,6 @@ function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
   if (!resCfgs.length) resCfgs = ["en"];
   g.resConfigs = resCfgs;
 
-  // permissions fallback
   let perms: string[] = Array.isArray(g.permissions)
     ? g.permissions.map(String)
     : [];
@@ -570,7 +557,6 @@ function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
   if (!perms.length) perms = ["android.permission.INTERNET"];
   g.permissions = perms;
 
-  // fill metadata helpers
   out.metadata.template =
     templateKey || out.metadata.template || "circle-basic";
   out.metadata.appName =
@@ -584,8 +570,6 @@ function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
 }
 
 function guardPhase1(clean: any, _regP1: any) {
-  // minimal fatal checks
-
   if (
     !clean.anchorsGrouped ||
     typeof clean.anchorsGrouped !== "object"
@@ -593,7 +577,6 @@ function guardPhase1(clean: any, _regP1: any) {
     throw new Error("Phase1 guard: anchorsGrouped missing/invalid");
   }
 
-  // runId format
   const rid =
     clean.metadata?.["NDJC:BUILD_META:RUNID"] ||
     clean.anchorsGrouped?.text?.["NDJC:BUILD_META:RUNID"];
@@ -603,7 +586,6 @@ function guardPhase1(clean: any, _regP1: any) {
     );
   }
 
-  // gradle.applicationId
   const appId = clean.anchorsGrouped.gradle?.applicationId;
   if (!appId || !PKG_REGEX.test(appId)) {
     throw new Error(
@@ -611,7 +593,6 @@ function guardPhase1(clean: any, _regP1: any) {
     );
   }
 
-  // LIST:ROUTES basic validity
   const routes = clean.anchorsGrouped.list?.["LIST:ROUTES"];
   if (
     !Array.isArray(routes) ||
@@ -649,7 +630,6 @@ function validatePhase2(
   const locked = phase1Clean.anchorsGrouped || {};
   const got = phase2Raw.anchorsGrouped || {};
 
-  // text/list/if/gradle must not change
   const groupsToLock = ["text", "list", "if", "gradle"] as const;
   for (const g of groupsToLock) {
     const beforeStr = stableStringify(locked[g] || {});
@@ -659,7 +639,6 @@ function validatePhase2(
     }
   }
 
-  // block/hook must exist
   if (!got.block || typeof got.block !== "object") {
     violations.push("Phase2: block group missing/invalid");
   }
@@ -667,14 +646,19 @@ function validatePhase2(
     violations.push("Phase2: hook group missing/invalid");
   }
 
-  // light block validation
+  // block validation with explicit typing
   if (got.block) {
-    for (const [anchorName, val] of Object.entries(got.block)) {
+    for (const [rawName, rawVal] of Object.entries(got.block)) {
+      const anchorName: string = String(rawName);
+      const val: unknown = rawVal;
+
       if (typeof val !== "string" || val.trim().length < 10) {
         violations.push(
           `Phase2: block ${anchorName} too short or not string`
         );
+        continue;
       }
+
       if (
         !/@Composable/.test(val) &&
         !/Text\(/.test(val) &&
@@ -688,9 +672,12 @@ function validatePhase2(
     }
   }
 
-  // basic hook validation
+  // hook validation with explicit typing
   if (got.hook) {
-    for (const [anchorName, val] of Object.entries(got.hook)) {
+    for (const [rawName, rawVal] of Object.entries(got.hook)) {
+      const anchorName: string = String(rawName);
+      const val: unknown = rawVal;
+
       if (
         typeof val !== "string" &&
         !(val && typeof val === "object")
@@ -706,7 +693,6 @@ function validatePhase2(
     return { final: null, violations };
   }
 
-  // merge with locked config
   const merged = {
     metadata: {
       ...phase2Raw.metadata,
@@ -756,7 +742,6 @@ function injectPromptPlaceholders(
 function parseAndEnsureTopLevel(text: string): any {
   if (!text) throw new Error("LLM returned empty text");
 
-  // allow accidental ```json fences
   const fenced =
     text.match(/```json\s*([\s\S]*?)```/i) ||
     text.match(/```\s*([\s\S]*?)```/);
