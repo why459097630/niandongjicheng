@@ -2,38 +2,55 @@
 //
 // NDJC two-phase orchestrator
 //
-// Phase 1: ask LLM for config spec only (text / if / list / gradle)
+// Phase 1: ask LLM for config spec only (text / list / if / gradle)
 //   - prompt: contract_v1.phase1.en.txt
 //   - registry: registry.circle-basic.phase1.json
-//   - sanitize + guard (hard-stop if invalid)
-//   - (本地时) writes requests/<runId>/02_phase1_raw.json, 02_phase1_clean.json
+//   - sanitize + guard
 //
 // Phase 2: ask LLM for implementation (block / hook) using locked Phase 1 spec
 //   - prompt: contract_v1.phase2.en.txt
 //   - registry: registry.circle-basic.phase2.json
-//   - validate phase2 doesn't mutate text/if/list/gradle, and block/hook obey rules
-//   - (本地时) writes 03_phase2_raw.json and 03_phase2_plan.json (or plan-violations.json)
+//   - validate phase2 doesn't mutate text/list/if/gradle
 //
-// Also writes token usage to (本地时) 01_usage.json
+// IMPORTANT RUNTIME BEHAVIOR:
+// - On Vercel/serverless, FS is read-only. We MUST NOT write to disk there.
+//   We detect that via canWriteToDisk().
+// - Locally (dev box / self-host runner), we *do* write /requests/<runId> artifacts.
 //
-// IMPORTANT:
-// - In serverless / Vercel (process.env.VERCEL is set), we DO NOT write to disk.
-//   We just return all data in-memory (plan, usage, debug, etc.).
+// PUBLIC API:
+//   orchestrateTwoPhase(req: NdjcRequest)
+//   orchestrate(req: NdjcRequest)   // legacy alias
 //
-// - We export BOTH orchestrateTwoPhase() (new) and orchestrate() (compat).
-//   orchestrate(req) just calls orchestrateTwoPhase(req), so existing code keeps working.
+// RETURN SHAPE (what /api/generate-apk will get):
+// {
+//   ok: boolean,
+//   runId: string,
+//   plan: any | null,          // final merged contract (includes block/hook)
+//   phase1Spec: any,           // locked config from phase1
+//   violations: string[],      // empty on success
+//   usage: { ... token report },
+//   debug: {                   // replaces "logs on disk" in serverless mode
+//     phase1Raw: any,
+//     phase1Clean: any,
+//     phase2Raw: any
+//   }
+// }
 
-import fsOrig from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-
 import { groqChat as callGroqChat } from "@/lib/ndjc/groq";
 import type { NdjcRequest } from "./types";
 
 import registryP1 from "@/lib/ndjc/anchors/registry.circle-basic.phase1.json";
 import registryP2 from "@/lib/ndjc/anchors/registry.circle-basic.phase2.json";
 
-/* ----------------- types ----------------- */
+/* ----------------- small helper regexes ----------------- */
+
+const PKG_REGEX = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/;
+const PERM_REGEX = /^android\.permission\.[A-Z_]+$/;
+const LOCALE_ITEM = /^[a-z]{2}(-r[A-Z]{2,3})?$/;
+
+/* ----------------- usage types ----------------- */
 
 type ChatRole = "system" | "user";
 type ChatMessage = { role: ChatRole; content: string };
@@ -54,45 +71,41 @@ type UsageReport = {
 };
 
 type Phase1Result = {
-  raw: any;          // raw LLM json (parsed)
-  clean: any;        // sanitized & guarded config spec
-  runId: string;     // final runId
-  usage: PhaseUsage; // usage from LLM / approx
-};
-
-type Phase2Result = {
-  raw: any;          // raw LLM json (parsed)
-  final: any | null; // validated merged plan or null if invalid
-  violations: string[];
+  raw: any;
+  clean: any;
+  runId: string;
   usage: PhaseUsage;
 };
 
-const PKG_REGEX = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/;
-const PERM_REGEX = /^android\.permission\.[A-Z_]+$/;
-const LOCALE_ITEM = /^[a-z]{2}(-r[A-Z]{2,3})?$/;
+type Phase2Result = {
+  raw: any;
+  final: any | null;
+  violations: string[];
+  usage: PhaseUsage;
+};
 
 /* =========================================================
  * PUBLIC EXPORTS
  * =======================================================*/
 
-// helper: decide if we can write to local disk
+// detect if we are allowed to write to disk
 function canWriteToDisk() {
-  // On Vercel / serverless this is typically set, and FS is read-only / ephemeral.
+  // Vercel serverless functions expose process.env.VERCEL,
+  // and their filesystem is effectively read-only (/var/task).
   if (process.env.VERCEL) return false;
   return true;
 }
 
-// New main entrypoint
+// main entry for callers
 export async function orchestrateTwoPhase(req: NdjcRequest) {
-  // 1. Phase 1 (config spec)
+  // 1. Phase 1: infer basic config spec
   const phase1 = await runPhase1(req);
 
-  // ---- persist phase1 output IF AND ONLY IF we can write ----
+  // 2. Optionally persist phase1 artifacts locally (if allowed)
   let runDir = "";
   if (canWriteToDisk()) {
     const baseDir = process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
     runDir = path.join(baseDir, phase1.runId);
-
     await fs.mkdir(runDir, { recursive: true });
 
     await fs.writeFile(
@@ -107,12 +120,12 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
     );
   }
 
-  // 2. Phase 2 (implementation)
-  const phase2 = await runPhase2(req, phase1.clean, phase1.runId);
+  // 3. Phase 2: generate block/hook impl using locked phase1 spec
+  const phase2 = await runPhase2(req, phase1.clean);
 
-  // ---- persist phase2 output IF AND ONLY IF we can write ----
+  // 4. Optionally persist phase2 artifacts
   if (canWriteToDisk()) {
-    // runDir already computed above
+    // runDir was computed above
     await fs.writeFile(
       path.join(runDir, "03_phase2_raw.json"),
       JSON.stringify(phase2.raw, null, 2),
@@ -138,7 +151,7 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
     }
   }
 
-  // 3. token usage report (this we ALWAYS compute in memory)
+  // 5. Build usage report (always in memory; may also save locally)
   const usageReport: UsageReport = {
     runId: phase1.runId,
     phase1: phase1.usage,
@@ -149,7 +162,6 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
     timestamp_utc: new Date().toISOString(),
   };
 
-  // ---- persist usage report IF AND ONLY IF we can write ----
   if (canWriteToDisk()) {
     const baseDir = process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
     const runDir2 = path.join(baseDir, phase1.runId);
@@ -160,25 +172,14 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
     );
   }
 
-  // 4. Return for caller (API / CLI / etc.)
-  //    We *also* include debug info so frontend can treat it like build log
+  // 6. Return to API caller. debug acts like "build log" for serverless
   return {
     ok: !!phase2.final,
     runId: phase1.runId,
-
-    // ready-to-materialize final plan (block/hook + locked text/if/list/gradle)
     plan: phase2.final,
-
-    // locked phase1 spec (text/if/list/gradle) for introspection
     phase1Spec: phase1.clean,
-
-    // if validation failed, list why
     violations: phase2.final ? [] : phase2.violations,
-
-    // token usage etc.
     usage: usageReport,
-
-    // debug bundle replacing on-disk logs in serverless mode
     debug: {
       phase1Raw: phase1.raw,
       phase1Clean: phase1.clean,
@@ -187,154 +188,138 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
   };
 }
 
-// Legacy entrypoint for backwards compatibility.
-// This lets existing code that does `import { orchestrate }` keep working.
+// legacy export so old code that imports { orchestrate } still works
 export async function orchestrate(req: NdjcRequest) {
   return orchestrateTwoPhase(req);
 }
 
 /* =========================================================
- * Phase1
+ * PHASE 1
  * =======================================================*/
+
 async function runPhase1(req: NdjcRequest): Promise<Phase1Result> {
   const templateKey = req.template_key ?? "circle-basic";
   const userNeed = (req.requirement ?? "").trim();
 
-  // Build skeleton for phase1: text / if / list / gradle
+  // build skeleton + schema fragment for phase1
   const skeletonP1 = buildSkeletonPhase1(registryP1);
   const skeletonJson = stableStringify(skeletonP1);
-
-  // Build schema fragment
   const schemaFragP1 = buildSchemaFragmentPhase1(registryP1);
   const schemaFragJson = stableStringify(schemaFragP1);
 
-  // Read phase1 prompt text
+  // read phase1 prompt
   const promptPath = path.join(
     process.cwd(),
     "lib/ndjc/prompts/contract_v1.phase1.en.txt"
   );
   const promptText = await fs.readFile(promptPath, "utf8");
 
-  // Inject placeholders
-  const injectedPrompt = injectPromptPlaceholders(promptText, {
+  // inject placeholders
+  const injected = injectPromptPlaceholders(promptText, {
     SKELETON_JSON: skeletonJson,
     SCHEMA_FRAGMENT: schemaFragJson,
-    PLACEHOLDER_BLACKLIST: JSON.stringify(
-      registryP1.placeholderBlacklist ?? []
-    ),
+    PLACEHOLDER_BLACKLIST: JSON.stringify(registryP1.placeholderBlacklist ?? []),
     USER_NEED: userNeed,
-    PHASE1_SPEC_JSON: "", // not used yet in phase1
+    PHASE1_SPEC_JSON: "", // phase1 doesn't have a prior spec
   });
 
-  // System message for phase1
   const sysHeader =
-    "You are NDJC Phase 1. Output config only (text/if/list/gradle). Do NOT output block/hook.\n" +
+    "You are NDJC Phase 1. Produce config only (text/list/if/gradle). Do NOT include block/hook.\n" +
     'Return EXACTLY ONE valid JSON object with top-level keys "metadata","anchorsGrouped","files" in that order.\n' +
     '"files" MUST be [].\n' +
     "No markdown fences. No commentary.";
 
   const msgs: ChatMessage[] = [
-    { role: "system", content: sysHeader + "\n" + injectedPrompt },
+    { role: "system", content: sysHeader + "\n" + injected },
     { role: "user", content: userNeed },
   ];
 
   const { text: llmText, usage } = await runGroqChat(msgs);
 
-  // Parse LLM JSON
-  const phase1Raw = parseAndEnsureTopLevel(llmText);
+  // parse + normalize structure
+  const rawJson = parseAndEnsureTopLevel(llmText);
 
-  // Sanitize & guard
-  const phase1Clean = sanitizePhase1(phase1Raw, registryP1, templateKey);
+  // sanitize / fill defaults / normalize types
+  const clean = sanitizePhase1(rawJson, registryP1, templateKey);
 
-  // Determine runId
-  const runId =
-    phase1Clean?.metadata?.["NDJC:BUILD_META:RUNID"] ||
-    phase1Clean?.anchorsGrouped?.text?.["NDJC:BUILD_META:RUNID"] ||
+  // unify runId
+  const runIdGuess =
+    clean?.metadata?.["NDJC:BUILD_META:RUNID"] ||
+    clean?.anchorsGrouped?.text?.["NDJC:BUILD_META:RUNID"] ||
     `run_${genDateStamp()}_000`;
 
-  // force runId back into spec for consistency
-  phase1Clean.metadata = phase1Clean.metadata || {};
-  phase1Clean.metadata["NDJC:BUILD_META:RUNID"] = runId;
+  if (!clean.metadata) clean.metadata = {};
+  clean.metadata["NDJC:BUILD_META:RUNID"] = runIdGuess;
 
-  if (!phase1Clean.anchorsGrouped?.text) {
-    phase1Clean.anchorsGrouped.text = {};
-  }
-  phase1Clean.anchorsGrouped.text["NDJC:BUILD_META:RUNID"] = runId;
+  if (!clean.anchorsGrouped) clean.anchorsGrouped = {};
+  if (!clean.anchorsGrouped.text) clean.anchorsGrouped.text = {};
+  clean.anchorsGrouped.text["NDJC:BUILD_META:RUNID"] = runIdGuess;
 
-  // Final guard (throws if still invalid)
-  guardPhase1(phase1Clean, registryP1);
+  // final guard (throws on fatal schema break)
+  guardPhase1(clean, registryP1);
 
   return {
-    raw: phase1Raw,
-    clean: phase1Clean,
-    runId,
+    raw: rawJson,
+    clean,
+    runId: runIdGuess,
     usage,
   };
 }
 
 /* =========================================================
- * Phase2
+ * PHASE 2
  * =======================================================*/
+
 async function runPhase2(
   req: NdjcRequest,
-  phase1Clean: any,
-  runId: string
+  phase1Clean: any
 ): Promise<Phase2Result> {
   const userNeed = (req.requirement ?? "").trim();
 
-  // Skeleton for phase2:
-  // text/if/list/gradle are pre-filled from phase1Clean (locked),
-  // and block/hook are empty.
+  // skeleton for phase2:
+  // - text/list/if/gradle are locked from phase1Clean
+  // - block/hook are empty slots
   const skeletonP2 = buildSkeletonPhase2(registryP2, phase1Clean);
   const skeletonJson = stableStringify(skeletonP2);
 
-  // Schema fragment for phase2
   const schemaFragP2 = buildSchemaFragmentPhase2(registryP2);
   const schemaFragJson = stableStringify(schemaFragP2);
 
-  // Read phase2 prompt text
   const promptPath = path.join(
     process.cwd(),
     "lib/ndjc/prompts/contract_v1.phase2.en.txt"
   );
   const promptText = await fs.readFile(promptPath, "utf8");
 
-  // Inject placeholders (phase2 gets PHASE1_SPEC_JSON)
-  const injectedPrompt = injectPromptPlaceholders(promptText, {
+  const injected = injectPromptPlaceholders(promptText, {
     SKELETON_JSON: skeletonJson,
     SCHEMA_FRAGMENT: schemaFragJson,
-    PLACEHOLDER_BLACKLIST: JSON.stringify(
-      registryP2.placeholderBlacklist ?? []
-    ),
+    PLACEHOLDER_BLACKLIST: JSON.stringify(registryP2.placeholderBlacklist ?? []),
     USER_NEED: userNeed,
     PHASE1_SPEC_JSON: stableStringify(phase1Clean),
   });
 
   const sysHeader =
-    "You are NDJC Phase 2. You ONLY fill block/hook. You MUST NOT modify text/if/list/gradle from PHASE1_SPEC_JSON.\n" +
+    "You are NDJC Phase 2. ONLY produce block/hook. Do NOT change the locked values of text/list/if/gradle in PHASE1_SPEC_JSON.\n" +
     'Return EXACTLY ONE valid JSON object with top-level keys "metadata","anchorsGrouped","files" in that order.\n' +
     '"files" MUST be [].\n' +
     "No markdown fences. No commentary.";
 
   const msgs: ChatMessage[] = [
-    { role: "system", content: sysHeader + "\n" + injectedPrompt },
+    { role: "system", content: sysHeader + "\n" + injected },
     { role: "user", content: userNeed },
   ];
 
   const { text: llmText, usage } = await runGroqChat(msgs);
 
-  // Parse LLM JSON for phase2
-  const phase2Raw = parseAndEnsureTopLevel(llmText);
+  // parse model output
+  const rawJson = parseAndEnsureTopLevel(llmText);
 
-  // Validate and merge
-  const { final, violations } = validatePhase2(
-    phase2Raw,
-    phase1Clean,
-    registryP2
-  );
+  // validate/merge
+  const { final, violations } = validatePhase2(rawJson, phase1Clean, registryP2);
 
   return {
-    raw: phase2Raw,
+    raw: rawJson,
     final,
     violations,
     usage,
@@ -342,30 +327,34 @@ async function runPhase2(
 }
 
 /* =========================================================
- * runGroqChat wrapper with usage extraction
+ * LLM CALL WRAPPER
  * =======================================================*/
+
 async function runGroqChat(
   msgs: ChatMessage[]
 ): Promise<{ text: string; usage: PhaseUsage }> {
-  // We assume callGroqChat(msgs) returns either a string or something like {text, usage}.
+  // We assume groqChat returns either a raw string or an object.
   const r: any = await callGroqChat(msgs);
 
-  // Extract text
+  // try to normalize text
   const text =
     typeof r === "string"
       ? r
       : typeof r?.text === "string"
       ? r.text
-      : // if your groqChat returns OpenAI-style, adapt here:
-        (r?.choices?.[0]?.message?.content as string) ||
+      : (r?.choices?.[0]?.message?.content as string) ||
         "";
 
-  // crude fallback usage if provider doesn't return usage tokens
+  // approximate usage if provider doesn't return detailed usage
   const promptJoined = msgs.map((m) => m.content).join("\n");
   const approxTokens = (s: string) => Math.ceil((s ?? "").length / 4);
-  const promptTok = (r?.usage?.prompt_tokens as number) ?? approxTokens(promptJoined);
-  const completionTok = (r?.usage?.completion_tokens as number) ?? approxTokens(text);
-  const totalTok = (r?.usage?.total_tokens as number) ?? (promptTok + completionTok);
+
+  const promptTok =
+    (r?.usage?.prompt_tokens as number) ?? approxTokens(promptJoined);
+  const completionTok =
+    (r?.usage?.completion_tokens as number) ?? approxTokens(text);
+  const totalTok =
+    (r?.usage?.total_tokens as number) ?? promptTok + completionTok;
 
   const usage: PhaseUsage = {
     prompt_tokens: promptTok,
@@ -378,25 +367,483 @@ async function runGroqChat(
 }
 
 /* =========================================================
- * Skeleton builders
+ * SKELETON BUILDERS
  * =======================================================*/
 
-// Phase1 skeleton only has config groups
+// Phase1 skeleton: only text / list / if / gradle
 function buildSkeletonPhase1(regP1: any) {
   const metadata: Record<string, any> = {
     "NDJC:BUILD_META:RUNID": "",
   };
 
+  // text anchors
   const gText: Record<string, any> = {};
   (regP1.text ?? []).forEach((k: string) => {
     gText[k] = "";
   });
 
+  // list anchors
+  const gList: Record<string, any> = {};
+  (regP1.list ?? []).forEach((k: string) => {
+    gList[k] = [];
+  });
+
+  // if anchors (boolean feature toggles)
   const gIf: Record<string, any> = {};
   (regP1.if ?? []).forEach((k: string) => {
     gIf[k] = false;
   });
 
-  const gList: Record<string, any> = {};
-  (regP1.list ?? []).forEach((k: string) => {
-    gList[k]]`;
+  // gradle group
+  const gGradle: Record<string, any> = {
+    applicationId: "",
+    resConfigs: [],
+    permissions: [],
+  };
+
+  const anchorsGrouped = {
+    text: gText,
+    list: gList,
+    if: gIf,
+    gradle: gGradle,
+  };
+
+  return {
+    metadata,
+    anchorsGrouped,
+    files: [],
+  };
+}
+
+// Phase2 skeleton: lock text/list/if/gradle from phase1Clean; create empty block/hook
+function buildSkeletonPhase2(regP2: any, phase1Clean: any) {
+  // pull locked config from phase1Clean
+  const locked = phase1Clean?.anchorsGrouped || {};
+
+  const gText = { ...(locked.text || {}) };
+  const gList = { ...(locked.list || {}) };
+  const gIf = { ...(locked.if || {}) };
+  const gGradle = { ...(locked.gradle || {}) };
+
+  // block anchors from regP2
+  const gBlock: Record<string, any> = {};
+  (regP2.block ?? []).forEach((k: string) => {
+    gBlock[k] = "";
+  });
+
+  // hook anchors from regP2
+  const gHook: Record<string, any> = {};
+  (regP2.hook ?? []).forEach((k: string) => {
+    gHook[k] = "noop";
+  });
+
+  const metadata: Record<string, any> = {
+    "NDJC:BUILD_META:RUNID":
+      phase1Clean?.metadata?.["NDJC:BUILD_META:RUNID"] || "",
+  };
+
+  const anchorsGrouped = {
+    text: gText,
+    list: gList,
+    if: gIf,
+    gradle: gGradle,
+    block: gBlock,
+    hook: gHook,
+  };
+
+  return {
+    metadata,
+    anchorsGrouped,
+    files: [],
+  };
+}
+
+/* =========================================================
+ * SCHEMA FRAGMENTS
+ * (minimal constraints we inline into prompt)
+ * =======================================================*/
+
+function buildSchemaFragmentPhase1(regP1: any) {
+  return {
+    required: regP1.required ?? {},
+    placeholderBlacklist: regP1.placeholderBlacklist ?? [],
+    topLevelOrder: ["metadata", "anchorsGrouped", "files"],
+    valueFormat: {
+      text: {
+        "NDJC:BUILD_META:RUNID": { regex: "^run_[0-9]{8}_[0-9]{3}$" },
+        "NDJC:PACKAGE_NAME": {
+          regex: "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+        },
+        "NDJC:DATA_SOURCE": {
+          regex: "^https://[\\w.-]+(:\\d+)?(/.*)?$",
+        },
+      },
+      list: {
+        "LIST:ROUTES": {
+          itemRegex: "^[a-z][a-z0-9_-]*$",
+          minItems: 1,
+        },
+      },
+      gradle: {
+        applicationId: {
+          regex: "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$",
+        },
+        resConfigs: {
+          itemRegex: "^[a-z]{2}(-r[A-Z]{2,3})?$",
+          minItems: 1,
+        },
+        permissions: {
+          itemRegex: "^android\\.permission\\.[A-Z_]+$",
+          minItems: 1,
+        },
+      },
+    },
+  };
+}
+
+function buildSchemaFragmentPhase2(regP2: any) {
+  // phase2 cares also about block/hook
+  return {
+    required: regP2.required ?? {},
+    placeholderBlacklist: regP2.placeholderBlacklist ?? [],
+    topLevelOrder: ["metadata", "anchorsGrouped", "files"],
+    blockRules: {
+      mustContainComposable: true,
+    },
+    hookRules: {
+      allowNoop: true,
+    },
+  };
+}
+
+/* =========================================================
+ * SANITIZE + GUARD PHASE1
+ * =======================================================*/
+
+function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
+  // Start by ensuring basic shape
+  const out: any = {
+    metadata: rawJson.metadata || {},
+    anchorsGrouped: rawJson.anchorsGrouped || {},
+    files: [],
+  };
+
+  // Ensure groups exist
+  out.anchorsGrouped.text = out.anchorsGrouped.text || {};
+  out.anchorsGrouped.list = out.anchorsGrouped.list || {};
+  out.anchorsGrouped.if = out.anchorsGrouped.if || {};
+  out.anchorsGrouped.gradle = out.anchorsGrouped.gradle || {};
+
+  // Coerce IF to booleans
+  for (const k of Object.keys(out.anchorsGrouped.if)) {
+    out.anchorsGrouped.if[k] = toBool(out.anchorsGrouped.if[k]);
+  }
+
+  // THEME_COLORS / STRINGS_EXTRA etc should be objects, not strings
+  if (
+    out.anchorsGrouped.text["NDJC:THEME_COLORS"] !== undefined
+  ) {
+    out.anchorsGrouped.text["NDJC:THEME_COLORS"] = normalizeJsonObject(
+      out.anchorsGrouped.text["NDJC:THEME_COLORS"],
+      { primary: "#7C3AED", secondary: "#10B981" }
+    );
+  }
+  if (
+    out.anchorsGrouped.text["NDJC:STRINGS_EXTRA"] !== undefined
+  ) {
+    out.anchorsGrouped.text["NDJC:STRINGS_EXTRA"] = normalizeJsonObject(
+      out.anchorsGrouped.text["NDJC:STRINGS_EXTRA"],
+      {}
+    );
+  }
+
+  // Gradle normalization
+  const g = out.anchorsGrouped.gradle;
+  g.applicationId = ensurePkg(
+    g.applicationId ||
+      out.anchorsGrouped.text["NDJC:PACKAGE_NAME"] ||
+      "com.example.ndjc"
+  );
+
+  // resConfigs fallback
+  let resCfgs = Array.isArray(g.resConfigs) ? g.resConfigs.map(String) : [];
+  resCfgs = resCfgs.filter((x) => LOCALE_ITEM.test(x));
+  if (!resCfgs.length) resCfgs = ["en"];
+  g.resConfigs = resCfgs;
+
+  // permissions fallback
+  let perms = Array.isArray(g.permissions) ? g.permissions.map(String) : [];
+  perms = perms.filter((p) => PERM_REGEX.test(p));
+  if (!perms.length) perms = ["android.permission.INTERNET"];
+  g.permissions = perms;
+
+  // fill metadata helpers
+  out.metadata.template = templateKey || out.metadata.template || "circle-basic";
+  out.metadata.appName =
+    out.metadata.appName ||
+    out.anchorsGrouped.text["NDJC:APP_LABEL"] ||
+    "NDJC App";
+  out.metadata.packageId = g.applicationId;
+  out.metadata.mode = rawJson?.metadata?.mode === "B" ? "B" : "A";
+
+  return out;
+}
+
+function guardPhase1(clean: any, regP1: any) {
+  // We do a few minimal "fatal" checks so we don't move forward with garbage.
+
+  // required groups
+  if (
+    !clean.anchorsGrouped ||
+    typeof clean.anchorsGrouped !== "object"
+  ) {
+    throw new Error("Phase1 guard: anchorsGrouped missing/invalid");
+  }
+
+  // enforce runId format if provided
+  const rid =
+    clean.metadata?.["NDJC:BUILD_META:RUNID"] ||
+    clean.anchorsGrouped?.text?.["NDJC:BUILD_META:RUNID"];
+  if (rid && !/^run_[0-9]{8}_[0-9]{3}$/.test(rid)) {
+    throw new Error(
+      `Phase1 guard: RUNID invalid (${rid}). Must match ^run_YYYYMMDD_NNN$`
+    );
+  }
+
+  // gradle.applicationId must pass regex
+  const appId = clean.anchorsGrouped.gradle?.applicationId;
+  if (!appId || !PKG_REGEX.test(appId)) {
+    throw new Error(
+      `Phase1 guard: gradle.applicationId invalid (${appId})`
+    );
+  }
+
+  // LIST:ROUTES should exist and have at least 1 valid route
+  const routes = clean.anchorsGrouped.list?.["LIST:ROUTES"];
+  if (
+    !Array.isArray(routes) ||
+    routes.length === 0 ||
+    !routes.every((r) => /^[a-z][a-z0-9_-]*$/.test(String(r)))
+  ) {
+    throw new Error("Phase1 guard: LIST:ROUTES invalid or empty");
+  }
+}
+
+/* =========================================================
+ * VALIDATE PHASE2
+ * =======================================================*/
+
+function validatePhase2(
+  phase2Raw: any,
+  phase1Clean: any,
+  regP2: any
+): { final: any | null; violations: string[] } {
+  const violations: string[] = [];
+
+  // must have same top-level keys
+  if (
+    !phase2Raw ||
+    typeof phase2Raw !== "object" ||
+    !phase2Raw.anchorsGrouped
+  ) {
+    return {
+      final: null,
+      violations: [
+        "Phase2: anchorsGrouped missing or not object",
+      ],
+    };
+  }
+
+  const locked = phase1Clean.anchorsGrouped || {};
+  const got = phase2Raw.anchorsGrouped || {};
+
+  // Ensure text/list/if/gradle EXACTLY match what phase1Clean produced.
+  // If they drift, we kill the build.
+  const groupsToLock = ["text", "list", "if", "gradle"] as const;
+  for (const g of groupsToLock) {
+    const beforeStr = stableStringify(locked[g] || {});
+    const afterStr = stableStringify(got[g] || {});
+    if (beforeStr !== afterStr) {
+      violations.push(`Phase2: group "${g}" was modified`);
+    }
+  }
+
+  // block/hook must exist
+  if (!got.block || typeof got.block !== "object") {
+    violations.push("Phase2: block group missing/invalid");
+  }
+  if (!got.hook || typeof got.hook !== "object") {
+    violations.push("Phase2: hook group missing/invalid");
+  }
+
+  // (light check) ensure block code looks like Compose-ish / not empty
+  if (got.block) {
+    for (const [anchorName, val] of Object.entries(got.block)) {
+      if (typeof val !== "string" || val.trim().length < 10) {
+        violations.push(
+          `Phase2: block ${anchorName} too short or not string`
+        );
+      }
+      // cheap check for @Composable / Text( / Row(
+      if (
+        !/@Composable/.test(val) &&
+        !/Text\(/.test(val) &&
+        !/Column\(/.test(val) &&
+        !/Row\(/.test(val)
+      ) {
+        violations.push(
+          `Phase2: block ${anchorName} missing Compose UI calls`
+        );
+      }
+    }
+  }
+
+  // (light check) ensure hook values are either "noop" or some structured object/string
+  if (got.hook) {
+    for (const [anchorName, val] of Object.entries(got.hook)) {
+      if (
+        typeof val !== "string" &&
+        !(val && typeof val === "object")
+      ) {
+        violations.push(
+          `Phase2: hook ${anchorName} must be string or object`
+        );
+      }
+    }
+  }
+
+  if (violations.length > 0) {
+    return { final: null, violations };
+  }
+
+  // If we got here, we accept phase2Raw BUT we override its locked groups
+  // with the canonical (phase1Clean) ones to be absolutely sure.
+  const merged = {
+    metadata: {
+      ...phase2Raw.metadata,
+      "NDJC:BUILD_META:RUNID":
+        phase1Clean.metadata?.["NDJC:BUILD_META:RUNID"],
+    },
+    anchorsGrouped: {
+      text: locked.text || {},
+      list: locked.list || {},
+      if: locked.if || {},
+      gradle: locked.gradle || {},
+      block: got.block || {},
+      hook: got.hook || {},
+    },
+    files: [],
+  };
+
+  return { final: merged, violations: [] };
+}
+
+/* =========================================================
+ * LOW-LEVEL HELPERS
+ * =======================================================*/
+
+function injectPromptPlaceholders(
+  text: string,
+  vars: {
+    SKELETON_JSON: string;
+    SCHEMA_FRAGMENT: string;
+    PLACEHOLDER_BLACKLIST: string;
+    USER_NEED: string;
+    PHASE1_SPEC_JSON: string;
+  }
+): string {
+  let out = text;
+  out = out.replaceAll("[[SKELETON_JSON]]", vars.SKELETON_JSON);
+  out = out.replaceAll("[[SCHEMA_FRAGMENT]]", vars.SCHEMA_FRAGMENT);
+  out = out.replaceAll(
+    "[[PLACEHOLDER_BLACKLIST]]",
+    vars.PLACEHOLDER_BLACKLIST
+  );
+  out = out.replaceAll("[[USER_NEED]]", vars.USER_NEED);
+  out = out.replaceAll("[[PHASE1_SPEC_JSON]]", vars.PHASE1_SPEC_JSON);
+  return out;
+}
+
+function parseAndEnsureTopLevel(text: string): any {
+  if (!text) throw new Error("LLM returned empty text");
+
+  // allow for accidental ```json ... ```
+  const fenced =
+    text.match(/```json\s*([\s\S]*?)```/i) ||
+    text.match(/```\s*([\s\S]*?)```/);
+  const raw = fenced ? fenced[1] : text;
+
+  const parsed = JSON.parse(raw);
+
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("LLM output is not an object");
+  }
+
+  if (!("metadata" in parsed)) parsed.metadata = {};
+  if (!("anchorsGrouped" in parsed)) parsed.anchorsGrouped = {};
+  if (!("files" in parsed)) parsed.files = [];
+
+  // ensure shape
+  if (!parsed.anchorsGrouped || typeof parsed.anchorsGrouped !== "object") {
+    parsed.anchorsGrouped = {};
+  }
+  if (!Array.isArray(parsed.files)) {
+    parsed.files = [];
+  }
+
+  return parsed;
+}
+
+// stable stringify
+function stableStringify(obj: any) {
+  return JSON.stringify(obj, null, 2);
+}
+
+function genDateStamp() {
+  // YYYYMMDD
+  const d = new Date();
+  const year = d.getUTCFullYear().toString().padStart(4, "0");
+  const mo = (d.getUTCMonth() + 1).toString().padStart(2, "0");
+  const da = d.getUTCDate().toString().padStart(2, "0");
+  return `${year}${mo}${da}`;
+}
+
+function toBool(v: any): boolean {
+  if (typeof v === "boolean") return v;
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return false;
+  if (["true", "1", "yes", "y", "on", "enabled", "enable", "open", "是"].includes(s))
+    return true;
+  if (["false", "0", "no", "n", "off", "disabled", "disable", "close", "否"].includes(s))
+    return false;
+  return false;
+}
+
+function ensurePkg(v?: string, fallback = "com.example.ndjc") {
+  let s = (v || "").trim().toLowerCase();
+  s = s
+    .replace(/[^a-z0-9_.]+/g, "")
+    .replace(/^\.+|\.+$/g, "")
+    .replace(/\.+/g, ".");
+  return PKG_REGEX.test(s) ? s : fallback;
+}
+
+function normalizeJsonObject(
+  input: any,
+  fallbackObj: Record<string, any>
+) {
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    return input;
+  }
+  if (typeof input === "string") {
+    try {
+      const obj = JSON.parse(input);
+      if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+        return obj;
+      }
+    } catch {
+      // ignore parse error, fallback below
+    }
+  }
+  return { ...fallbackObj };
+}
