@@ -30,7 +30,7 @@ Behavioral constraints:
 - Do not output extra text, explanations, or formatting of any kind.
 
 --------------------------------
-ANCHOR-CLASS SPECIFIC RULES (revised)
+ANCHOR-CLASS SPECIFIC RULES
 --------------------------------
 
 1) TEXT anchors
@@ -53,10 +53,15 @@ ANCHOR-CLASS SPECIFIC RULES (revised)
 3) LIST anchors
 - Must be NON-EMPTY JSON arrays of strings (unless SCHEMA allows empty).
 - Locale items: valid tags like "en", "zh-rCN", "es-rUS" (pattern ^[a-z]{2}(-r[A-Z]{2,3})?$).
+- Reject invalid variants like "zh-rRCN", "zh-rRRCN", "es-rRUS", "es-rRRUS".
+- For network-related lists (e.g., LIST:NETWORK_CLEAR_TEXT): use bare hostnames such as "api.example.com" not URLs.
 - For Gradle dependencies: use canonical format:
-  "implementation 'group:artifact:version'" (single quotes inside string, not escaped).
-- For network lists (e.g., LIST:NETWORK_CLEAR_TEXT): use domain names only, e.g. "api.example.com" — not "Authorization".
-- If nothing applicable and SCHEMA forbids emptiness, fill with ["__NDJC_PLACEHOLDER__"].
+  "implementation 'group:artifact:version'" (single quotes inside string).
+  Examples:
+    "implementation 'androidx.core:core-ktx:1.12.0'"
+    "implementation 'com.squareup.retrofit2:retrofit:2.9.0'"
+- Only use ASCII letters, numbers, dots, dashes, plus signs, and colons inside dependency coordinates.
+- Do not use Markdown, smart quotes, or escaped quotes.
 
 4) IF anchors
 - Must be native JSON booleans true/false (not strings).
@@ -69,21 +74,27 @@ ANCHOR-CLASS SPECIFIC RULES (revised)
 - Default to false ONLY when feature clearly not requested.
 
 5) HOOK anchors
-- Each hook must match its function and avoid repetition:
-  - HOOK:POST_SUBMIT → "compose_inject:handlePostSubmit()"
-  - HOOK:UPLOAD_MEDIA → "gradle_task:uploadMediaTask"
-  - HOOK:FETCH_FEED → "gradle_task:retrofitFetchFeed"
-  - HOOK:AFTER_INSTALL:HOOK → "gradle_task:initAfterInstall"
-- If hook is unrelated, use "noop" minimally. Do NOT assign the same "noop" to all hooks.
-- Structured hooks can also use JSON objects:
-  { "type": "gradle_task" | "compose_inject" | "shell" | "post_build", "value": "<taskOrFnName>" }.
+- Use "noop" ONLY if the hook is truly inapplicable. Otherwise provide specific structured placeholders.
+- Preferred structured form:
+  { "type": "gradle_task" | "compose_inject" | "shell" | "post_build", "value": "<taskOrFnName>" }
+  Examples:
+    HOOK:POST_SUBMIT → { "type": "compose_inject", "value": "handlePostSubmit()" }
+    HOOK:UPLOAD_MEDIA → { "type": "gradle_task", "value": "uploadMediaTask" }
+    HOOK:FETCH_FEED → { "type": "gradle_task", "value": "retrofitFetchFeed" }
+    HOOK:AFTER_INSTALL:HOOK → { "type": "gradle_task", "value": "initAfterInstall" }
+- Avoid giving the same value to all hooks.
+- If features exist (posting, comments, likes, notifications), at least one related hook should be non-noop.
 
 6) GRADLE group
-- applicationId: valid lowercase package (e.g., com.example.socialapp).
-- resConfigs: non-empty valid locale tags (["en","zh-rCN"] only).
-- permissions: include at least "android.permission.INTERNET"; add "POST_NOTIFICATIONS", "READ_MEDIA_*" when applicable.
-- Ensure top-level and anchorsGrouped.gradle values match exactly (no zh-rRRCN or inconsistent casing).
-- Never output empty arrays for resConfigs or permissions.
+- applicationId: valid lowercase package name (e.g., com.example.socialapp).
+- resConfigs: non-empty valid locale tags (["en","zh-rCN"]) only.
+  Reject variants like zh-rRCN, zh-rRRCN, es-rRUS, es-rRRUS.
+- permissions: include at least "android.permission.INTERNET".
+  When media or upload features exist, prefer scoped media permissions:
+    "android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_AUDIO".
+  Avoid deprecated "android.permission.READ_EXTERNAL_STORAGE" unless legacy API <33.
+  When notifications UI exists: add "android.permission.POST_NOTIFICATIONS".
+- Keep GRADLE fields consistent with anchorsGrouped.gradle values.
 
 -----------------------
 FINAL SELF-CHECK (must)
@@ -96,7 +107,7 @@ Before returning, verify:
 - BLOCK anchors: compilable code, not prose.
 - LIST anchors: arrays of strings, valid formats, non-empty.
 - IF anchors: booleans only, consistent with [[USER_NEED]].
-- HOOK anchors: semantically distinct, not all "noop".
-- GRADLE fields valid and consistent.
-- No prohibited placeholders from [[PLACEHOLDER_BLACKLIST]].
+- HOOK anchors: semantically distinct, not all "noop"; structured where possible.
+- GRADLE fields valid and consistent; locale tags strictly match pattern ^[a-z]{2}(-r[A-Z]{2,3})?$.
+- No deprecated permissions when API 33+ features are implied.
 - Return one final JSON object only.
