@@ -30,65 +30,73 @@ Behavioral constraints:
 - Do not output extra text, explanations, or formatting of any kind.
 
 --------------------------------
-ANCHOR-CLASS SPECIFIC RULES (strong)
+ANCHOR-CLASS SPECIFIC RULES (revised)
 --------------------------------
 
 1) TEXT anchors
 - Must be plain UTF-8 strings without code fences, emojis, <tags>, or markup.
-- Boolean-like TEXT fields (e.g., NDJC:DARK_MODE) use the literal strings "true" or "false" only when the SCHEMA expects a string. If SCHEMA expects boolean, use native JSON true/false.
-- Fields that expect JSON content as TEXT (e.g., NDJC:THEME_COLORS, NDJC:STRINGS_EXTRA) must be compact, valid JSON objects (e.g., {"primary":"#2196F3","secondary":"#4CAF50"}). Do NOT double-stringify.
-- URLs must be valid (http/https as required by SCHEMA).
-- Never leave empty ("") unless SCHEMA explicitly allows; otherwise provide a short meaningful value consistent with the user need.
+- Boolean-like TEXT fields (e.g., NDJC:DARK_MODE) use literal JSON true/false, not strings.
+- Numeric TEXT fields (e.g., NDJC:ANIM_DURATION_MS, NDJC:PAGING_SIZE) must be JSON numbers, not quoted.
+- Fields expecting JSON objects (e.g., NDJC:THEME_COLORS, NDJC:STRINGS_EXTRA) must return valid inline JSON objects (e.g. {"primary":"#2196F3","secondary":"#4CAF50"}) — DO NOT double-stringify.
+- URLs must start with http:// or https:// as required by SCHEMA.
+- Never leave empty ("") unless SCHEMA explicitly allows; otherwise provide concise meaningful values aligned with [[USER_NEED]].
 
 2) BLOCK anchors
-- MUST be real, directly-pastable Android snippets (prefer Jetpack Compose; XML or Gradle fragments acceptable when appropriate).
-- No prose, no placeholders, no comments-only strings.
-- Compose example:
-  Column { Text("Welcome"); Button(onClick = {}) { Text("Create") } }
-- XML example:
-  <LinearLayout android:orientation="vertical"><TextView android:text="Empty"/></LinearLayout>
-- Gradle fragment example:
-  // inside dependencies { implementation("androidx.core:core-ktx:1.12.0") }
-- Keep minimal but compilable structure; use Android-safe identifiers.
+- MUST contain compilable Android code (prefer Jetpack Compose; XML allowed).
+- Output **actual code snippets**, not natural language descriptions.
+- Example good:
+  Column { Text("Welcome"); Button(onClick={}){ Text("Create") } }
+  or <LinearLayout android:orientation="vertical"><TextView android:text="Empty"/></LinearLayout>
+- Example bad: "Main screen with welcome message."
+- Keep minimal but syntactically correct snippets. Avoid long prose or pseudo-code.
 
 3) LIST anchors
-- Must be NON-EMPTY JSON arrays of strings (unless SCHEMA explicitly allows empty).
-- Locale items use valid tags like "en", "zh-rCN", "es-rUS" (pattern ^[a-z]{2}(-r[A-Z]{2,3})?$).
-- Gradle dependency items are full string entries as they appear inside dependencies {}, e.g.
-  "implementation 'com.squareup.retrofit2:retrofit:2.9.0'".
-- If truly no applicable items and SCHEMA forbids empty arrays, use ["__NDJC_PLACEHOLDER__"] (never []).
+- Must be NON-EMPTY JSON arrays of strings (unless SCHEMA allows empty).
+- Locale items: valid tags like "en", "zh-rCN", "es-rUS" (pattern ^[a-z]{2}(-r[A-Z]{2,3})?$).
+- For Gradle dependencies: use canonical format:
+  "implementation 'group:artifact:version'" (single quotes inside string, not escaped).
+- For network lists (e.g., LIST:NETWORK_CLEAR_TEXT): use domain names only, e.g. "api.example.com" — not "Authorization".
+- If nothing applicable and SCHEMA forbids emptiness, fill with ["__NDJC_PLACEHOLDER__"].
 
 4) IF anchors
-- Must be native JSON booleans true/false.
+- Must be native JSON booleans true/false (not strings).
 - Infer from [[USER_NEED]]:
-  - Mentions of post/publish/share/upload ⇒ set ENABLE_POSTING=true; if comments mentioned ⇒ ENABLE_COMMENTS=true; if likes/hearts mentioned ⇒ ENABLE_LIKES=true.
+  - Mentions of post/publish/share/upload ⇒ ENABLE_POSTING=true.
+  - Mentions of comments/replies ⇒ ENABLE_COMMENTS=true.
+  - Mentions of likes/hearts/favorites ⇒ ENABLE_LIKES=true.
   - Mentions of notifications/alerts ⇒ SHOW_NOTIFICATIONS=true.
-  - Mentions of search/find ⇒ enable relevant search flags.
-- Default to false ONLY when feature is explicitly not requested or conflicts with SCHEMA.
+  - Mentions of login/account/profile ⇒ REQUIRE_LOGIN=true.
+- Default to false ONLY when feature clearly not requested.
 
 5) HOOK anchors
-- Use "noop" only if absolutely inapplicable. Otherwise give a specific logical placeholder:
-  - HOOK:POST_SUBMIT → "compose_inject: handlePostSubmit()"
-  - HOOK:UPLOAD_MEDIA → "gradle_task: uploadMediaTask"
-  - HOOK:FETCH_FEED → "gradle_task: retrofitFetchFeed"
-  - HOOK:AFTER_INSTALL:HOOK → "gradle_task: initAfterInstall"
-- For structured hook entries, use: { "type": "gradle_task" | "compose_inject" | "post_build" | "shell", "value": "<taskOrFnName>" }.
+- Each hook must match its function and avoid repetition:
+  - HOOK:POST_SUBMIT → "compose_inject:handlePostSubmit()"
+  - HOOK:UPLOAD_MEDIA → "gradle_task:uploadMediaTask"
+  - HOOK:FETCH_FEED → "gradle_task:retrofitFetchFeed"
+  - HOOK:AFTER_INSTALL:HOOK → "gradle_task:initAfterInstall"
+- If hook is unrelated, use "noop" minimally. Do NOT assign the same "noop" to all hooks.
+- Structured hooks can also use JSON objects:
+  { "type": "gradle_task" | "compose_inject" | "shell" | "post_build", "value": "<taskOrFnName>" }.
 
 6) GRADLE group
 - applicationId: valid lowercase package (e.g., com.example.socialapp).
-- resConfigs: non-empty array of valid locale tags (["en","zh-rCN"]).
-- permissions: include at least "android.permission.INTERNET"; add POST_NOTIFICATIONS, READ_MEDIA_* when feed/upload/notifications are enabled.
-- Never leave arrays empty; filter to valid items if the model generates extras.
+- resConfigs: non-empty valid locale tags (["en","zh-rCN"] only).
+- permissions: include at least "android.permission.INTERNET"; add "POST_NOTIFICATIONS", "READ_MEDIA_*" when applicable.
+- Ensure top-level and anchorsGrouped.gradle values match exactly (no zh-rRRCN or inconsistent casing).
+- Never output empty arrays for resConfigs or permissions.
 
 -----------------------
 FINAL SELF-CHECK (must)
 -----------------------
-- Top-level keys and order are exact; "files" is [].
-- Every group (text, block, list, if, hook, gradle) exists and is non-empty per SKELETON.
-- All BLOCK:* are code snippets (not prose).
-- LISTs are non-empty strings arrays; dependency lines are properly quoted.
-- IF:* are native booleans consistent with [[USER_NEED]].
-- HOOK:* are not all "noop" when features exist.
-- GRADLE fields are valid and compilable.
+Before returning, verify:
+- All top-level keys present and ordered.
+- "files" is [].
+- All anchorsGrouped subkeys exist and non-empty.
+- TEXT anchors: valid JSON types (numbers/booleans not strings).
+- BLOCK anchors: compilable code, not prose.
+- LIST anchors: arrays of strings, valid formats, non-empty.
+- IF anchors: booleans only, consistent with [[USER_NEED]].
+- HOOK anchors: semantically distinct, not all "noop".
+- GRADLE fields valid and consistent.
 - No prohibited placeholders from [[PLACEHOLDER_BLACKLIST]].
-- Return the single final JSON object only.
+- Return one final JSON object only.
