@@ -1,5 +1,6 @@
 // lib/ndjc/orchestrator.ts
-// Strict Contract V1 orchestrator — JSON-only, with SKELETON + minimal SCHEMA fragment injection.
+// Contract V1 orchestrator — JSON-only, with SKELETON + minimal SCHEMA fragment injection.
+// Soft validation mode: do not block on LLM imperfections; record warnings and auto-fix where safe.
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -18,15 +19,20 @@ type TokenFileEntry = {
   approxTokens: number;
 };
 
+type ValidationReport = {
+  warnings: string[];
+  fixes: string[];
+};
+
 /* =========================================================
- * Orchestrator (strict Contract V1 pipeline, JSON-only)
+ * Orchestrator (JSON-only; soft validation)
  * =======================================================*/
 export async function orchestrate(req: NdjcRequest) {
   const runId = req.runId ?? `ndjc-${new Date().toISOString().replace(/[:.]/g, "-")}`;
   const templateKey = req.template_key ?? "circle-basic";
   const registry = registryJson as any;
 
-  /* ---------- build system header (行为性约束，保持最小) ---------- */
+  /* ---------- behavioral system header ---------- */
   const sysHeader =
     "You are an expert NDJC Contract v1 generator.\n" +
     "Return EXACTLY ONE valid JSON object and nothing else (no Markdown or code fences).\n" +
@@ -48,11 +54,11 @@ export async function orchestrate(req: NdjcRequest) {
     throw new Error(`[orchestrate] Prompt file not found or unreadable: ${promptPath}\n${e.message}`);
   }
 
-  /* ---------- build SKELETON (锁结构与键序) ---------- */
+  /* ---------- build SKELETON ---------- */
   const skeletonObj = buildSkeletonFromRegistry(registry);
   const skeletonJson = stableStringify(skeletonObj);
 
-  /* ---------- build minimal SCHEMA fragment（只下发关键规则，避免双口径） ---------- */
+  /* ---------- build minimal SCHEMA fragment ---------- */
   const schemaFragmentObj = buildMinimalSchemaFragment(registry);
   const schemaFragmentJson = stableStringify(schemaFragmentObj);
 
@@ -63,7 +69,7 @@ export async function orchestrate(req: NdjcRequest) {
     PLACEHOLDER_BLACKLIST: JSON.stringify(registry.placeholderBlacklist ?? []),
   });
 
-  /* ---------- prepare registry slices for the model (必要：required + topLevelOrder + blacklist) ---------- */
+  /* ---------- registry slices ---------- */
   const registryRequired = JSON.stringify(registry.required ?? {}, null, 2);
   const placeholderBlacklist = Array.isArray(registry.placeholderBlacklist) ? registry.placeholderBlacklist : [];
   const topLevelOrder = Array.isArray(registry.topLevelOrder)
@@ -99,7 +105,7 @@ export async function orchestrate(req: NdjcRequest) {
   ];
   const sentTokensTotal = filesSent.reduce((s, f) => s + (f.approxTokens || 0), 0);
 
-  /* ---------- call LLM（采样参数在 groq.ts 里配置） ---------- */
+  /* ---------- call LLM ---------- */
   const model = process.env.NDJC_MODEL || "groq";
   const trace: any = {
     model,
@@ -135,42 +141,30 @@ export async function orchestrate(req: NdjcRequest) {
   try {
     contract = tryParseJson(rawText);
   } catch {
-    throw new Error("Invalid JSON returned by LLM (not parsable). Ensure the model outputs JSON only.");
+    // 仍然把原文带回去，便于排查
+    return {
+      ok: false,
+      runId,
+      step: "orchestrate-online",
+      error: "Invalid JSON returned by LLM (not parsable). Ensure the model outputs JSON only.",
+      trace,
+    };
   }
 
-  /* ---------- top-level validation ---------- */
-  validateTopLevel(contract);
-
-  /* ---------- metadata 补充（保持轻量，与原逻辑一致） ---------- */
-  const grouped = contract.anchorsGrouped ?? {};
-  const appLabel =
-    req.appName ??
-    grouped?.text?.["NDJC:APP_LABEL"] ??
-    contract?.metadata?.appName ??
-    "NDJC App";
-
-  const applicationId =
-    grouped?.gradle?.applicationId ??
-    contract?.metadata?.packageId ??
-    "com.example.ndjc";
-
-  contract.metadata = {
-    ...(contract.metadata ?? {}),
-    template: contract?.metadata?.template ?? templateKey,
-    appName: typeof appLabel === "string" ? appLabel : String(appLabel ?? "NDJC App"),
-    packageId: typeof applicationId === "string" ? applicationId : String(applicationId ?? "com.example.ndjc"),
-    mode: "A",
-  };
-
+  /* ---------- ensure top-level (soft) ---------- */
+  const ensureReport = ensureTopLevel(contract);
   /* ---------- JSON-only: ensure files is an empty array ---------- */
-  contract.files = [];
+  contract.files = Array.isArray(contract.files) ? [] : [];
 
-  /* ---------- light normalization ---------- */
+  /* ---------- light normalization (auto-fix where safe) ---------- */
   normalizeContract(contract);
 
-  /* ---------- strict validation (non-empty & gradle) ---------- */
-  validateAnchorsNonEmpty(contract);
-  validateGradle(contract);
+  /* ---------- soft validation (collect warnings; never throw) ---------- */
+  const report: ValidationReport = { warnings: [], fixes: [] };
+  lintAnchors(contract, report);
+  lintGradle(contract, report);
+
+  trace.validation = report;
 
   /* ---------- output ---------- */
   return {
@@ -186,10 +180,8 @@ export async function orchestrate(req: NdjcRequest) {
  * Build SKELETON from registry (锁定结构与键序)
  * =======================================================*/
 function buildSkeletonFromRegistry(registry: any) {
-  // 1) metadata
   const metadata = { "NDJC:BUILD_META:RUNID": "" };
 
-  // 2) anchorsGrouped with fixed sub-order
   const textKeys: string[] = Array.isArray(registry.text) ? registry.text : [];
   const blockKeys: string[] = Array.isArray(registry.block) ? registry.block : [];
   const listKeys: string[] = Array.isArray(registry.list) ? registry.list : [];
@@ -197,7 +189,7 @@ function buildSkeletonFromRegistry(registry: any) {
   const hookKeys: string[] = Array.isArray(registry.hook) ? registry.hook : [];
 
   const text: Record<string, any> = {};
-  textKeys.forEach((k) => (text[k] = "")); // 让模型来填类型；我们只锁键位
+  textKeys.forEach((k) => (text[k] = ""));
 
   const block: Record<string, any> = {};
   blockKeys.forEach((k) => (block[k] = ""));
@@ -211,7 +203,6 @@ function buildSkeletonFromRegistry(registry: any) {
   const hook: Record<string, any> = {};
   hookKeys.forEach((k) => (hook[k] = "noop"));
 
-  // gradle：只放三项（其余没有的话由模型决定是否填充）
   const gradle: Record<string, any> = {
     applicationId: "",
     resConfigs: [],
@@ -219,11 +210,8 @@ function buildSkeletonFromRegistry(registry: any) {
   };
 
   const anchorsGrouped = { text, block, list, if: iff, hook, gradle };
-
-  // 3) files 固定为空数组
   const files: any[] = [];
 
-  // 最终骨架（顶层顺序：metadata → anchorsGrouped → files）
   return { metadata, anchorsGrouped, files };
 }
 
@@ -237,7 +225,6 @@ function buildMinimalSchemaFragment(registry: any) {
     ? registry.topLevelOrder
     : ["metadata", "anchorsGrouped", "files"];
 
-  // 7 条关键规则 + 跨字段
   const fragment = {
     topLevelOrder,
     required,
@@ -278,7 +265,6 @@ function injectPromptPlaceholders(
   text: string,
   vars: { SKELETON_JSON: string; SCHEMA_FRAGMENT: string; PLACEHOLDER_BLACKLIST: string }
 ) {
-  // 允许模板中不包含这些占位符；若包含则替换
   let out = text;
   out = out.replaceAll("[[SKELETON_JSON]]", vars.SKELETON_JSON);
   out = out.replaceAll("[[SCHEMA_FRAGMENT]]", vars.SCHEMA_FRAGMENT);
@@ -287,82 +273,81 @@ function injectPromptPlaceholders(
 }
 
 /* =========================================================
- * JSON parsing / validation / normalization
+ * JSON parsing / ensure / normalize / lint (soft)
  * =======================================================*/
 function tryParseJson(text: string): any {
   if (!text) throw new Error("empty");
-  // tolerate fenced blocks but prefer plain JSON
   const m = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
   const raw = m ? m[1] : text;
   return JSON.parse(raw);
 }
 
-function trimForTrace(s: string, max = 4000) {
-  if (!s) return s;
-  if (s.length <= max) return s;
-  return s.slice(0, max) + `\n... (${s.length - max} more chars)`;
+/** 确保顶层结构存在；缺失则补并记录 warning */
+function ensureTopLevel(contract: any): ValidationReport {
+  const report: ValidationReport = { warnings: [], fixes: [] };
+  if (!contract || typeof contract !== "object") {
+    throw new Error("Contract V1 must be a JSON object.");
+  }
+  if (!("metadata" in contract)) {
+    contract.metadata = {};
+    report.fixes.push("added missing top-level: metadata");
+  }
+  if (!("anchorsGrouped" in contract)) {
+    contract.anchorsGrouped = {};
+    report.fixes.push("added missing top-level: anchorsGrouped");
+  }
+  if (!("files" in contract)) {
+    contract.files = [];
+    report.fixes.push("added missing top-level: files");
+  }
+  return report;
 }
 
 function stableStringify(obj: any) {
-  // Node 的 JSON.stringify 已按插入顺序输出；这里保底做一次浅层键排序（顶层顺序我们自己控制）
   return JSON.stringify(obj, null, 2);
 }
 
-function validateTopLevel(contract: any) {
-  if (!contract || typeof contract !== "object") throw new Error("Contract V1 must be a JSON object.");
-  const requiredTop = ["metadata", "anchorsGrouped", "files"];
-  for (const key of requiredTop) {
-    if (!(key in contract)) throw new Error(`Missing top-level key: ${key}`);
-  }
-}
-
-function validateAnchorsNonEmpty(contract: any) {
+/** 仅记录问题，不抛错；尽量不做侵入式修复（修复放在 normalize） */
+function lintAnchors(contract: any, report: ValidationReport) {
   const grouped = contract.anchorsGrouped ?? {};
   const groups: Array<"text" | "block" | "list" | "if" | "hook" | "gradle"> = ["text", "block", "list", "if", "hook", "gradle"];
 
-  // 允许为空对象的锚点白名单（方案A：对 NDJC:STRINGS_EXTRA 放宽）
-  const allowEmptyObject = new Set<string>(["NDJC:STRINGS_EXTRA"]);
-
   for (const g of groups) {
-    const dict = grouped[g];
-    if (!dict || typeof dict !== "object") throw new Error(`Missing or invalid group: ${g}`);
-
+    const dict = (grouped as any)[g];
+    if (!dict || typeof dict !== "object") {
+      report.warnings.push(`Missing or invalid group: ${g}`);
+      continue;
+    }
     for (const [k, v] of Object.entries(dict)) {
-      if (v == null) throw new Error(`Null value at ${g}:${k}`);
-      if (typeof v === "string" && v.trim() === "") throw new Error(`Empty string at ${g}:${k}`);
-      if (Array.isArray(v) && v.length === 0) throw new Error(`Empty array at ${g}:${k}`);
-
-      if (typeof v === "object" && !Array.isArray(v)) {
-        if (Object.keys(v).length === 0 && !allowEmptyObject.has(k)) {
-          throw new Error(`Empty object at ${g}:${k}`);
-        }
+      if (v == null) report.warnings.push(`Null value at ${g}:${k}`);
+      if (typeof v === "string" && v.trim() === "") report.warnings.push(`Empty string at ${g}:${k}`);
+      if (Array.isArray(v) && v.length === 0) report.warnings.push(`Empty array at ${g}:${k}`);
+      if (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) {
+        report.warnings.push(`Empty object at ${g}:${k}`);
       }
     }
   }
 }
 
-const PKG_REGEX = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
-const PERM_REGEX = /^android\.permission\.[A-Z_]+$/;
-const LOCALE_ITEM = /^[a-z]{2}(-r[A-Z]{2,3})?$/;
-
-function validateGradle(contract: any) {
+/** 仅记录问题；强修复交给 normalizeContract */
+function lintGradle(contract: any, report: ValidationReport) {
   const gradle = contract.anchorsGrouped?.gradle ?? {};
   const appId = gradle.applicationId;
   if (!appId || typeof appId !== "string" || !PKG_REGEX.test(appId)) {
-    throw new Error(`Invalid gradle.applicationId: ${appId}`);
+    report.warnings.push(`gradle.applicationId may be invalid: ${appId}`);
   }
   const resConfigs: string[] = Array.isArray(gradle.resConfigs) ? gradle.resConfigs : [];
   if (!resConfigs.length || !resConfigs.every((x) => LOCALE_ITEM.test(x))) {
-    throw new Error(`Invalid gradle.resConfigs: ${JSON.stringify(resConfigs)}`);
+    report.warnings.push(`gradle.resConfigs may be invalid: ${JSON.stringify(resConfigs)}`);
   }
   const perms: string[] = Array.isArray(gradle.permissions) ? gradle.permissions : [];
   if (!perms.length || !perms.every((p) => PERM_REGEX.test(p))) {
-    throw new Error(`Invalid gradle.permissions: ${JSON.stringify(perms)}`);
+    report.warnings.push(`gradle.permissions may be invalid: ${JSON.stringify(perms)}`);
   }
 }
 
 /* =========================================================
- * Normalization (safe; no placeholders; no stringification)
+ * Normalization (safe auto-fixes; no blocking)
  * =======================================================*/
 function normalizeContract(contract: any) {
   const g = contract.anchorsGrouped ?? {};
@@ -373,7 +358,14 @@ function normalizeContract(contract: any) {
   g.hook ||= {};
   g.gradle ||= {};
 
-  // THEME_COLORS / STRINGS_EXTRA: keep as objects if possible (no stringified JSON).
+  // Coerce booleans in IF
+  if (g.if && typeof g.if === "object") {
+    for (const k of Object.keys(g.if)) {
+      g.if[k] = toBool(g.if[k]);
+    }
+  }
+
+  // THEME_COLORS / STRINGS_EXTRA: try to be objects
   if (g.text["NDJC:THEME_COLORS"] != null) {
     g.text["NDJC:THEME_COLORS"] = normalizeJsonObject(g.text["NDJC:THEME_COLORS"], {
       primary: "#7C3AED",
@@ -384,23 +376,16 @@ function normalizeContract(contract: any) {
     g.text["NDJC:STRINGS_EXTRA"] = normalizeJsonObject(g.text["NDJC:STRINGS_EXTRA"], {});
   }
 
-  // IF group: coerce to boolean safely (model is expected to return booleans already).
-  if (g.if && typeof g.if === "object") {
-    for (const k of Object.keys(g.if)) {
-      g.if[k] = toBool(g.if[k]);
-    }
-  }
+  // Gradle.applicationId → ensure package
+  g.gradle.applicationId = ensurePkg(g.gradle.applicationId, g.text["NDJC:PACKAGE_NAME"] || "com.example.ndjc");
 
-  // Gradle.applicationId: normalize to valid package or fallback.
-  g.gradle.applicationId = ensurePkg(g.gradle.applicationId, "com.example.ndjc");
-
-  // resConfigs: filter to valid locale items; fallback to ["en"].
+  // resConfigs → filter; fallback ["en"]
   let res: string[] = Array.isArray(g.gradle.resConfigs) ? g.gradle.resConfigs.map(String) : [];
   res = res.filter((x) => LOCALE_ITEM.test(x));
   if (!res.length) res = ["en"];
   g.gradle.resConfigs = res;
 
-  // permissions: keep only valid Android permission constants; fallback to INTERNET.
+  // permissions → filter; fallback INTERNET
   let perms: string[] = Array.isArray(g.gradle.permissions) ? g.gradle.permissions.map(String) : [];
   perms = perms.filter((p) => PERM_REGEX.test(p));
   if (!perms.length) perms = ["android.permission.INTERNET"];
@@ -408,7 +393,7 @@ function normalizeContract(contract: any) {
 
   contract.anchorsGrouped = g;
 
-  // Sync NDJC:PACKAGE_NAME from applicationId if missing.
+  // Sync PACKAGE_NAME from applicationId if missing
   if (!g.text["NDJC:PACKAGE_NAME"]) {
     g.text["NDJC:PACKAGE_NAME"] = g.gradle.applicationId;
   }
@@ -417,6 +402,10 @@ function normalizeContract(contract: any) {
 /* =========================================================
  * Small utils
  * =======================================================*/
+const PKG_REGEX = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
+const PERM_REGEX = /^android\.permission\.[A-Z_]+$/;
+const LOCALE_ITEM = /^[a-z]{2}(-r[A-Z]{2,3})?$/;
+
 function toBool(v: any): boolean {
   if (typeof v === "boolean") return v;
   const s = String(v ?? "").trim().toLowerCase();
@@ -433,18 +422,19 @@ function ensurePkg(v?: string, fallback = "com.example.ndjc") {
 }
 
 function normalizeJsonObject(input: any, fallback: Record<string, any>) {
-  // Already object
   if (input && typeof input === "object" && !Array.isArray(input)) return input;
-  // String that is JSON
   if (typeof input === "string") {
     const s = input.trim();
     try {
       const obj = JSON.parse(s);
       if (obj && typeof obj === "object" && !Array.isArray(obj)) return obj;
-    } catch {
-      // not json, ignore
-    }
+    } catch {}
   }
-  // Fallback
   return { ...fallback };
+}
+
+function trimForTrace(s: string, max = 4000) {
+  if (!s) return s;
+  if (s.length <= max) return s;
+  return s.slice(0, max) + `\n... (${s.length - max} more chars)`;
 }
