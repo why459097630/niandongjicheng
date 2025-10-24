@@ -1,6 +1,8 @@
 // lib/ndjc/orchestrator.ts
 // Contract V1 orchestrator — JSON-only, with SKELETON + minimal SCHEMA fragment injection.
 // Soft validation mode: do not block on LLM imperfections; record warnings and auto-fix where safe.
+// Writes token accounting to <NDJC_REQUESTS_DIR|./requests>/<runId>/token-report.json
+// NOTE: This version does NOT write actions-summary.txt.
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -131,10 +133,35 @@ export async function orchestrate(req: NdjcRequest) {
     throw new Error(`[orchestrate] LLM call failed: ${trace.error}`);
   }
 
-  // 记录返回 token 估算 & 合计
+  // record returned tokens & totals
   const returnedTokens = approxTokens(rawText);
   trace.tokenReport.returnedTokens = returnedTokens;
   trace.tokenReport.totalThisBuild = sentTokensTotal + returnedTokens;
+
+  /* ---------- persist token-report.json ---------- */
+  try {
+    const baseDir = process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
+    const outDir = path.join(baseDir, runId);
+    await fs.mkdir(outDir, { recursive: true });
+
+    const tokenReportPayload = {
+      runId,
+      templateKey,
+      model,
+      timestamp: new Date().toISOString(),
+      files: filesSent,
+      sentTokensTotal,
+      returnedTokens,
+      totalTokens: sentTokensTotal + returnedTokens,
+      note: "approxTokens ~= chars/4; this file replaces actions-summary.txt for token visibility",
+    };
+    const tokenReportPath = path.join(outDir, "token-report.json");
+    await fs.writeFile(tokenReportPath, JSON.stringify(tokenReportPayload, null, 2), "utf8");
+    trace.tokenReportPath = tokenReportPath;
+  } catch (e: any) {
+    // 不阻断，仅在 trace 里记录
+    trace.tokenReportWriteError = e?.message ?? String(e);
+  }
 
   /* ---------- parse JSON ---------- */
   let contract: any;
@@ -159,7 +186,7 @@ export async function orchestrate(req: NdjcRequest) {
   /* ---------- light normalization (auto-fix where safe) ---------- */
   normalizeContract(contract);
 
-  /* ---------- NEW: metadata fallback (prevents E_META_* 422) ---------- */
+  /* ---------- metadata fallback (prevents E_META_* 422) ---------- */
   {
     const g = contract.anchorsGrouped ?? {};
 
@@ -352,7 +379,6 @@ function lintAnchors(contract: any, report: ValidationReport) {
       if (v == null) report.warnings.push(`Null value at ${g}:${k}`);
       if (typeof v === "string" && v.trim() === "") report.warnings.push(`Empty string at ${g}:${k}`);
       if (Array.isArray(v) && v.length === 0) report.warnings.push(`Empty array at ${g}:${k}`);
-      // null-safe，避免 TS 报错
       if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) {
         report.warnings.push(`Empty object at ${g}:${k}`);
       }
