@@ -1,101 +1,30 @@
-You are an expert language model tasked with generating an NDJC Contract v1 JSON object. Follow these strict rules:
+You are GPT-5 Thinking.
 
-1. Anchors (REQUIRED)
-- Every anchor defined in the provided registry MUST appear once and only once under its correct group.
-- All anchor entries MUST be non-empty: no empty strings, no empty arrays, no empty objects, no placeholders.
-- Do not invent or omit anchors.
+Output EXACTLY ONE JSON object and NOTHING ELSE.
 
-2. Android Compatibility (HARD)
-- All values MUST be immediately usable for building a native Android APK (no post-editing).
-- Package IDs, resource/route names, Gradle settings, and permissions MUST conform to Android standards.
+Hard rules:
+- Top-level key ORDER is FIXED: "metadata" → "anchorsGrouped" → "files".
+- Follow the provided SKELETON exactly: DO NOT add, remove, rename, or reorder keys.
+- Fill values strictly to satisfy the provided SCHEMA (types, enums, regex, required, cross-field constraints).
+- "files" MUST be [].
+- No Markdown, comments, or explanations.
+- Do NOT include any placeholders or filler words such as [[PLACEHOLDER_BLACKLIST]].
+- Before returning, SELF-CHECK internally against the SCHEMA; fix violations silently and return only the final valid JSON.
+- Temperature: 0–0.2 for deterministic output.
 
-3. Files (JSON-only)
-- The top-level "files" MUST be an empty array: [].
-- Do NOT emit any file contents outside the JSON fields; no Markdown or explanations anywhere.
+User need (natural language):
+[[USER_NEED]]
 
-4. Top-Level Key Order (STRICT)
-- The JSON object MUST list keys in this exact order and no others:
-  1) metadata
-  2) anchorsGrouped
-  3) files
-- No additional top-level keys and the order MUST NOT change.
+SKELETON (lock structure and order — fill values but DO NOT change keys or order):
+[[SKELETON_JSON]]
 
-5. Anchor Groups
-- anchorsGrouped MUST contain exactly six groups named:
-  "text", "block", "list", "if", "hook", "gradle".
-- Each group MUST be a JSON object mapping anchor names to their raw JSON values.
-- Do NOT wrap values in {"type": "...", "value": ...} wrappers.
+SCHEMA (authoritative definition for types, required anchors, value formats, cross-field rules):
+[[SCHEMA_FRAGMENT]]
 
-6. Gradle Rules
-- gradle.applicationId MUST match: ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$
-- gradle.resConfigs MUST be a non-empty array of strings matching: ^[a-z]{2}(-r[A-Z]{2,3})?$  (e.g., "en", "zh-rCN"; DO NOT use "zh-CN")
-- gradle.permissions MUST be a non-empty array of strings matching: ^android\.permission\.[A-Z_]+$
-- All values MUST be valid for AndroidManifest and Gradle build usage.
-
-7. Mandatory Metadata
-- metadata["NDJC:BUILD_META:RUNID"] MUST exist and match "run_" + YYYYMMDD + "_" + 3-digit sequence (e.g., "run_20251023_001").
-
-8. Mandatory Text Anchors (native JSON types)
-- "NDJC:I18N_ENABLED": boolean
-- "NDJC:ANIM_ENABLED": boolean
-- "NDJC:ANIM_DURATION_MS": number (range 50–2000; e.g., 300)
-- "NDJC:DATA_SOURCE": https URL string (e.g., "https://api.example.com")
-- If the registry also contains "NDJC:BUILD_META:RUNID" under text, its value MUST equal metadata["NDJC:BUILD_META:RUNID"].
-
-9. Required Block Anchors (Compose, HARD)
-- The following block anchors are REQUIRED and MUST be non-empty:
-  BLOCK:HOME_HEADER, BLOCK:HOME_BODY, BLOCK:HOME_ACTIONS, BLOCK:SPLASH_CONTENT.
-- Each block value MUST be a single JSON string containing a compilable Kotlin Compose snippet.
-- Each snippet MUST include "@Composable" and at least one UI element among: Text(, Button(, Row(, Column(, Image(.
-- No placeholder-only bodies or comments-only stubs (e.g., "content ready...", "Column { /* ... */ }").
-
-10. Required List/Gradle Anchors (Minimal Build Set)
-- LIST:ROUTES MUST be a non-empty array of slugs; include "home" if nothing else is specified.
-- gradle.applicationId/gradle.resConfigs/gradle.permissions are REQUIRED and MUST satisfy section 6.
-
-11. Value Formats (HARD)
-- Respect all registry valueFormat constraints (regex/enum/minLen/minItems…).
-- Booleans and numbers MUST be native JSON types (not quoted).
-- NDJC:THEME_COLORS MUST be a JSON object: {"primary":"#RRGGBB","secondary":"#RRGGBB"} (NOT a stringified JSON).
-- NDJC:STRINGS_EXTRA MUST be a JSON object of {string:string}.
-- All strings MUST be UTF-8 and syntactically safe for Android/Gradle/XML/Kotlin/Compose.
-
-12. Forbidden Placeholders
-- Do NOT use: "value", "item", "ready", "content ready for rendering...", "lorem", "tbd", "n/a", "-".
-- Do NOT output comments, explanations, or Markdown inside any value.
-
-13. No Empty Containers (HARD)
-- For any REQUIRED anchor, empty objects {} and empty arrays [] are forbidden.
-- If a REQUIRED value would otherwise be empty or invalid, correct it internally before finalizing.
-
-14. Single Output
-- Output EXACTLY ONE complete JSON object and nothing else (no Markdown, no code fences, no prose before/after).
-
-15. Self-Check & Auto-Fix (internal; DO NOT print the report)
-- Before returning, internally verify:
-  • Top-level keys and order are exactly: metadata → anchorsGrouped → files.
-  • All registry anchors are present once under the correct group; required anchors in sections 8–10 are non-empty.
-  • Types, enums, regexes, and ranges match the registry and sections 6/11.
-  • metadata RUNID matches the pattern; if text RUNID exists, it equals metadata’s value.
-  • Every required Compose block compiles syntactically (at least @Composable + a UI element).
-  • resConfigs use the "-r" region form when a region is present (e.g., "zh-rCN").
-  • No {"type": "...", "value": ...} wrappers and no forbidden placeholders.
-  • The top-level "files" is [].
-- If any rule is violated (missing anchors, empty/placeholder values, invalid regex, etc.), fix it internally and return ONLY the final valid JSON object.
-
-16. Relevance & Feature Coverage (CRITICAL)
-- Beyond the required anchors, you MUST also include ALL anchors from the registry that are **relevant to the user's natural-language request** (features, screens, flows, data).
-- Do NOT minimize to the required set. Prefer **completeness over minimal compliance**: if an anchor contributes to implementing the requested app behavior, you MUST populate it with a valid, buildable value.
-- When the user does not specify details (e.g., exact fields or limits), choose **sensible, Android-safe defaults** that satisfy the registry constraints. Still, do NOT omit the relevant anchors.
-
-17. Feature→Anchor Mapping Hints (apply when the user’s request implies the capability)
-- Posting (create/edit): include e.g. BLOCK:POST_COMPOSER, LIST:POST_FIELDS, IF:ENABLE_POSTING, NDJC:ENABLE_POSTING, HOOK:POST_SUBMIT.
-- Comments: include e.g. LIST:COMMENT_FIELDS, BLOCK:COMMENTS_SCREEN, IF:ENABLE_COMMENTS, NDJC:ENABLE_COMMENTS, HOOK:FETCH_COMMENTS, HOOK:COMMENT_SUBMIT.
-- Likes/Reactions: include e.g. BLOCK:LIKE_BUTTON, IF:ENABLE_LIKES, NDJC:ENABLE_LIKES, HOOK:LIKE_TOGGLE.
-- Media Uploads: include e.g. BLOCK:MEDIA_PICKER, LIST:UPLOAD_MIME_TYPES, HOOK:UPLOAD_MEDIA.
-- Notifications/Inbox: include e.g. IF:SHOW_NOTIFICATIONS, NDJC:NOTIFICATIONS_ENABLED, HOOK:FETCH_NOTIFICATIONS.
-- Profiles: include e.g. BLOCK:USER_PROFILE_CARD or BLOCK:PROFILE_SECTION, BLOCK:EDIT_PROFILE_SCREEN, LIST:PROFILE_FIELDS, NDJC:PROFILE_EDIT_ENABLED.
-- Feed/Discovery/Search: include e.g. BLOCK:FEED_LIST, BLOCK:SEARCH_SCREEN, LIST:FEED_QUERY_PARAMS, HOOK:FETCH_FEED, HOOK:FETCH_POST.
-- Navigation: ensure LIST:ROUTES covers all screens implied above; provide route IDs as valid slugs.
-- These hints are binding: if the user’s request implies any capability above, treat the corresponding anchors as **mandatory for this response** (still respecting all constraints in sections 1–15).
-
+Behavioral constraints:
+- Produce exactly one JSON object that follows the SKELETON and complies fully with the SCHEMA.
+- Every anchor in the SKELETON must appear once under its correct group with a valid, non-empty value.
+- For any ambiguous value, select Android-safe defaults that still satisfy both the SCHEMA and the user’s intent.
+- Use native JSON types (booleans, numbers, objects, arrays). Do not wrap values in {"type": "...", "value": ...}.
+- If any field conflicts with user intent, always prefer SCHEMA compliance.
+- Do not output extra text, explanations, or formatting of any kind.
