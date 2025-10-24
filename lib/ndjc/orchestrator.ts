@@ -2,25 +2,22 @@
 //
 // NDJC two-phase orchestrator
 //
-// Phase 1: ask LLM for contract config only (text / if / list / gradle)
+// Phase 1: ask LLM for config spec only (text / if / list / gradle)
 //   - prompt: contract_v1.phase1.en.txt
 //   - registry: registry.circle-basic.phase1.json
-//   - sanitize + guard (hard stop if invalid)
-//   - write 02_phase1_raw.json + 02_phase1_clean.json
+//   - sanitize + guard (hard-stop if invalid)
+//   - write requests/<runId>/02_phase1_raw.json and 02_phase1_clean.json
 //
-// Phase 2: ask LLM for implementation (block / hook) based on locked Phase 1 spec
+// Phase 2: ask LLM for implementation (block / hook) using locked Phase 1 spec
 //   - prompt: contract_v1.phase2.en.txt
 //   - registry: registry.circle-basic.phase2.json
-//   - validate that phase2 didn't mutate locked groups
-//   - write 03_phase2_raw.json + 03_phase2_plan.json
+//   - validate phase2 doesn't mutate text/if/list/gradle, and block/hook obey rules
+//   - write 03_phase2_raw.json and 03_phase2_plan.json (or plan-violations.json)
 //
-// Orchestrator also:
-//   - creates requests/<runId>/
-//   - writes 01_usage.json with per-phase token usage
-//   - writes plan-violations.json on validation fail
+// Also writes requests/<runId>/01_usage.json with token usage summary.
 //
-// NOTE: this file assumes groqChat(msgs) returns {text, usage?} or string.
-// If your groqChat is different, adjust runGroqChat() accordingly.
+// IMPORTANT: we export BOTH orchestrateTwoPhase() (new) and orchestrate() (compat).
+// orchestrate(req) just calls orchestrateTwoPhase(req), so existing code doesn't break.
 
 import fsOrig from "node:fs";
 import fs from "node:fs/promises";
@@ -54,7 +51,7 @@ type Phase1Result = {
   raw: any;          // raw LLM json (parsed)
   clean: any;        // sanitized & guarded config spec
   runId: string;     // final runId
-  usage: PhaseUsage; // usage from LLM
+  usage: PhaseUsage; // usage from LLM / approx
 };
 
 type Phase2Result = {
@@ -69,13 +66,15 @@ const PERM_REGEX = /^android\.permission\.[A-Z_]+$/;
 const LOCALE_ITEM = /^[a-z]{2}(-r[A-Z]{2,3})?$/;
 
 /* =========================================================
- * PUBLIC ENTRYPOINT
+ * PUBLIC EXPORTS
  * =======================================================*/
+
+// New main entrypoint
 export async function orchestrateTwoPhase(req: NdjcRequest) {
-  // 1. Phase1 (config spec)
+  // 1. Phase 1 (config spec)
   const phase1 = await runPhase1(req);
 
-  // 2. Persist phase1 raw + clean
+  // 2. Persist phase1 output
   const baseDir = process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
   const runDir = path.join(baseDir, phase1.runId);
   await fs.mkdir(runDir, { recursive: true });
@@ -90,9 +89,7 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
     "utf8"
   );
 
-  // If phase1.clean failed guard (shouldn't happen because we throw), we would've already bailed.
-
-  // 3. Phase2 (implementation) using cleaned phase1 spec
+  // 3. Phase 2 (implementation)
   const phase2 = await runPhase2(req, phase1.clean, phase1.runId);
 
   // 4. Persist phase2 raw
@@ -102,19 +99,17 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
     "utf8"
   );
 
-  // 5. Persist validated or violations
+  // 5. If phase2 valid → keep final plan, else record violations
   if (phase2.final) {
-    // success
     await fs.writeFile(
       path.join(runDir, "03_phase2_plan.json"),
       JSON.stringify(phase2.final, null, 2),
       "utf8"
     );
   } else {
-    // failed validation
     const vioPayload = {
       errors: phase2.violations,
-      note: "Phase2 result failed validation. No 03_phase2_plan.json emitted.",
+      note: "Phase2 validation failed. No 03_phase2_plan.json emitted.",
     };
     await fs.writeFile(
       path.join(runDir, "plan-violations.json"),
@@ -123,7 +118,7 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
     );
   }
 
-  // 6. Write usage (01_usage.json). We do it AFTER phase2 so it includes both phases.
+  // 6. Write usage.json (01_usage.json)
   const usageReport: UsageReport = {
     runId: phase1.runId,
     phase1: phase1.usage,
@@ -139,7 +134,7 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
     "utf8"
   );
 
-  // 7. Return orchestrator summary to caller (e.g. CLI / API)
+  // 7. Return for caller (API / CLI / etc.)
   return {
     ok: !!phase2.final,
     runId: phase1.runId,
@@ -150,6 +145,12 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
   };
 }
 
+// Legacy entrypoint for backwards compatibility.
+// This lets existing code that does `import { orchestrate }` keep working.
+export async function orchestrate(req: NdjcRequest) {
+  return orchestrateTwoPhase(req);
+}
+
 /* =========================================================
  * Phase1
  * =======================================================*/
@@ -157,11 +158,11 @@ async function runPhase1(req: NdjcRequest): Promise<Phase1Result> {
   const templateKey = req.template_key ?? "circle-basic";
   const userNeed = (req.requirement ?? "").trim();
 
-  // Build skeleton where anchorsGrouped only has text/if/list/gradle
+  // Build skeleton for phase1: text / if / list / gradle
   const skeletonP1 = buildSkeletonPhase1(registryP1);
   const skeletonJson = stableStringify(skeletonP1);
 
-  // Build schema fragment from registry.phase1 (valueFormat, required, etc.)
+  // Build schema fragment
   const schemaFragP1 = buildSchemaFragmentPhase1(registryP1);
   const schemaFragJson = stableStringify(schemaFragP1);
 
@@ -180,9 +181,10 @@ async function runPhase1(req: NdjcRequest): Promise<Phase1Result> {
       registryP1.placeholderBlacklist ?? []
     ),
     USER_NEED: userNeed,
+    PHASE1_SPEC_JSON: "", // not used yet in phase1
   });
 
-  // System content for phase1
+  // System message for phase1
   const sysHeader =
     "You are NDJC Phase 1. Output config only (text/if/list/gradle). Do NOT output block/hook.\n" +
     'Return EXACTLY ONE valid JSON object with top-level keys "metadata","anchorsGrouped","files" in that order.\n' +
@@ -199,16 +201,16 @@ async function runPhase1(req: NdjcRequest): Promise<Phase1Result> {
   // Parse LLM JSON
   const phase1Raw = parseAndEnsureTopLevel(llmText);
 
-  // We now sanitize+guard to get final spec
+  // Sanitize & guard
   const phase1Clean = sanitizePhase1(phase1Raw, registryP1, templateKey);
 
-  // Derive runId
+  // Determine runId
   const runId =
     phase1Clean?.metadata?.["NDJC:BUILD_META:RUNID"] ||
     phase1Clean?.anchorsGrouped?.text?.["NDJC:BUILD_META:RUNID"] ||
     `run_${genDateStamp()}_000`;
 
-  // Enforce final runId on spec (so downstream is consistent)
+  // force runId back into spec for consistency
   phase1Clean.metadata = phase1Clean.metadata || {};
   phase1Clean.metadata["NDJC:BUILD_META:RUNID"] = runId;
 
@@ -217,10 +219,9 @@ async function runPhase1(req: NdjcRequest): Promise<Phase1Result> {
   }
   phase1Clean.anchorsGrouped.text["NDJC:BUILD_META:RUNID"] = runId;
 
-  // Guard (hard fail if invalid)
+  // Final guard (throws if still invalid)
   guardPhase1(phase1Clean, registryP1);
 
-  // Return
   return {
     raw: phase1Raw,
     clean: phase1Clean,
@@ -237,15 +238,15 @@ async function runPhase2(
   phase1Clean: any,
   runId: string
 ): Promise<Phase2Result> {
-  const templateKey = req.template_key ?? "circle-basic";
   const userNeed = (req.requirement ?? "").trim();
 
-  // Build skeleton where anchorsGrouped includes ALL groups:
-  // text/if/list/gradle (pre-filled from phase1Clean) + empty block/hook.
+  // Skeleton for phase2:
+  // text/if/list/gradle are pre-filled from phase1Clean (locked),
+  // and block/hook are empty.
   const skeletonP2 = buildSkeletonPhase2(registryP2, phase1Clean);
   const skeletonJson = stableStringify(skeletonP2);
 
-  // Build schema fragment from registry.phase2 (valueFormat for block/hook + required blocks)
+  // Schema fragment for phase2
   const schemaFragP2 = buildSchemaFragmentPhase2(registryP2);
   const schemaFragJson = stableStringify(schemaFragP2);
 
@@ -256,7 +257,7 @@ async function runPhase2(
   );
   const promptText = await fs.readFile(promptPath, "utf8");
 
-  // Inject placeholders: includes PHASE1_SPEC_JSON for locked config
+  // Inject placeholders (phase2 gets PHASE1_SPEC_JSON)
   const injectedPrompt = injectPromptPlaceholders(promptText, {
     SKELETON_JSON: skeletonJson,
     SCHEMA_FRAGMENT: schemaFragJson,
@@ -280,10 +281,10 @@ async function runPhase2(
 
   const { text: llmText, usage } = await runGroqChat(msgs);
 
-  // Phase2 raw
+  // Parse LLM JSON for phase2
   const phase2Raw = parseAndEnsureTopLevel(llmText);
 
-  // Validate: phase2Raw must (1) keep text/if/list/gradle same as phase1Clean, (2) generate block/hook correctly.
+  // Validate and merge
   const { final, violations } = validatePhase2(
     phase2Raw,
     phase1Clean,
@@ -301,24 +302,25 @@ async function runPhase2(
 /* =========================================================
  * runGroqChat wrapper with usage extraction
  * =======================================================*/
-async function runGroqChat(msgs: ChatMessage[]): Promise<{ text: string; usage: PhaseUsage }> {
-  // callGroqChat is user-provided. We normalize result.
+async function runGroqChat(
+  msgs: ChatMessage[]
+): Promise<{ text: string; usage: PhaseUsage }> {
+  // We assume callGroqChat(msgs) returns either a string or something like {text, usage}.
   const r: any = await callGroqChat(msgs);
 
-  // Guess shape:
-  // - maybe r is string
-  // - maybe r = { text: string, usage:{prompt_tokens,...} }
+  // Extract text
   const text =
     typeof r === "string"
       ? r
       : typeof r?.text === "string"
       ? r.text
-      : "";
+      : // if your groqChat returns OpenAI-style, adapt here:
+        (r?.choices?.[0]?.message?.content as string) ||
+        "";
 
-  // crude fallback usage if provider didn't return usage
-  // (we approximate tokens ~= chars/4)
+  // crude fallback usage if provider doesn't return usage tokens
   const approxTokens = (s: string) => Math.ceil((s ?? "").length / 4);
-  const promptTok = approxTokens(msgs.map(m => m.content).join("\n"));
+  const promptTok = approxTokens(msgs.map((m) => m.content).join("\n"));
   const completionTok = approxTokens(text);
 
   const usage: PhaseUsage = {
@@ -328,10 +330,10 @@ async function runGroqChat(msgs: ChatMessage[]): Promise<{ text: string; usage: 
       (r?.usage?.completion_tokens as number) ?? completionTok,
     total_tokens:
       (r?.usage?.total_tokens as number) ??
-      (promptTok + completionTok),
+      promptTok + completionTok,
     model:
       (r?.usage?.model as string) ??
-      "gpt-5-thinking", // per system instruction
+      "gpt-5-thinking",
   };
 
   return { text, usage };
@@ -341,7 +343,7 @@ async function runGroqChat(msgs: ChatMessage[]): Promise<{ text: string; usage: 
  * Skeleton builders
  * =======================================================*/
 
-// phase1 skeleton only: text / if / list / gradle
+// Phase1 skeleton only has config groups
 function buildSkeletonPhase1(regP1: any) {
   const metadata: Record<string, any> = {
     "NDJC:BUILD_META:RUNID": "",
@@ -382,17 +384,13 @@ function buildSkeletonPhase1(regP1: any) {
   };
 }
 
-// phase2 skeleton has ALL groups, but text/if/list/gradle prefilled from phase1Clean
+// Phase2 skeleton has all groups; text/if/list/gradle are prefilled from phase1Clean
 function buildSkeletonPhase2(regP2: any, phase1Clean: any) {
-  // phase1Clean is already {metadata, anchorsGrouped:{ text,if,list,gradle }, files:[]}
-
-  // clone shallow
   const lockedText = { ...(phase1Clean?.anchorsGrouped?.text ?? {}) };
   const lockedIf = { ...(phase1Clean?.anchorsGrouped?.if ?? {}) };
   const lockedList = { ...(phase1Clean?.anchorsGrouped?.list ?? {}) };
   const lockedGradle = { ...(phase1Clean?.anchorsGrouped?.gradle ?? {}) };
 
-  // create empty block/hook groups from registryP2
   const gBlock: Record<string, any> = {};
   (regP2.block ?? []).forEach((k: string) => {
     gBlock[k] = "";
@@ -403,7 +401,6 @@ function buildSkeletonPhase2(regP2: any, phase1Clean: any) {
     gHook[k] = "noop";
   });
 
-  // skeleton metadata should include runId field as known
   const metadata = {
     ...(phase1Clean?.metadata ?? {}),
   };
@@ -425,54 +422,51 @@ function buildSkeletonPhase2(regP2: any, phase1Clean: any) {
 }
 
 /* =========================================================
- * Schema fragments
+ * Schema fragments injected into prompts
  * =======================================================*/
-
-// Phase1 schema: rules for text/if/list/gradle only
 function buildSchemaFragmentPhase1(regP1: any) {
   return {
     required: regP1.required ?? {},
     crossField: regP1.crossField ?? {},
     valueFormat: regP1.valueFormat ?? {},
     placeholderBlacklist: regP1.placeholderBlacklist ?? [],
-    topLevelOrder: regP1.topLevelOrder ?? ["metadata", "anchorsGrouped", "files"],
+    topLevelOrder:
+      regP1.topLevelOrder ?? ["metadata", "anchorsGrouped", "files"],
   };
 }
 
-// Phase2 schema: rules for block/hook (and we still need required blocks)
 function buildSchemaFragmentPhase2(regP2: any) {
   return {
     required: regP2.required ?? {},
     valueFormat: regP2.valueFormat ?? {},
     placeholderBlacklist: regP2.placeholderBlacklist ?? [],
-    topLevelOrder: regP2.topLevelOrder ?? ["metadata", "anchorsGrouped", "files"],
+    topLevelOrder:
+      regP2.topLevelOrder ?? ["metadata", "anchorsGrouped", "files"],
   };
 }
 
 /* =========================================================
- * sanitize + guard for Phase1
+ * Phase1 sanitize + guard
  * =======================================================*/
-
-// Try to coerce phase1Raw into a clean, schema-respecting spec
-function sanitizePhase1(phase1Raw: any, regP1: any, templateKey: string) {
+function sanitizePhase1(
+  phase1Raw: any,
+  regP1: any,
+  templateKey: string
+) {
   const clean = cloneJson(phase1Raw);
 
-  // ensure structure
-  if (!clean || typeof clean !== "object") {
-    throw new Error("Phase1 sanitize: not an object");
-  }
   ensurePhase1Shape(clean);
 
-  // fill defaults from registry for text/list/gradle
+  // fill defaults from registry phase1 defaults
   applyDefaultsPhase1(clean, regP1);
 
-  // normalize booleans in IF
+  // normalize IF booleans
   const ifGroup = clean.anchorsGrouped.if;
   for (const k of Object.keys(ifGroup)) {
     ifGroup[k] = toBool(ifGroup[k]);
   }
 
-  // normalize THEME_COLORS & STRINGS_EXTRA etc.
+  // normalize structured text fields
   const textGroup = clean.anchorsGrouped.text;
   if ("NDJC:THEME_COLORS" in textGroup) {
     textGroup["NDJC:THEME_COLORS"] = normalizeJsonObject(
@@ -498,21 +492,20 @@ function sanitizePhase1(phase1Raw: any, regP1: any, templateKey: string) {
   clean.anchorsGrouped.gradle.applicationId = finalPkg;
   textGroup["NDJC:PACKAGE_NAME"] = finalPkg;
 
-  // resConfigs sanitization
+  // resConfigs sanitize
   let resConfigs = clean.anchorsGrouped.gradle.resConfigs;
   if (!Array.isArray(resConfigs)) resConfigs = [];
   resConfigs = resConfigs
     .map((x: any) => String(x))
     .filter((x: string) => LOCALE_ITEM.test(x));
   if (!resConfigs.length) {
-    // try defaults
     const def = regP1.defaults?.gradle?.resConfigs ?? ["en"];
     resConfigs = def.filter((x: string) => LOCALE_ITEM.test(x));
     if (!resConfigs.length) resConfigs = ["en"];
   }
   clean.anchorsGrouped.gradle.resConfigs = resConfigs;
 
-  // permissions sanitization
+  // permissions sanitize
   let perms = clean.anchorsGrouped.gradle.permissions;
   if (!Array.isArray(perms)) perms = [];
   perms = perms
@@ -532,7 +525,7 @@ function sanitizePhase1(phase1Raw: any, regP1: any, templateKey: string) {
     clean.metadata.appName ||
     "NDJC App";
 
-  // NDJC:BUILD_META:RUNID
+  // RUNID
   const runIdRaw =
     textGroup["NDJC:BUILD_META:RUNID"] ||
     clean.metadata["NDJC:BUILD_META:RUNID"] ||
@@ -541,32 +534,30 @@ function sanitizePhase1(phase1Raw: any, regP1: any, templateKey: string) {
   textGroup["NDJC:BUILD_META:RUNID"] =
     clean.metadata["NDJC:BUILD_META:RUNID"];
 
-  // done
   return clean;
 }
 
-// apply defaults for text/list/gradle from registry.phase1.defaults
 function applyDefaultsPhase1(clean: any, regP1: any) {
   const g = clean.anchorsGrouped;
   const defsText = regP1.defaults?.text ?? {};
   const defsList = regP1.defaults?.list ?? {};
   const defsGradle = regP1.defaults?.gradle ?? {};
 
-  // text
+  // text defaults
   Object.keys(defsText).forEach((k) => {
     if (!existsNonEmpty(g.text[k])) {
       g.text[k] = defsText[k];
     }
   });
 
-  // list
+  // list defaults
   Object.keys(defsList).forEach((k) => {
     if (!Array.isArray(g.list[k]) || g.list[k].length === 0) {
       g.list[k] = defsList[k];
     }
   });
 
-  // gradle
+  // gradle defaults
   Object.keys(defsGradle).forEach((k) => {
     const cur = (g.gradle as any)[k];
     if (!existsNonEmpty(cur)) {
@@ -575,107 +566,140 @@ function applyDefaultsPhase1(clean: any, regP1: any) {
   });
 }
 
-// guard: throw if any must-have field is still invalid
 function guardPhase1(clean: any, regP1: any) {
+  // verify required
   const g = clean.anchorsGrouped;
-  // required fields (phase1 cares about text/list/gradle)
   const req = regP1.required ?? {};
   const reqTextKeys: string[] = req.text ?? [];
   const reqListKeys: string[] = req.list ?? [];
   const reqGradleKeys: string[] = req.gradle ?? [];
 
-  // check text
   for (const key of reqTextKeys) {
     if (!existsNonEmpty(g.text[key])) {
       throw new Error(`Phase1 guard: missing required text.${key}`);
     }
   }
-
-  // check list
   for (const key of reqListKeys) {
-    if (!Array.isArray(g.list[key]) || g.list[key].length === 0) {
+    if (
+      !Array.isArray(g.list[key]) ||
+      g.list[key].length === 0
+    ) {
       throw new Error(`Phase1 guard: missing required list.${key}`);
     }
   }
-
-  // check gradle (specific shape)
   for (const key of reqGradleKeys) {
     const cur = (g.gradle as any)[key];
     if (!existsNonEmpty(cur)) {
-      throw new Error(`Phase1 guard: missing required gradle.${key}`);
+      throw new Error(
+        `Phase1 guard: missing required gradle.${key}`
+      );
     }
   }
 
-  // packageId / applicationId format
+  // packageId / applicationId
   if (!PKG_REGEX.test(g.gradle.applicationId)) {
-    throw new Error(`Phase1 guard: invalid packageId ${g.gradle.applicationId}`);
+    throw new Error(
+      `Phase1 guard: invalid packageId ${g.gradle.applicationId}`
+    );
   }
 
-  // NDJC:DATA_SOURCE must be https://...
-  if (!/^https:\/\//.test(g.text["NDJC:DATA_SOURCE"] ?? "")) {
-    throw new Error(`Phase1 guard: NDJC:DATA_SOURCE must start with https://`);
+  // DATA_SOURCE must be https://
+  if (
+    !/^https:\/\//.test(
+      g.text["NDJC:DATA_SOURCE"] ?? ""
+    )
+  ) {
+    throw new Error(
+      "Phase1 guard: NDJC:DATA_SOURCE must start with https://"
+    );
   }
 
-  // runId pattern
+  // RUNID format
   const runId = g.text["NDJC:BUILD_META:RUNID"];
   if (!/^run_[0-9]{8}_[0-9]{3}$/.test(runId)) {
-    throw new Error(`Phase1 guard: invalid RUNID ${runId}`);
+    throw new Error(
+      `Phase1 guard: invalid RUNID ${runId}`
+    );
   }
 }
 
 /* =========================================================
  * Phase2 validation
  * =======================================================*/
-
-function validatePhase2(phase2Raw: any, phase1Clean: any, regP2: any) {
+function validatePhase2(
+  phase2Raw: any,
+  phase1Clean: any,
+  regP2: any
+) {
   const violations: string[] = [];
   const finalPlan = cloneJson(phase2Raw);
 
-  // basic structural check
   ensurePhase2Shape(finalPlan);
 
-  // 1. text/if/list/gradle must match exactly what we had in phase1Clean
-  lockAndCompareGroups(finalPlan, phase1Clean, violations, [
-    "text",
-    "if",
-    "list",
-    "gradle",
-  ]);
+  // text/if/list/gradle must match phase1
+  lockAndCompareGroups(
+    finalPlan,
+    phase1Clean,
+    violations,
+    ["text", "if", "list", "gradle"]
+  );
 
-  // 2. block/hook must exist, must satisfy required, and must be code/non-noop as required
-  const reqBlockKeys: string[] = regP2.required?.block ?? [];
-  const hasBlockGroup = finalPlan.anchorsGrouped.block && typeof finalPlan.anchorsGrouped.block === "object";
+  // required blocks
+  const reqBlockKeys: string[] =
+    regP2.required?.block ?? [];
+  const hasBlockGroup =
+    finalPlan.anchorsGrouped.block &&
+    typeof finalPlan.anchorsGrouped.block === "object";
   if (!hasBlockGroup) {
-    violations.push("Phase2: missing anchorsGrouped.block");
+    violations.push(
+      "Phase2: missing anchorsGrouped.block"
+    );
   }
 
-  // ensure each required block anchor present + non-empty + passes basic code regex if provided
   for (const bKey of reqBlockKeys) {
-    const val = finalPlan.anchorsGrouped.block?.[bKey];
-    if (!val || typeof val !== "string" || !val.trim()) {
-      violations.push(`Phase2: required block.${bKey} missing or empty`);
+    const val =
+      finalPlan.anchorsGrouped.block?.[bKey];
+    if (
+      !val ||
+      typeof val !== "string" ||
+      !val.trim()
+    ) {
+      violations.push(
+        `Phase2: required block.${bKey} missing or empty`
+      );
     } else {
-      // optional regex check if registry has valueFormat.block[bKey].regex
-      const vf = regP2.valueFormat?.block?.[bKey];
+      const vf =
+        regP2.valueFormat?.block?.[bKey];
       if (vf?.regex) {
         const r = new RegExp(vf.regex);
         if (!r.test(val)) {
-          violations.push(`Phase2: block.${bKey} failed regex`);
+          violations.push(
+            `Phase2: block.${bKey} failed regex`
+          );
         }
       }
-      // placeholder blacklist
-      if (containsForbiddenPlaceholder(val, regP2.placeholderBlacklist)) {
-        violations.push(`Phase2: block.${bKey} contains forbidden placeholder text`);
+      if (
+        containsForbiddenPlaceholder(
+          val,
+          regP2.placeholderBlacklist
+        )
+      ) {
+        violations.push(
+          `Phase2: block.${bKey} contains forbidden placeholder text`
+        );
       }
     }
   }
 
-  // 3. hook group
-  const hasHookGroup = finalPlan.anchorsGrouped.hook && typeof finalPlan.anchorsGrouped.hook === "object";
+  // hook group consistency
+  const hasHookGroup =
+    finalPlan.anchorsGrouped.hook &&
+    typeof finalPlan.anchorsGrouped.hook === "object";
   if (!hasHookGroup) {
-    violations.push("Phase2: missing anchorsGrouped.hook");
+    violations.push(
+      "Phase2: missing anchorsGrouped.hook"
+    );
   } else {
-    // check at least they're not ALL "noop" if feature is enabled
     enforceHookFeatureConsistency(
       finalPlan,
       phase1Clean,
@@ -683,15 +707,17 @@ function validatePhase2(phase2Raw: any, phase1Clean: any, regP2: any) {
     );
   }
 
-  // 4. forbid feature leakage:
-  // if IF:ENABLE_COMMENTS=false in phase1, then block.COMMENTS_SCREEN should not implement full comment UI.
-  // We'll do a heuristic: if disabled, but code snippet still looks "interactive"
-  const ifFlags = phase1Clean.anchorsGrouped.if || {};
+  // feature leak heuristic
+  const ifFlags =
+    phase1Clean.anchorsGrouped.if || {};
   checkFeatureLeak(
     finalPlan,
     ifFlags,
     "IF:ENABLE_COMMENTS",
-    ["BLOCK:COMMENTS_SCREEN", "BLOCK:COMMENT_ITEM"],
+    [
+      "BLOCK:COMMENTS_SCREEN",
+      "BLOCK:COMMENT_ITEM",
+    ],
     violations
   );
   checkFeatureLeak(
@@ -705,7 +731,11 @@ function validatePhase2(phase2Raw: any, phase1Clean: any, regP2: any) {
     finalPlan,
     ifFlags,
     "IF:ENABLE_POSTING",
-    ["BLOCK:POST_COMPOSER", "BLOCK:UPLOAD_MEDIA", "BLOCK:POST_CARD"],
+    [
+      "BLOCK:POST_COMPOSER",
+      "BLOCK:POST_CARD",
+      "BLOCK:MEDIA_PICKER",
+    ],
     violations
   );
   checkFeatureLeak(
@@ -723,7 +753,6 @@ function validatePhase2(phase2Raw: any, phase1Clean: any, regP2: any) {
     };
   }
 
-  // success
   return {
     final: finalPlan,
     violations: [],
@@ -741,24 +770,30 @@ function lockAndCompareGroups(
 
   for (const grp of groups) {
     if (!fpG[grp]) {
-      // must exist; copy locked group in to keep plan structurally valid
+      // copy p1 locked group so structure remains valid
       fpG[grp] = cloneJson(p1G[grp] || {});
       continue;
     }
-    // ensure same keys+values
     const aKeys = Object.keys(fpG[grp]);
     const bKeys = Object.keys(p1G[grp] || {});
-    // same size?
     if (aKeys.length !== bKeys.length) {
-      violations.push(`Phase2: group "${grp}" keycount mismatch`);
+      violations.push(
+        `Phase2: group "${grp}" keycount mismatch`
+      );
     }
     for (const k of bKeys) {
       if (!(k in fpG[grp])) {
-        violations.push(`Phase2: group "${grp}" missing key "${k}"`);
+        violations.push(
+          `Phase2: group "${grp}" missing key "${k}"`
+        );
         continue;
       }
-      // deep-compare value JSON
-      if (!deepEqualJson(fpG[grp][k], p1G[grp][k])) {
+      if (
+        !deepEqualJson(
+          fpG[grp][k],
+          p1G[grp][k]
+        )
+      ) {
         violations.push(
           `Phase2: group "${grp}" key "${k}" modified between phase1 and phase2`
         );
@@ -766,32 +801,37 @@ function lockAndCompareGroups(
     }
   }
 
-  // also ensure finalPlan.metadata at least carries runId
   const p1RunId =
-    phase1Clean.metadata?.["NDJC:BUILD_META:RUNID"] ||
-    phase1Clean.anchorsGrouped?.text?.["NDJC:BUILD_META:RUNID"];
+    phase1Clean.metadata?.[
+      "NDJC:BUILD_META:RUNID"
+    ] ||
+    phase1Clean.anchorsGrouped?.text?.[
+      "NDJC:BUILD_META:RUNID"
+    ];
   if (p1RunId) {
     if (!finalPlan.metadata) finalPlan.metadata = {};
-    finalPlan.metadata["NDJC:BUILD_META:RUNID"] = p1RunId;
+    finalPlan.metadata["NDJC:BUILD_META:RUNID"] =
+      p1RunId;
   }
 }
 
+// hooks must respect feature flags
 function enforceHookFeatureConsistency(
   finalPlan: any,
   phase1Clean: any,
   violations: string[]
 ) {
-  const hooks = finalPlan.anchorsGrouped.hook || {};
-  const ifFlags = phase1Clean.anchorsGrouped.if || {};
+  const hooks =
+    finalPlan.anchorsGrouped.hook || {};
+  const ifFlags =
+    phase1Clean.anchorsGrouped.if || {};
 
-  // Helpers
   function isActive(flagName: string) {
     return !!toBool(ifFlags[flagName]);
   }
 
-  // For posting
+  // posting
   if (isActive("IF:ENABLE_POSTING")) {
-    // at least one of POST_SUBMIT / UPLOAD_MEDIA not "noop"
     const postSubmit = hooks["HOOK:POST_SUBMIT"];
     const uploadMedia = hooks["HOOK:UPLOAD_MEDIA"];
     if (isAllNoop([postSubmit, uploadMedia])) {
@@ -801,7 +841,7 @@ function enforceHookFeatureConsistency(
     }
   }
 
-  // For comments
+  // comments
   if (isActive("IF:ENABLE_COMMENTS")) {
     const fetchComments = hooks["HOOK:FETCH_COMMENTS"];
     const commentSubmit = hooks["HOOK:COMMENT_SUBMIT"];
@@ -812,7 +852,7 @@ function enforceHookFeatureConsistency(
     }
   }
 
-  // For likes
+  // likes
   if (isActive("IF:ENABLE_LIKES")) {
     const likeToggle = hooks["HOOK:LIKE_TOGGLE"];
     if (isAllNoop([likeToggle])) {
@@ -822,7 +862,7 @@ function enforceHookFeatureConsistency(
     }
   }
 
-  // For notifications
+  // notifications
   if (isActive("IF:SHOW_NOTIFICATIONS")) {
     const notifHook = hooks["HOOK:FETCH_NOTIFICATIONS"];
     if (isAllNoop([notifHook])) {
@@ -831,7 +871,6 @@ function enforceHookFeatureConsistency(
       );
     }
   } else {
-    // if notifications disabled, FETCH_NOTIFICATIONS should be noop
     const notifHook = hooks["HOOK:FETCH_NOTIFICATIONS"];
     if (!isAllNoop([notifHook])) {
       violations.push(
@@ -849,14 +888,19 @@ function checkFeatureLeak(
   violations: string[]
 ) {
   const enabled = toBool(ifFlags[flagName]);
-  if (enabled) return; // user wants the feature -> block UI allowed
-  const blocks = finalPlan.anchorsGrouped.block || {};
+  if (enabled) return;
+
+  const blocks =
+    finalPlan.anchorsGrouped.block || {};
   for (const bKey of blockKeys) {
     const val = blocks[bKey];
     if (!val) continue;
-    // Heuristic: if feature disabled but code snippet looks "functional UI"
-    // we'll flag it. "functional UI" == references of TextField, LazyColumn, Button, etc.
-    if (/(TextField|LazyColumn|Button|IconButton|onClick)/.test(val)) {
+    // Heuristic: detect interactive UI that shouldn't exist if feature is off
+    if (
+      /(TextField|LazyColumn|Button|IconButton|onClick)/.test(
+        val
+      )
+    ) {
       violations.push(
         `Phase2: ${flagName} is false, but ${bKey} looks interactive`
       );
@@ -865,9 +909,8 @@ function checkFeatureLeak(
 }
 
 /* =========================================================
- * Shape + utils
+ * Helpers / utils
  * =======================================================*/
-
 function parseAndEnsureTopLevel(rawText: string) {
   const parsed = tryParseJson(rawText);
   if (!parsed || typeof parsed !== "object") {
@@ -879,8 +922,7 @@ function parseAndEnsureTopLevel(rawText: string) {
   return parsed;
 }
 
-// ensure Phase1 structure (no block/hook in anchorsGrouped)
-// if block/hook show up we just delete them here. (Phase1 must not define them)
+// Phase1 shape: only config groups (text/if/list/gradle)
 function ensurePhase1Shape(clean: any) {
   if (!clean.metadata) clean.metadata = {};
   if (!clean.anchorsGrouped) clean.anchorsGrouped = {};
@@ -892,12 +934,12 @@ function ensurePhase1Shape(clean: any) {
   g.list = g.list || {};
   g.gradle = g.gradle || {};
 
-  // explicitly remove block/hook if present
+  // explicitly DROP any block/hook if LLM hallucinated them
   if (g.block) delete g.block;
   if (g.hook) delete g.hook;
 }
 
-// ensure Phase2 structure (must have block/hook groups)
+// Phase2 shape: must include block/hook too
 function ensurePhase2Shape(plan: any) {
   if (!plan.metadata) plan.metadata = {};
   if (!plan.anchorsGrouped) plan.anchorsGrouped = {};
@@ -922,13 +964,27 @@ function injectPromptPlaceholders(
   return out;
 }
 
-function normalizeJsonObject(input: any, fallback: Record<string, any>) {
-  if (input && typeof input === "object" && !Array.isArray(input)) return input;
+function normalizeJsonObject(
+  input: any,
+  fallback: Record<string, any>
+) {
+  if (
+    input &&
+    typeof input === "object" &&
+    !Array.isArray(input)
+  )
+    return input;
   if (typeof input === "string") {
     const s = input.trim();
     try {
       const obj = JSON.parse(s);
-      if (obj && typeof obj === "object" && !Array.isArray(obj)) return obj;
+      if (
+        obj &&
+        typeof obj === "object" &&
+        !Array.isArray(obj)
+      ) {
+        return obj;
+      }
     } catch {}
   }
   return { ...fallback };
@@ -969,7 +1025,10 @@ function toBool(v: any): boolean {
   return false;
 }
 
-function ensurePkg(v?: string, fallback = "com.example.ndjc") {
+function ensurePkg(
+  v?: string,
+  fallback = "com.example.ndjc"
+) {
   let s = (v || "").trim().toLowerCase();
   s = s
     .replace(/[^a-z0-9_.]+/g, "")
@@ -993,30 +1052,36 @@ function cloneJson<T>(x: T): T {
 
 function existsNonEmpty(v: any) {
   if (v == null) return false;
-  if (typeof v === "string") return v.trim() !== "";
+  if (typeof v === "string")
+    return v.trim() !== "";
   if (Array.isArray(v)) return v.length > 0;
-  if (typeof v === "object") return Object.keys(v).length > 0;
+  if (typeof v === "object")
+    return Object.keys(v).length > 0;
   return true;
 }
 
 function coerceRunId(v: any): string {
-  // either keep valid run_*_* or generate one
   const s = String(v ?? "").trim();
   if (/^run_[0-9]{8}_[0-9]{3}$/.test(s)) return s;
   return `run_${genDateStamp()}_000`;
 }
 
 function genDateStamp() {
-  // YYYYMMDD
   const d = new Date();
-  const yyyy = d.getUTCFullYear().toString().padStart(4, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const yyyy = d
+    .getUTCFullYear()
+    .toString()
+    .padStart(4, "0");
+  const mm = String(
+    d.getUTCMonth() + 1
+  ).padStart(2, "0");
+  const dd = String(
+    d.getUTCDate()
+  ).padStart(2, "0");
   return `${yyyy}${mm}${dd}`;
 }
 
 function deepEqualJson(a: any, b: any): boolean {
-  // simple deep equal via stringify with stable key order
   return stableStringifySorted(a) === stableStringifySorted(b);
 }
 
@@ -1043,12 +1108,11 @@ function sortKeysRec(v: any): any {
 }
 
 function isAllNoop(xs: any[]): boolean {
-  // "noop" string or { type:"noop"... } style both treated noop-ish
   return xs.every((x) => {
     if (x == null) return true;
-    if (typeof x === "string") return x.trim().toLowerCase() === "noop";
+    if (typeof x === "string")
+      return x.trim().toLowerCase() === "noop";
     if (typeof x === "object") {
-      // try detect object form {type:"...", value:"..."} vs noop
       if (Object.keys(x).length === 0) return true;
       if (
         typeof x.type === "string" &&
@@ -1061,15 +1125,29 @@ function isAllNoop(xs: any[]): boolean {
   });
 }
 
-function containsForbiddenPlaceholder(str: string, blacklist: string[] = []) {
+function containsForbiddenPlaceholder(
+  str: string,
+  blacklist: string[] = []
+) {
   const lower = str.toLowerCase();
   for (const word of blacklist) {
     if (!word) continue;
-    if (lower.includes(String(word).toLowerCase())) {
+    if (
+      lower.includes(
+        String(word).toLowerCase()
+      )
+    ) {
       return true;
     }
   }
-  // also defend against the known bad placeholders
-  const builtIns = ["lorem", "tbd", "n/a", "ready", "content ready for rendering"];
-  return builtIns.some((w) => lower.includes(w));
+  const builtIns = [
+    "lorem",
+    "tbd",
+    "n/a",
+    "ready",
+    "content ready for rendering",
+  ];
+  return builtIns.some((w) =>
+    lower.includes(w)
+  );
 }
