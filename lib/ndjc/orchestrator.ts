@@ -3,37 +3,26 @@
 // NDJC two-phase orchestrator
 //
 // Phase 1: ask LLM for config spec only (text / list / if / gradle)
-//   - prompt: contract_v1.phase1.en.txt
-//   - registry: registry.circle-basic.phase1.json
-//   - sanitize + guard
-//
 // Phase 2: ask LLM for implementation (block / hook) using locked Phase 1 spec
-//   - prompt: contract_v1.phase2.en.txt
-//   - registry: registry.circle-basic.phase2.json
-//   - validate phase2 doesn't mutate text/list/if/gradle
 //
 // IMPORTANT RUNTIME BEHAVIOR:
-// - On Vercel/serverless, FS is read-only. We MUST NOT write to disk there.
-//   We detect that via canWriteToDisk().
-// - Locally (dev box / self-host runner), we *do* write /requests/<runId> artifacts.
+// - On Vercel/serverless (process.env.VERCEL is set), FS is read-only.
+//   We MUST NOT write to disk there.
+// - Locally (dev box / self-host runner), we DO write /requests/<runId> artifacts.
 //
 // PUBLIC API:
 //   orchestrateTwoPhase(req: NdjcRequest)
 //   orchestrate(req: NdjcRequest)   // legacy alias
 //
-// RETURN SHAPE (what /api/generate-apk will get):
+// RETURN SHAPE:
 // {
 //   ok: boolean,
 //   runId: string,
-//   plan: any | null,          // final merged contract (includes block/hook)
-//   phase1Spec: any,           // locked config from phase1
-//   violations: string[],      // empty on success
-//   usage: { ... token report },
-//   debug: {                   // replaces "logs on disk" in serverless mode
-//     phase1Raw: any,
-//     phase1Clean: any,
-//     phase2Raw: any
-//   }
+//   plan: any | null,
+//   phase1Spec: any,
+//   violations: string[],
+//   usage: { ... },
+//   debug: { phase1Raw, phase1Clean, phase2Raw }
 // }
 
 import fs from "node:fs/promises";
@@ -104,7 +93,8 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
   // 2. Optionally persist phase1 artifacts locally (if allowed)
   let runDir = "";
   if (canWriteToDisk()) {
-    const baseDir = process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
+    const baseDir =
+      process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
     runDir = path.join(baseDir, phase1.runId);
     await fs.mkdir(runDir, { recursive: true });
 
@@ -125,7 +115,7 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
 
   // 4. Optionally persist phase2 artifacts
   if (canWriteToDisk()) {
-    // runDir was computed above
+    // runDir computed above
     await fs.writeFile(
       path.join(runDir, "03_phase2_raw.json"),
       JSON.stringify(phase2.raw, null, 2),
@@ -163,7 +153,8 @@ export async function orchestrateTwoPhase(req: NdjcRequest) {
   };
 
   if (canWriteToDisk()) {
-    const baseDir = process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
+    const baseDir =
+      process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
     const runDir2 = path.join(baseDir, phase1.runId);
     await fs.writeFile(
       path.join(runDir2, "01_usage.json"),
@@ -218,7 +209,9 @@ async function runPhase1(req: NdjcRequest): Promise<Phase1Result> {
   const injected = injectPromptPlaceholders(promptText, {
     SKELETON_JSON: skeletonJson,
     SCHEMA_FRAGMENT: schemaFragJson,
-    PLACEHOLDER_BLACKLIST: JSON.stringify(registryP1.placeholderBlacklist ?? []),
+    PLACEHOLDER_BLACKLIST: JSON.stringify(
+      registryP1.placeholderBlacklist ?? []
+    ),
     USER_NEED: userNeed,
     PHASE1_SPEC_JSON: "", // phase1 doesn't have a prior spec
   });
@@ -294,7 +287,9 @@ async function runPhase2(
   const injected = injectPromptPlaceholders(promptText, {
     SKELETON_JSON: skeletonJson,
     SCHEMA_FRAGMENT: schemaFragJson,
-    PLACEHOLDER_BLACKLIST: JSON.stringify(registryP2.placeholderBlacklist ?? []),
+    PLACEHOLDER_BLACKLIST: JSON.stringify(
+      registryP2.placeholderBlacklist ?? []
+    ),
     USER_NEED: userNeed,
     PHASE1_SPEC_JSON: stableStringify(phase1Clean),
   });
@@ -316,7 +311,11 @@ async function runPhase2(
   const rawJson = parseAndEnsureTopLevel(llmText);
 
   // validate/merge
-  const { final, violations } = validatePhase2(rawJson, phase1Clean, registryP2);
+  const { final, violations } = validatePhase2(
+    rawJson,
+    phase1Clean,
+    registryP2
+  );
 
   return {
     raw: rawJson,
@@ -333,7 +332,6 @@ async function runPhase2(
 async function runGroqChat(
   msgs: ChatMessage[]
 ): Promise<{ text: string; usage: PhaseUsage }> {
-  // We assume groqChat returns either a raw string or an object.
   const r: any = await callGroqChat(msgs);
 
   // try to normalize text
@@ -342,8 +340,7 @@ async function runGroqChat(
       ? r
       : typeof r?.text === "string"
       ? r.text
-      : (r?.choices?.[0]?.message?.content as string) ||
-        "";
+      : (r?.choices?.[0]?.message?.content as string) || "";
 
   // approximate usage if provider doesn't return detailed usage
   const promptJoined = msgs.map((m) => m.content).join("\n");
@@ -417,7 +414,6 @@ function buildSkeletonPhase1(regP1: any) {
 
 // Phase2 skeleton: lock text/list/if/gradle from phase1Clean; create empty block/hook
 function buildSkeletonPhase2(regP2: any, phase1Clean: any) {
-  // pull locked config from phase1Clean
   const locked = phase1Clean?.anchorsGrouped || {};
 
   const gText = { ...(locked.text || {}) };
@@ -460,7 +456,6 @@ function buildSkeletonPhase2(regP2: any, phase1Clean: any) {
 
 /* =========================================================
  * SCHEMA FRAGMENTS
- * (minimal constraints we inline into prompt)
  * =======================================================*/
 
 function buildSchemaFragmentPhase1(regP1: any) {
@@ -502,7 +497,6 @@ function buildSchemaFragmentPhase1(regP1: any) {
 }
 
 function buildSchemaFragmentPhase2(regP2: any) {
-  // phase2 cares also about block/hook
   return {
     required: regP2.required ?? {},
     placeholderBlacklist: regP2.placeholderBlacklist ?? [],
@@ -521,7 +515,6 @@ function buildSchemaFragmentPhase2(regP2: any) {
  * =======================================================*/
 
 function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
-  // Start by ensuring basic shape
   const out: any = {
     metadata: rawJson.metadata || {},
     anchorsGrouped: rawJson.anchorsGrouped || {},
@@ -539,18 +532,14 @@ function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
     out.anchorsGrouped.if[k] = toBool(out.anchorsGrouped.if[k]);
   }
 
-  // THEME_COLORS / STRINGS_EXTRA etc should be objects, not strings
-  if (
-    out.anchorsGrouped.text["NDJC:THEME_COLORS"] !== undefined
-  ) {
+  // THEME_COLORS / STRINGS_EXTRA normalize to objects
+  if (out.anchorsGrouped.text["NDJC:THEME_COLORS"] !== undefined) {
     out.anchorsGrouped.text["NDJC:THEME_COLORS"] = normalizeJsonObject(
       out.anchorsGrouped.text["NDJC:THEME_COLORS"],
       { primary: "#7C3AED", secondary: "#10B981" }
     );
   }
-  if (
-    out.anchorsGrouped.text["NDJC:STRINGS_EXTRA"] !== undefined
-  ) {
+  if (out.anchorsGrouped.text["NDJC:STRINGS_EXTRA"] !== undefined) {
     out.anchorsGrouped.text["NDJC:STRINGS_EXTRA"] = normalizeJsonObject(
       out.anchorsGrouped.text["NDJC:STRINGS_EXTRA"],
       {}
@@ -566,19 +555,24 @@ function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
   );
 
   // resConfigs fallback
-  let resCfgs = Array.isArray(g.resConfigs) ? g.resConfigs.map(String) : [];
-  resCfgs = resCfgs.filter((x) => LOCALE_ITEM.test(x));
+  let resCfgs: string[] = Array.isArray(g.resConfigs)
+    ? g.resConfigs.map(String)
+    : [];
+  resCfgs = resCfgs.filter((x: string) => LOCALE_ITEM.test(x));
   if (!resCfgs.length) resCfgs = ["en"];
   g.resConfigs = resCfgs;
 
   // permissions fallback
-  let perms = Array.isArray(g.permissions) ? g.permissions.map(String) : [];
-  perms = perms.filter((p) => PERM_REGEX.test(p));
+  let perms: string[] = Array.isArray(g.permissions)
+    ? g.permissions.map(String)
+    : [];
+  perms = perms.filter((p: string) => PERM_REGEX.test(p));
   if (!perms.length) perms = ["android.permission.INTERNET"];
   g.permissions = perms;
 
   // fill metadata helpers
-  out.metadata.template = templateKey || out.metadata.template || "circle-basic";
+  out.metadata.template =
+    templateKey || out.metadata.template || "circle-basic";
   out.metadata.appName =
     out.metadata.appName ||
     out.anchorsGrouped.text["NDJC:APP_LABEL"] ||
@@ -589,10 +583,9 @@ function sanitizePhase1(rawJson: any, regP1: any, templateKey: string) {
   return out;
 }
 
-function guardPhase1(clean: any, regP1: any) {
-  // We do a few minimal "fatal" checks so we don't move forward with garbage.
+function guardPhase1(clean: any, _regP1: any) {
+  // minimal fatal checks
 
-  // required groups
   if (
     !clean.anchorsGrouped ||
     typeof clean.anchorsGrouped !== "object"
@@ -600,7 +593,7 @@ function guardPhase1(clean: any, regP1: any) {
     throw new Error("Phase1 guard: anchorsGrouped missing/invalid");
   }
 
-  // enforce runId format if provided
+  // runId format
   const rid =
     clean.metadata?.["NDJC:BUILD_META:RUNID"] ||
     clean.anchorsGrouped?.text?.["NDJC:BUILD_META:RUNID"];
@@ -610,7 +603,7 @@ function guardPhase1(clean: any, regP1: any) {
     );
   }
 
-  // gradle.applicationId must pass regex
+  // gradle.applicationId
   const appId = clean.anchorsGrouped.gradle?.applicationId;
   if (!appId || !PKG_REGEX.test(appId)) {
     throw new Error(
@@ -618,12 +611,12 @@ function guardPhase1(clean: any, regP1: any) {
     );
   }
 
-  // LIST:ROUTES should exist and have at least 1 valid route
+  // LIST:ROUTES basic validity
   const routes = clean.anchorsGrouped.list?.["LIST:ROUTES"];
   if (
     !Array.isArray(routes) ||
     routes.length === 0 ||
-    !routes.every((r) => /^[a-z][a-z0-9_-]*$/.test(String(r)))
+    !routes.every((r: any) => /^[a-z][a-z0-9_-]*$/.test(String(r)))
   ) {
     throw new Error("Phase1 guard: LIST:ROUTES invalid or empty");
   }
@@ -636,11 +629,10 @@ function guardPhase1(clean: any, regP1: any) {
 function validatePhase2(
   phase2Raw: any,
   phase1Clean: any,
-  regP2: any
+  _regP2: any
 ): { final: any | null; violations: string[] } {
   const violations: string[] = [];
 
-  // must have same top-level keys
   if (
     !phase2Raw ||
     typeof phase2Raw !== "object" ||
@@ -657,8 +649,7 @@ function validatePhase2(
   const locked = phase1Clean.anchorsGrouped || {};
   const got = phase2Raw.anchorsGrouped || {};
 
-  // Ensure text/list/if/gradle EXACTLY match what phase1Clean produced.
-  // If they drift, we kill the build.
+  // text/list/if/gradle must not change
   const groupsToLock = ["text", "list", "if", "gradle"] as const;
   for (const g of groupsToLock) {
     const beforeStr = stableStringify(locked[g] || {});
@@ -676,7 +667,7 @@ function validatePhase2(
     violations.push("Phase2: hook group missing/invalid");
   }
 
-  // (light check) ensure block code looks like Compose-ish / not empty
+  // light block validation
   if (got.block) {
     for (const [anchorName, val] of Object.entries(got.block)) {
       if (typeof val !== "string" || val.trim().length < 10) {
@@ -684,7 +675,6 @@ function validatePhase2(
           `Phase2: block ${anchorName} too short or not string`
         );
       }
-      // cheap check for @Composable / Text( / Row(
       if (
         !/@Composable/.test(val) &&
         !/Text\(/.test(val) &&
@@ -698,7 +688,7 @@ function validatePhase2(
     }
   }
 
-  // (light check) ensure hook values are either "noop" or some structured object/string
+  // basic hook validation
   if (got.hook) {
     for (const [anchorName, val] of Object.entries(got.hook)) {
       if (
@@ -716,8 +706,7 @@ function validatePhase2(
     return { final: null, violations };
   }
 
-  // If we got here, we accept phase2Raw BUT we override its locked groups
-  // with the canonical (phase1Clean) ones to be absolutely sure.
+  // merge with locked config
   const merged = {
     metadata: {
       ...phase2Raw.metadata,
@@ -767,7 +756,7 @@ function injectPromptPlaceholders(
 function parseAndEnsureTopLevel(text: string): any {
   if (!text) throw new Error("LLM returned empty text");
 
-  // allow for accidental ```json ... ```
+  // allow accidental ```json fences
   const fenced =
     text.match(/```json\s*([\s\S]*?)```/i) ||
     text.match(/```\s*([\s\S]*?)```/);
@@ -783,7 +772,6 @@ function parseAndEnsureTopLevel(text: string): any {
   if (!("anchorsGrouped" in parsed)) parsed.anchorsGrouped = {};
   if (!("files" in parsed)) parsed.files = [];
 
-  // ensure shape
   if (!parsed.anchorsGrouped || typeof parsed.anchorsGrouped !== "object") {
     parsed.anchorsGrouped = {};
   }
@@ -794,13 +782,11 @@ function parseAndEnsureTopLevel(text: string): any {
   return parsed;
 }
 
-// stable stringify
 function stableStringify(obj: any) {
   return JSON.stringify(obj, null, 2);
 }
 
 function genDateStamp() {
-  // YYYYMMDD
   const d = new Date();
   const year = d.getUTCFullYear().toString().padStart(4, "0");
   const mo = (d.getUTCMonth() + 1).toString().padStart(2, "0");
@@ -812,9 +798,25 @@ function toBool(v: any): boolean {
   if (typeof v === "boolean") return v;
   const s = String(v ?? "").trim().toLowerCase();
   if (!s) return false;
-  if (["true", "1", "yes", "y", "on", "enabled", "enable", "open", "是"].includes(s))
+  if (
+    ["true", "1", "yes", "y", "on", "enabled", "enable", "open", "是"].includes(
+      s
+    )
+  )
     return true;
-  if (["false", "0", "no", "n", "off", "disabled", "disable", "close", "否"].includes(s))
+  if (
+    [
+      "false",
+      "0",
+      "no",
+      "n",
+      "off",
+      "disabled",
+      "disable",
+      "close",
+      "否",
+    ].includes(s)
+  )
     return false;
   return false;
 }
@@ -842,7 +844,7 @@ function normalizeJsonObject(
         return obj;
       }
     } catch {
-      // ignore parse error, fallback below
+      // swallow parse error
     }
   }
   return { ...fallbackObj };
