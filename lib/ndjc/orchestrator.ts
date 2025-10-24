@@ -319,15 +319,23 @@ function validateTopLevel(contract: any) {
 function validateAnchorsNonEmpty(contract: any) {
   const grouped = contract.anchorsGrouped ?? {};
   const groups: Array<"text" | "block" | "list" | "if" | "hook" | "gradle"> = ["text", "block", "list", "if", "hook", "gradle"];
+
+  // 允许为空对象的锚点白名单（方案A：对 NDJC:STRINGS_EXTRA 放宽）
+  const allowEmptyObject = new Set<string>(["NDJC:STRINGS_EXTRA"]);
+
   for (const g of groups) {
     const dict = grouped[g];
     if (!dict || typeof dict !== "object") throw new Error(`Missing or invalid group: ${g}`);
+
     for (const [k, v] of Object.entries(dict)) {
       if (v == null) throw new Error(`Null value at ${g}:${k}`);
       if (typeof v === "string" && v.trim() === "") throw new Error(`Empty string at ${g}:${k}`);
       if (Array.isArray(v) && v.length === 0) throw new Error(`Empty array at ${g}:${k}`);
-      if (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) {
-        throw new Error(`Empty object at ${g}:${k}`);
+
+      if (typeof v === "object" && !Array.isArray(v)) {
+        if (Object.keys(v).length === 0 && !allowEmptyObject.has(k)) {
+          throw new Error(`Empty object at ${g}:${k}`);
+        }
       }
     }
   }
