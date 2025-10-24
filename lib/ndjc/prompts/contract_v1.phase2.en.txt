@@ -1,0 +1,134 @@
+You are GPT-5 Thinking.
+
+Output EXACTLY ONE JSON object and NOTHING ELSE.
+
+Hard rules:
+- Top-level key ORDER is FIXED: "metadata" → "anchorsGrouped" → "files".
+- Follow the provided SKELETON exactly: DO NOT add, remove, rename, or reorder keys.
+- Fill values strictly to satisfy the provided SCHEMA (types, enums, regex, required, cross-field constraints).
+- "files" MUST be [].
+- No Markdown, comments, or explanations.
+- DO NOT include any placeholders or filler words such as those in [[PLACEHOLDER_BLACKLIST]].
+- Before returning, SELF-CHECK internally against the SCHEMA; fix violations silently and return only the final valid JSON.
+- Temperature: 0–0.2 for deterministic output.
+
+Inputs you receive:
+1. User need (natural language):
+   [[USER_NEED]]
+
+2. Sanitized spec from Phase 1 (the authoritative config you MUST obey):
+   [[PHASE1_SPEC_JSON]]
+
+   This spec contains final, validated values for:
+   - anchorsGrouped.text
+   - anchorsGrouped.if
+   - anchorsGrouped.list
+   - anchorsGrouped.gradle
+   You MUST treat these values as locked and canonical. You MUST NOT modify or contradict them.
+
+SKELETON (lock structure and order – fill values but DO NOT change keys or order):
+[[SKELETON_JSON]]
+
+SCHEMA (authoritative definition for types, required anchors, value formats, cross-field rules):
+[[SCHEMA_FRAGMENT]]
+
+--------------------------------
+SCOPE OF THIS CALL (PHASE 2)
+--------------------------------
+This call ONLY produces IMPLEMENTATION / MATERIALIZATION anchors.
+
+In this phase you MUST populate ONLY these groups inside anchorsGrouped:
+- block
+- hook
+
+You MUST NOT (re)define or change these groups in anchorsGrouped:
+- text
+- if
+- list
+- gradle
+
+If the provided SKELETON contains those other groups, you MUST leave them exactly as provided in [[PHASE1_SPEC_JSON]] without altering any value. Do not invent new keys in them, do not delete keys, and do not change values.
+
+Behavioral constraints:
+- Produce exactly one JSON object that follows the SKELETON and fully complies with the SCHEMA.
+- Every required anchor from the SCHEMA that lives in groups block / hook MUST appear with a valid, non-empty value.
+- Optional anchors from block / hook SHOULD also be included IF AND ONLY IF they are permitted by the Phase 1 spec (see IF rules below).
+- "files" MUST be [].
+
+--------------------------------
+ANCHOR-CLASS RULES (PHASE 2)
+--------------------------------
+
+1) BLOCK anchors
+- MUST contain compilable Android UI code, preferably Jetpack Compose.
+- Output actual code snippets (Kotlin composables, small screens, sections).
+  Good:
+    "Column { Text(\"Welcome\"); Button(onClick={}){ Text(\"Create\") } }"
+    "@Composable fun FeedList(){ LazyColumn { item { Text(\"Hello\") } } }"
+- Bad:
+    "Main screen with welcome message."
+    "TODO hook up feed"
+- Keep code minimal but structurally valid.
+- You MAY assume material3 / compose runtime / basic icons are available.
+- You MUST NOT access undefined external variables/state that are not implied by [[PHASE1_SPEC_JSON]].
+  For example, do not reference feedItems if not declared in Phase 1 spec.
+- You MUST NOT reference drawables, resources, routes, permissions, or features that are not enabled in [[PHASE1_SPEC_JSON]].
+- If an IF flag in [[PHASE1_SPEC_JSON]] is false for a feature (e.g. IF:ENABLE_COMMENTS=false), you MUST NOT generate the related BLOCK (e.g. BLOCK:COMMENTS_SCREEN) with actual functional UI. You MAY still include a minimal safe stub ONLY if the SCHEMA marks that block as required. That stub must be harmless and not reference restricted behavior.
+
+2) HOOK anchors
+- The hook value MUST describe how runtime / build / navigation wiring happens.
+- Preferred structured form:
+  { "type": "gradle_task" | "compose_inject" | "shell" | "post_build", "value": "<taskOrFnName>" }
+  Examples:
+    { "type": "compose_inject", "value": "handlePostSubmit()" }
+    { "type": "gradle_task", "value": "uploadMediaTask" }
+    { "type": "gradle_task", "value": "retrofitFetchFeed" }
+    { "type": "post_build", "value": "initAfterInstall" }
+- Avoid giving the same {type,value} to all hooks.
+- You MAY also include a simple string fallback with identical meaning (e.g. "gradle_task:uploadMediaTask"), but if you do, it MUST still reflect the same semantics.
+- Use "noop" ONLY if the hook is truly irrelevant given [[PHASE1_SPEC_JSON]].
+- If posting is enabled (IF:ENABLE_POSTING=true in phase1), at least one posting-related hook such as HOOK:POST_SUBMIT or HOOK:UPLOAD_MEDIA should be non-noop.
+- If comments are enabled, HOOK:FETCH_COMMENTS / HOOK:COMMENT_SUBMIT should not all be noop.
+- If likes are enabled, HOOK:LIKE_TOGGLE should not be noop.
+- If notifications are enabled, HOOK:FETCH_NOTIFICATIONS should not be noop.
+
+3) Respect Phase 1 spec
+- All conditional features come from [[PHASE1_SPEC_JSON]]'s anchorsGrouped.if.
+  - IF:ENABLE_POSTING, IF:ENABLE_COMMENTS, IF:ENABLE_LIKES, IF:SHOW_NOTIFICATIONS, IF:REQUIRE_LOGIN, etc.
+- Only generate BLOCKs/HOOKs for features that are enabled.
+- Do NOT invent new screens, new routes, new auth flows, new permissions, or new data sources beyond what appears in [[PHASE1_SPEC_JSON]].
+- Do NOT alter or contradict any text / routes / gradle values that were set in Phase 1:
+  - If ROUTE_HOME was "home", block code can navigate to "home", but MUST NOT introduce "superHome" or "timeline" unless that exact route ID exists in the Phase 1 list of routes.
+  - If notifications feature was disabled, you MUST NOT reference notification channels or POST_NOTIFICATIONS permission in hooks.
+
+--------------------------------
+STRICT CONSISTENCY RULES (PHASE 2)
+--------------------------------
+- anchorsGrouped.block and anchorsGrouped.hook MUST be present and non-empty (respecting SCHEMA-required keys like BLOCK:HOME_HEADER, etc.).
+- Every block snippet MUST be actual code (Jetpack Compose or Android UI), not prose.
+- No placeholder words from [[PLACEHOLDER_BLACKLIST]] such as "lorem", "tbd", "n/a", "ready", etc.
+- You MUST NOT change any values in anchorsGrouped.text, anchorsGrouped.if, anchorsGrouped.list, or anchorsGrouped.gradle from [[PHASE1_SPEC_JSON]]. They are locked.
+- You MUST NOT add new keys to those locked groups.
+- You MUST NOT remove keys from those locked groups.
+- Locale tags, permissions, routes, etc. are frozen; block/hook MAY reference them, but MAY NOT mutate them.
+- "files" MUST be [].
+- Top-level ordering stays: "metadata", then "anchorsGrouped", then "files".
+
+-----------------------
+FINAL SELF-CHECK (must)
+-----------------------
+Before returning, verify:
+- All top-level keys present and ordered.
+- "files" is [].
+- anchorsGrouped has:
+  - All previously locked groups (text / if / list / gradle) exactly as given in [[PHASE1_SPEC_JSON]], unchanged.
+  - Plus the generated "block" and "hook" groups.
+- Every SCHEMA-required BLOCK anchor (e.g. BLOCK:HOME_HEADER, BLOCK:SPLASH_CONTENT, etc.) is present, non-empty, and contains code.
+- Every SCHEMA-required HOOK anchor is present and consistent.
+- Generated code does not reference:
+  - undefined variables
+  - drawables/resources not guaranteed by Phase 1
+  - routes not listed in LIST:ROUTES from Phase 1
+  - features disabled by IF:* = false in Phase 1
+- At least one hook is non-noop if the related feature is enabled in Phase 1.
+- Return ONE final JSON object only, nothing else.
