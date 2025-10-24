@@ -159,6 +159,37 @@ export async function orchestrate(req: NdjcRequest) {
   /* ---------- light normalization (auto-fix where safe) ---------- */
   normalizeContract(contract);
 
+  /* ---------- NEW: metadata fallback (prevents E_META_* 422) ---------- */
+  {
+    const g = contract.anchorsGrouped ?? {};
+
+    const appName =
+      (typeof g?.text?.["NDJC:APP_LABEL"] === "string" && g.text["NDJC:APP_LABEL"]) ||
+      (typeof contract.metadata?.appName === "string" && contract.metadata.appName) ||
+      "NDJC App";
+
+    const packageId =
+      (typeof g?.gradle?.applicationId === "string" && g.gradle.applicationId) ||
+      (typeof g?.text?.["NDJC:PACKAGE_NAME"] === "string" && g.text["NDJC:PACKAGE_NAME"]) ||
+      (typeof contract.metadata?.packageId === "string" && contract.metadata.packageId) ||
+      "com.example.ndjc";
+
+    const template =
+      (typeof contract.metadata?.template === "string" && contract.metadata.template) ||
+      templateKey ||
+      "circle-basic";
+
+    const mode = contract.metadata?.mode === "B" ? "B" : "A";
+
+    contract.metadata = {
+      ...(contract.metadata ?? {}),
+      template: String(template),
+      appName: String(appName),
+      packageId: String(packageId),
+      mode,
+    };
+  }
+
   /* ---------- soft validation (collect warnings; never throw) ---------- */
   const report: ValidationReport = { warnings: [], fixes: [] };
   lintAnchors(contract, report);
@@ -321,7 +352,7 @@ function lintAnchors(contract: any, report: ValidationReport) {
       if (v == null) report.warnings.push(`Null value at ${g}:${k}`);
       if (typeof v === "string" && v.trim() === "") report.warnings.push(`Empty string at ${g}:${k}`);
       if (Array.isArray(v) && v.length === 0) report.warnings.push(`Empty array at ${g}:${k}`);
-      // ✅ null-safe：避免 TS 报 “Type 'null' is not assignable to type 'object'”
+      // null-safe，避免 TS 报错
       if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) {
         report.warnings.push(`Empty object at ${g}:${k}`);
       }
