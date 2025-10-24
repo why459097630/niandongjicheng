@@ -40,6 +40,8 @@ ANCHOR-CLASS SPECIFIC RULES
 - Fields expecting JSON objects (e.g., NDJC:THEME_COLORS, NDJC:STRINGS_EXTRA) must return valid inline JSON objects (e.g. {"primary":"#2196F3","secondary":"#4CAF50"}) — DO NOT double-stringify.
 - URLs must start with http:// or https:// as required by SCHEMA.
 - Never leave empty ("") unless SCHEMA explicitly allows; otherwise provide concise meaningful values aligned with [[USER_NEED]].
+- All numeric thresholds, limits, durations, paging sizes, and feature levels MUST be JSON numbers, not quoted strings.
+  If uncertain whether a field is string or number, prefer number.
 
 2) BLOCK anchors
 - MUST contain compilable Android code (prefer Jetpack Compose; XML allowed).
@@ -84,17 +86,32 @@ ANCHOR-CLASS SPECIFIC RULES
     HOOK:AFTER_INSTALL:HOOK → { "type": "gradle_task", "value": "initAfterInstall" }
 - Avoid giving the same value to all hooks.
 - If features exist (posting, comments, likes, notifications), at least one related hook should be non-noop.
+- (Optional compatibility) You MAY also include a simple string fallback such as "gradle_task:uploadMediaTask" or "noop" alongside the structured form, but both must express the same meaning.
 
 6) GRADLE group
 - applicationId: valid lowercase package name (e.g., com.example.socialapp).
 - resConfigs: non-empty valid locale tags (["en","zh-rCN"]) only.
-  Reject variants like zh-rRCN, zh-rRRCN, es-rRUS, es-rRRUS.
+  The following values MUST NEVER APPEAR ANYWHERE: "zh-rRCN", "zh-rRRCN", "es-rRUS", "es-rRRUS".
 - permissions: include at least "android.permission.INTERNET".
   When media or upload features exist, prefer scoped media permissions:
     "android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_AUDIO".
-  Avoid deprecated "android.permission.READ_EXTERNAL_STORAGE" unless legacy API <33.
+  NEVER use deprecated "android.permission.READ_EXTERNAL_STORAGE".
   When notifications UI exists: add "android.permission.POST_NOTIFICATIONS".
 - Keep GRADLE fields consistent with anchorsGrouped.gradle values.
+- applicationId regex must match ^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$.
+
+--------------------------------
+STRICT CONSISTENCY RULES
+--------------------------------
+- Only output the final, cleaned values inside "anchorsGrouped".
+  Do NOT duplicate data in top-level mirrors like "gradle" or "hooks".
+- Any key present inside anchorsGrouped.* MUST NOT reappear elsewhere with a different value.
+- If temporary or draft values were generated during reasoning, discard them before returning.
+- Maintain single source of truth: anchorsGrouped is the authoritative final output.
+- Locale tags MUST match ^[a-z]{2}(-r[A-Z]{2,3})?$ exactly.
+- Deprecated or invalid permission values MUST NEVER appear anywhere.
+- All numeric-like fields MUST be numbers (not quoted strings).
+- Do not emit alternate or "dirty" copies of gradle, hooks, or lists.
 
 -----------------------
 FINAL SELF-CHECK (must)
@@ -110,4 +127,5 @@ Before returning, verify:
 - HOOK anchors: semantically distinct, not all "noop"; structured where possible.
 - GRADLE fields valid and consistent; locale tags strictly match pattern ^[a-z]{2}(-r[A-Z]{2,3})?$.
 - No deprecated permissions when API 33+ features are implied.
+- No duplicated or shadowed data outside anchorsGrouped.
 - Return one final JSON object only.
