@@ -1,0 +1,138 @@
+{
+  "template": "circle-basic",
+  "schemaVersion": "1.0.0",
+
+  "topLevelOrder": ["metadata","anchorsGrouped","files"],
+
+  "block": [
+    "BLOCK:HOME_HEADER",
+    "BLOCK:HOME_BODY",
+    "BLOCK:HOME_ACTIONS",
+    "BLOCK:SPLASH_CONTENT",
+    "BLOCK:EMPTY_STATE",
+    "BLOCK:ERROR_STATE",
+    "BLOCK:DEBUG_PANEL",
+    "BLOCK:HEADER_AD_SLOT",
+    "BLOCK:USER_PROFILE_CARD",
+    "BLOCK:SPONSORED_CARD",
+    "BLOCK:PROFILE_SECTION",
+    "BLOCK:SETTINGS_SECTION",
+    "BLOCK:SETTINGS_SECTION:EXTRA",
+    "BLOCK:POST_COMPOSER",
+    "BLOCK:POST_CARD",
+    "BLOCK:FEED_LIST",
+    "BLOCK:POST_DETAIL",
+    "BLOCK:COMMENTS_SCREEN",
+    "BLOCK:COMMENT_ITEM",
+    "BLOCK:LIKE_BUTTON",
+    "BLOCK:NOTIFICATIONS_SCREEN",
+    "BLOCK:EDIT_PROFILE_SCREEN",
+    "BLOCK:SEARCH_SCREEN",
+    "BLOCK:MEDIA_PICKER"
+  ],
+
+  "hook": [
+    "HOOK:INTENT_SHARE",
+    "HOOK:FILE_PROVIDER",
+    "HOOK:PERMISSIONS:ON_REQUEST",
+    "HOOK:PRE_COMMIT:HOOK",
+    "HOOK:POST_BUILD:HOOK",
+    "HOOK:AFTER_INSTALL:HOOK",
+    "HOOK:POST_SUBMIT",
+    "HOOK:FETCH_FEED",
+    "HOOK:FETCH_POST",
+    "HOOK:FETCH_COMMENTS",
+    "HOOK:COMMENT_SUBMIT",
+    "HOOK:LIKE_TOGGLE",
+    "HOOK:UPLOAD_MEDIA",
+    "HOOK:FETCH_NOTIFICATIONS"
+  ],
+
+  "resources": [],
+
+  "hints": {
+    "BLOCK:HOME_HEADER": { "group": "block", "type": "block:compose", "example": "@Composable fun HomeHeader(){ Row { Text(\"NDJC App\") } }" },
+    "BLOCK:HOME_BODY": { "group": "block", "type": "block:compose", "example": "Column { Text(\"Welcome\") }" },
+    "BLOCK:HOME_ACTIONS": { "group": "block", "type": "block:compose", "example": "Row { Button(onClick={}){ Text(\"Go\") } }" },
+    "BLOCK:SPLASH_CONTENT": { "group": "block", "type": "block:compose", "example": "@Composable fun Splash(){ Box { Text(\"Loading…\") } }" },
+    "BLOCK:EMPTY_STATE": { "group": "block", "type": "block:compose", "example": "Column { Text(\"No data\") }" },
+    "BLOCK:ERROR_STATE": { "group": "block", "type": "block:compose", "example": "Column { Text(\"Error\") }" },
+    "BLOCK:DEBUG_PANEL": { "group": "block", "type": "block:compose", "example": "Column { Text(\"Debug\") }" },
+    "BLOCK:HEADER_AD_SLOT": { "group": "block", "type": "block:compose", "example": "Box { Text(\"AD\") }" },
+    "BLOCK:USER_PROFILE_CARD": { "group": "block", "type": "block:compose", "example": "@Composable fun ProfileCard(){ Row{ Text(\"User\") } }" },
+    "BLOCK:SPONSORED_CARD": { "group": "block", "type": "block:compose", "example": "@Composable fun Sponsored(){ Card{ Text(\"Sponsor\") } }" },
+    "BLOCK:PROFILE_SECTION": { "group": "block", "type": "block:compose", "example": "Column { Text(\"Profile\") }" },
+    "BLOCK:SETTINGS_SECTION": { "group": "block", "type": "block:compose", "example": "Column { Text(\"Settings\") }" },
+    "BLOCK:SETTINGS_SECTION:EXTRA": { "group": "block", "type": "block:compose", "example": "Column { Text(\"Extra\") }" },
+    "BLOCK:POST_COMPOSER": { "group": "block", "type": "block:compose", "example": "@Composable fun PostComposer(){ Column{ TextField(value=\"\",onValueChange={}); Button({}){ Text(\"Post\") } } }" },
+    "BLOCK:POST_CARD": { "group": "block", "type": "block:compose", "example": "@Composable fun PostCard(){ Column{ Text(\"Hello NDJC\") ; Row{ Text(\"Like\"); Text(\"Comment\") } } }" },
+    "BLOCK:FEED_LIST": { "group": "block", "type": "block:compose", "example": "@Composable fun FeedList(){ }" },
+    "BLOCK:POST_DETAIL": { "group": "block", "type": "block:compose", "example": "@Composable fun PostDetail(){ Column{ Text(\"Detail\") } }" },
+    "BLOCK:COMMENTS_SCREEN": { "group": "block", "type": "block:compose", "example": "@Composable fun CommentsScreen(){ Column{ } }" },
+    "BLOCK:COMMENT_ITEM": { "group": "block", "type": "block:compose", "example": "@Composable fun CommentItem(){ Row{ Text(\"user\"); Text(\"nice!\") } }" },
+    "BLOCK:LIKE_BUTTON": { "group": "block", "type": "block:compose", "example": "@Composable fun LikeButton(){ Row{ Text(\"Like 12\") } }" },
+    "BLOCK:NOTIFICATIONS_SCREEN": { "group": "block", "type": "block:compose", "example": "@Composable fun Notifications(){ }" },
+    "BLOCK:EDIT_PROFILE_SCREEN": { "group": "block", "type": "block:compose", "example": "@Composable fun EditProfile(){ }" },
+    "BLOCK:SEARCH_SCREEN": { "group": "block", "type": "block:compose", "example": "@Composable fun SearchScreen(){ }" },
+    "BLOCK:MEDIA_PICKER": { "group": "block", "type": "block:compose", "example": "@Composable fun MediaPicker(){ }" },
+
+    "HOOK:INTENT_SHARE": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:SHARE"] } },
+    "HOOK:FILE_PROVIDER": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled"] } },
+    "HOOK:PERMISSIONS:ON_REQUEST": { "group": "hook", "type": "hook:enum", "example": "emit_event:PERM_REQUESTED", "rules": { "enum": ["noop","enabled","emit_event:PERM_REQUESTED"] } },
+    "HOOK:PRE_COMMIT:HOOK": { "group": "hook", "type": "hook:enum", "example": "noop", "rules": { "enum": ["noop","enabled"] } },
+    "HOOK:POST_BUILD:HOOK": { "group": "hook", "type": "hook:enum", "example": "emit_event:BUILD_DONE", "rules": { "enum": ["noop","enabled","emit_event:BUILD_DONE"] } },
+    "HOOK:AFTER_INSTALL:HOOK": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled"] } },
+    "HOOK:POST_SUBMIT": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:POST_SUBMIT"] } },
+    "HOOK:FETCH_FEED": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:FETCH_FEED"] } },
+    "HOOK:FETCH_POST": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:FETCH_POST"] } },
+    "HOOK:FETCH_COMMENTS": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:FETCH_COMMENTS"] } },
+    "HOOK:COMMENT_SUBMIT": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:COMMENT_SUBMIT"] } },
+    "HOOK:LIKE_TOGGLE": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:LIKE_TOGGLE"] } },
+    "HOOK:UPLOAD_MEDIA": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:UPLOAD_MEDIA"] } },
+    "HOOK:FETCH_NOTIFICATIONS": { "group": "hook", "type": "hook:enum", "example": "enabled", "rules": { "enum": ["noop","enabled","emit_event:FETCH_NOTIFICATIONS"] } }
+  },
+
+  "placeholderBlacklist": ["value","item","ready","content ready for rendering...","lorem","tbd","n/a","-"],
+
+  "required": {
+    "block": [
+      "BLOCK:HOME_HEADER",
+      "BLOCK:HOME_BODY",
+      "BLOCK:HOME_ACTIONS",
+      "BLOCK:SPLASH_CONTENT"
+    ]
+  },
+
+  "defaults": {},
+
+  "placeholders": {},
+
+  "valueFormat": {
+    "block": {
+      "BLOCK:HOME_HEADER": { "minLen": 40, "regex": "(?s)(?=.*@Composable)(?=.*(Text\\(|Button\\(|Row\\(|Column\\(|Image\\())" },
+      "BLOCK:HOME_BODY": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:HOME_ACTIONS": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:SPLASH_CONTENT": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:EMPTY_STATE": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:ERROR_STATE": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:DEBUG_PANEL": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:HEADER_AD_SLOT": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:USER_PROFILE_CARD": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:SPONSORED_CARD": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:PROFILE_SECTION": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:SETTINGS_SECTION": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:SETTINGS_SECTION:EXTRA": { "minLen": 40, "regex": "@Composable|Text\\(|Button\\(|Row\\(|Column\\(|Image\\(" },
+      "BLOCK:POST_COMPOSER": { "minLen": 40, "regex": "@Composable|TextField\\(|Text\\(|Button\\(" },
+      "BLOCK:POST_CARD": { "minLen": 40, "regex": "@Composable|Text\\(|Row\\(" },
+      "BLOCK:FEED_LIST": { "minLen": 40, "regex": "@Composable|LazyColumn\\(|Column\\(" },
+      "BLOCK:POST_DETAIL": { "minLen": 40, "regex": "@Composable|Column\\(|Text\\(" },
+      "BLOCK:COMMENTS_SCREEN": { "minLen": 40, "regex": "@Composable|Column\\(|TextField\\(|LazyColumn\\(" },
+      "BLOCK:COMMENT_ITEM": { "minLen": 40, "regex": "@Composable|Row\\(|Text\\(" },
+      "BLOCK:LIKE_BUTTON": { "minLen": 30, "regex": "@Composable|Row\\(|Text\\(" },
+      "BLOCK:NOTIFICATIONS_SCREEN": { "minLen": 40, "regex": "@Composable|LazyColumn\\(" },
+      "BLOCK:EDIT_PROFILE_SCREEN": { "minLen": 40, "regex": "@Composable|TextField\\(" },
+      "BLOCK:SEARCH_SCREEN": { "minLen": 40, "regex": "@Composable|TextField\\(|LazyColumn\\(" },
+      "BLOCK:MEDIA_PICKER": { "minLen": 30, "regex": "@Composable|Image\\(|Text\\(" }
+    }
+  }
+}
