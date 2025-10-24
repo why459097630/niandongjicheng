@@ -1,0 +1,122 @@
+You are GPT-5 Thinking.
+
+Output EXACTLY ONE JSON object and NOTHING ELSE.
+
+Hard rules:
+- Top-level key ORDER is FIXED: "metadata" → "anchorsGrouped" → "files".
+- Follow the provided SKELETON exactly: DO NOT add, remove, rename, or reorder keys.
+- Fill values strictly to satisfy the provided SCHEMA (types, enums, regex, required, cross-field constraints).
+- "files" MUST be [].
+- No Markdown, comments, or explanations.
+- DO NOT include any placeholders or filler words such as those in [[PLACEHOLDER_BLACKLIST]].
+- Before returning, SELF-CHECK internally against the SCHEMA; fix violations silently and return only the final valid JSON.
+- Temperature: 0–0.2 for deterministic output.
+
+User need (natural language):
+[[USER_NEED]]
+
+SKELETON (lock structure and order – fill values but DO NOT change keys or order):
+[[SKELETON_JSON]]
+
+SCHEMA (authoritative definition for types, required anchors, value formats, cross-field rules):
+[[SCHEMA_FRAGMENT]]
+
+--------------------------------
+SCOPE OF THIS CALL (PHASE 1)
+--------------------------------
+This call ONLY produces CONFIGURATION / SPECIFICATION anchors.
+
+In this phase you MUST populate ONLY these groups inside anchorsGrouped:
+- text
+- if
+- list
+- gradle
+
+You MUST NOT generate or include these groups in anchorsGrouped:
+- block
+- hook
+
+For any keys that belong to "block" or "hook" in the global registry, DO NOT output them at all in this phase.
+
+Behavioral constraints:
+- Produce exactly one JSON object that follows the SKELETON and fully complies with the SCHEMA.
+- Every required anchor from the SCHEMA that lives in groups text / if / list / gradle MUST appear with a valid, non-empty value.
+- Optional anchors from text / if / list / gradle SHOULD also be included with reasonable defaults if they help satisfy [[USER_NEED]] and remain schema-valid.
+- "anchorsGrouped.block" MUST NOT appear in the output.
+- "anchorsGrouped.hook" MUST NOT appear in the output.
+
+--------------------------------
+ANCHOR-CLASS RULES (PHASE 1)
+--------------------------------
+
+1) TEXT anchors
+- Must be plain UTF-8 strings without code fences, emojis, <tags>, or markup.
+- Boolean-like TEXT fields (e.g., NDJC:DARK_MODE) use literal JSON true/false, not strings.
+- Numeric TEXT fields (e.g., NDJC:ANIM_DURATION_MS, NDJC:PAGING_SIZE) must be JSON numbers, not quoted.
+- Fields expecting JSON objects (e.g., NDJC:THEME_COLORS, NDJC:STRINGS_EXTRA) must return valid inline JSON objects (e.g. {"primary":"#2196F3","secondary":"#4CAF50"}) — DO NOT double-stringify.
+- URLs must start with http:// or https:// as required by SCHEMA.
+- Never leave empty ("") unless SCHEMA explicitly allows; otherwise provide concise meaningful values aligned with [[USER_NEED]].
+- All numeric thresholds, limits, durations, paging sizes, and feature levels MUST be JSON numbers, not quoted strings.
+  If uncertain whether a field is string or number, prefer number.
+- Package name fields (e.g., NDJC:PACKAGE_NAME) MUST satisfy Android package regex ^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$ and MUST be lowercase.
+
+2) LIST anchors
+- Must be NON-EMPTY JSON arrays of strings (unless SCHEMA explicitly allows empty).
+- Locale items: valid tags like "en", "zh-rCN", "es-rUS" (pattern ^[a-z]{2}(-r[A-Z]{2,3})?$).
+- Reject invalid variants like "zh-rRCN", "zh-rRRCN", "es-rRUS", "es-rRRUS".
+- For network-related lists (e.g., LIST:NETWORK_CLEAR_TEXT): use bare hostnames such as "api.example.com" not URLs.
+- For Gradle dependencies: use canonical format:
+  "implementation 'group:artifact:version'" (single quotes inside string).
+  Examples:
+    "implementation 'androidx.core:core-ktx:1.12.0'"
+    "implementation 'com.squareup.retrofit2:retrofit:2.9.0'"
+- Only use ASCII letters, numbers, dots, dashes, plus signs, and colons inside dependency coordinates.
+- Do not use Markdown, smart quotes, or escaped quotes.
+
+3) IF anchors
+- Must be native JSON booleans true/false (not strings).
+- Infer from [[USER_NEED]]:
+  - Mentions of post/publish/share/upload ⇒ ENABLE_POSTING=true.
+  - Mentions of comments/replies ⇒ ENABLE_COMMENTS=true.
+  - Mentions of likes/hearts/favorites ⇒ ENABLE_LIKES=true.
+  - Mentions of notifications/alerts ⇒ SHOW_NOTIFICATIONS=true.
+  - Mentions of login/account/profile ⇒ REQUIRE_LOGIN=true.
+- Default to false ONLY when a feature is clearly not requested.
+- Lifecycle / pipeline IF flags (e.g., IF:AFTER_BUILD, IF:BEFORE_BUILD, etc.) may default to true if they are build/ship steps that are generally safe, unless [[SCHEMA_FRAGMENT]] forbids.
+
+4) GRADLE group
+- applicationId: valid lowercase package name (e.g., com.example.socialapp) matching regex ^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$.
+- resConfigs: non-empty valid locale tags (["en","zh-rCN"]) only.
+  The following values MUST NEVER APPEAR ANYWHERE: "zh-rRCN", "zh-rRRCN", "es-rRUS", "es-rRRUS".
+- permissions: include at least "android.permission.INTERNET".
+  When media or upload features appear in [[USER_NEED]] (camera, gallery, uploading), prefer modern scoped media permissions:
+    "android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_AUDIO".
+  NEVER use deprecated "android.permission.READ_EXTERNAL_STORAGE".
+  When notifications UI appears in [[USER_NEED]]: add "android.permission.POST_NOTIFICATIONS".
+- Keep GRADLE fields consistent with anchorsGrouped.gradle values.
+- applicationId MUST equal text.NDJC:PACKAGE_NAME per SCHEMA "equals" constraints.
+
+--------------------------------
+STRICT CONSISTENCY RULES (PHASE 1)
+--------------------------------
+- Only output the final, cleaned values inside anchorsGrouped.
+- anchorsGrouped MUST contain ONLY these keys: "text", "if", "list", "gradle". No others.
+- Do NOT include anchorsGrouped.block or anchorsGrouped.hook at all in this phase.
+- Do NOT include any Jetpack Compose code, XML layout code, Kotlin functions, or hook patch snippets in this phase.
+- All numeric-like fields MUST be numbers (not quoted strings).
+- Locale tags MUST match ^[a-z]{2}(-r[A-Z]{2,3})?$ exactly.
+- Deprecated or invalid permission values MUST NEVER appear anywhere.
+- "files" MUST be [].
+- No placeholders from [[PLACEHOLDER_BLACKLIST]].
+- Follow all cross-field rules in [[SCHEMA_FRAGMENT]] such as NDJC:BUILD_META:RUNID format, etc.
+
+-----------------------
+FINAL SELF-CHECK (must)
+-----------------------
+Before returning, verify:
+- All top-level keys present and ordered: "metadata", "anchorsGrouped", "files".
+- "anchorsGrouped" only has the allowed groups for this phase ("text","if","list","gradle"), and each provided group is non-empty and schema-valid.
+- Every required anchor from text / if / list / gradle is present and valid.
+- No "block" or "hook" anchors appear anywhere.
+- "files" is [].
+- Return ONE valid JSON object only, nothing else.
