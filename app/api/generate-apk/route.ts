@@ -101,16 +101,16 @@ export async function POST(req: NextRequest) {
     console.log(`[NDJC] 🚀 Run started: ${runId}`);
 
     // 执行两阶段编排（Phase1 + Phase2）
-    const o = await orchestrate(input);
+    const o: any = await orchestrate(input); // ✅ 强制 any 避免 TS 报错
 
     /* ---------------- Contract 校验 ---------------- */
-    // ✅ 修正行：添加 (o as any)，避免 TS 编译报错
-    const contractOut = parseStrictJson((o as any)?.raw || "{}");
+    const contractOut = parseStrictJson(o?.raw || "{}");
     const valid = await validateContractV1(contractOut);
     if (!valid.ok) {
-      console.warn(`[NDJC] Contract v1 invalid: ${valid.issues?.map(i => i.message || i.code || JSON.stringify(i)).join(", ")}`);
+      console.warn(`[NDJC] Contract v1 invalid: ${
+        valid.issues?.map(i => i.message || i.code || JSON.stringify(i)).join(", ")
+      }`);
     }
-
 
     /* ---------------- 生成 Plan ---------------- */
     const planV1 = await contractV1ToPlan(contractOut);
@@ -118,12 +118,11 @@ export async function POST(req: NextRequest) {
     /* ---------------- 构造 apply 结果（stub） ---------------- */
     const applyStub = {
       status: "ok",
-      template: (o as any)?.template || input?.template,
-      mode: (o as any)?._mode || "A",
+      template: o?.template || input?.template || "circle-basic",
+      mode: o?._mode || "A",
       anchorsCount: Object.keys(planV1?.anchorsGrouped?.text || {}).length,
       timestamp: new Date().toISOString(),
     };
-
 
     /* =========================================================
      * 00_debug_two_phase.json — 两阶段构建日志
@@ -169,7 +168,7 @@ export async function POST(req: NextRequest) {
 
     const summaryLines = [
       `NDJC run ID: ${runId}`,
-      `Template: ${o?.template || input?.template}`,
+      `Template: ${o?.template || input?.template || "circle-basic"}`,
       `Mode: ${o?._mode || "A"}`,
       `Anchors: ${Object.keys(planV1?.anchorsGrouped?.text || {}).length}`,
       `Timestamp: ${new Date().toISOString()}`,
@@ -182,26 +181,11 @@ export async function POST(req: NextRequest) {
       runBranch: branch,
       token,
       files: [
-        {
-          path: `${runDir}/00_debug_two_phase.json`,
-          content: JSON.stringify(debugTwoPhase, null, 2),
-        },
-        {
-          path: `${runDir}/01_contract.json`,
-          content: JSON.stringify(contractOut, null, 2),
-        },
-        {
-          path: `${runDir}/02_plan.json`,
-          content: JSON.stringify(planV1, null, 2),
-        },
-        {
-          path: `${runDir}/03_apply_result.json`,
-          content: JSON.stringify(applyStub, null, 2),
-        },
-        {
-          path: `${runDir}/actions-summary.txt`,
-          content: summaryLines.join("\n"),
-        },
+        { path: `${runDir}/00_debug_two_phase.json`, content: JSON.stringify(debugTwoPhase, null, 2) },
+        { path: `${runDir}/01_contract.json`, content: JSON.stringify(contractOut, null, 2) },
+        { path: `${runDir}/02_plan.json`, content: JSON.stringify(planV1, null, 2) },
+        { path: `${runDir}/03_apply_result.json`, content: JSON.stringify(applyStub, null, 2) },
+        { path: `${runDir}/actions-summary.txt`, content: summaryLines.join("\n") },
       ],
     });
 
