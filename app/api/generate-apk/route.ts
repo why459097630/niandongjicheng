@@ -108,8 +108,9 @@ export async function POST(req: NextRequest) {
     const contractOut = parseStrictJson((o as any)?.raw || "{}");
     const valid = await validateContractV1(contractOut);
     if (!valid.ok) {
-      console.warn(`[NDJC] Contract v1 invalid: ${valid.errors?.join(", ")}`);
+      console.warn(`[NDJC] Contract v1 invalid: ${valid.issues?.map(i => i.message || i.code || JSON.stringify(i)).join(", ")}`);
     }
+
 
     /* ---------------- 生成 Plan ---------------- */
     const planV1 = await contractV1ToPlan(contractOut);
