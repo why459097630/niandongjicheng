@@ -4,30 +4,140 @@ Output EXACTLY ONE JSON object and NOTHING ELSE.
 
 Hard rules:
 
-* Top-level key ORDER is FIXED: "metadata" → "anchorsGrouped" → "files".
-* Follow the provided SKELETON exactly: DO NOT add, remove, rename, or reorder keys.
-* Fill values strictly to satisfy the provided SCHEMA (types, enums, regex, required, cross-field constraints).
-* "files" MUST be [].
-* No Markdown, comments, or explanations.
-* DO NOT include any placeholders or filler words such as those in [[PLACEHOLDER_BLACKLIST]].
-* Before returning, SELF-CHECK internally against the SCHEMA; fix violations silently and return only the final valid JSON.
-* Temperature: 0–0.2 for deterministic output.
+Top-level key ORDER is FIXED: "metadata" → "anchorsGrouped" → "files".
 
-Inputs you receive:
+Follow the provided SKELETON exactly: DO NOT add, remove, rename, or reorder keys.
 
-1. User need (natural language):
-   [[USER_NEED]]
+Fill values strictly to satisfy the provided SCHEMA (types, enums, regex, required, cross-field constraints).
 
-2. Sanitized spec from Phase 1 (the authoritative config you MUST obey):
-   [[PHASE1_SPEC_JSON]]
+"files" MUST be [].
 
-   This spec contains final, validated values for:
+No Markdown, comments, or explanations.
 
-   * anchorsGrouped.text
-   * anchorsGrouped.if
-   * anchorsGrouped.list
-   * anchorsGrouped.gradle
-     You MUST treat these values as locked and canonical. You MUST NOT modify or contradict them.
+DO NOT include any placeholders or filler words such as those in [[PLACEHOLDER_BLACKLIST]].
+
+Before returning, SELF-CHECK internally against the SCHEMA; fix violations silently and return only the final valid JSON.
+
+Temperature: 0–0.2 for deterministic output.
+
+Inputs you receive (READ ALL OF THEM; THEY ARE BINDING):
+
+User need (natural language high-level purpose / branding voice only; NOT feature switches):
+[[USER_NEED]]
+
+Sanitized spec from Phase 1 (the authoritative config you MUST obey):
+[[PHASE1_SPEC_JSON]]
+
+This spec contains final, validated values for:
+
+anchorsGrouped.text
+
+anchorsGrouped.if
+
+anchorsGrouped.list
+
+anchorsGrouped.gradle
+You MUST treat these values as locked and canonical. You MUST NOT modify, reinterpret, or contradict them.
+
+Template context (where you are injecting code):
+[[TEMPLATE_CONTEXT]]
+
+This describes:
+
+template_key (e.g. "circle-basic")
+
+important file paths in this template (e.g. MainActivity / HomeScreen composables / AndroidManifest.xml / build.gradle)
+
+for each BLOCK anchor in the skeleton:
+
+which file (or file type) it will be placed into
+
+expected language (Jetpack Compose Kotlin snippet)
+
+role of that Composable (home screen, details screen, comments screen, etc.)
+
+for each HOOK anchor in the skeleton:
+
+which pipeline stage consumes it (compose injection, gradle task, post build, shell)
+
+what that hook semantically represents
+
+You MUST align your generated BLOCK / HOOK output with this template context.
+You MUST NOT reference files, classes, packages, ViewModels, activities, Gradle modules, or resources that are NOT described as existing/allowed in this context.
+
+Feature graph (the active feature switches and modules enabled for THIS run):
+[[FEATURE_GRAPH]]
+
+This is derived from Phase 1 IF/LIST.
+It tells you which features are ON or OFF, and which screens / sections / routes are included.
+You MUST:
+
+respect which features are enabled (true) or disabled (false)
+
+respect which sections/routes are listed
+
+only surface UI for enabled features
+
+still provide “disabled” stub screens when schema requires a block but the feature is OFF (see BLOCK rules below)
+
+The Feature graph is the ONLY source of truth for what features are available. You MUST NOT invent new features, screens, tabs, permissions, or routes that are not enabled here.
+
+Anchor format + examples (schema-level constraints and safe examples for each BLOCK / HOOK anchor you will fill):
+[[ANCHOR_FORMAT_AND_EXAMPLES]]
+
+For every BLOCK anchor in the skeleton, you will be shown:
+
+required function name pattern (e.g. "fun HomeScreen()")
+
+minimum required body shape (e.g. Column { Text("...") ... })
+
+allowed Compose primitives
+
+forbidden elements (ViewModel, navController, external fetch calls, R.drawable.*, etc.)
+
+1 short valid example snippet that compiles under Compose Material3 + Kotlin stdlib only
+
+For every HOOK anchor in the skeleton, you will be shown:
+
+required JSON shape:
+{ "type": "<compose_inject|gradle_task|post_build|shell>", "value": "<identifier>" }
+
+when "noop" is allowed vs forbidden
+
+how to bind hooks to buttons in BLOCK code via comment (Button(onClick = { /* submitPost */ }) { ... })
+
+1 short valid example object for “active” and for “noop”
+
+You MUST strictly follow these shapes and patterns.
+
+Environment specs (the compile environment you MUST target):
+[[ENVIRONMENT_SPECS]]
+
+This will include (examples):
+
+kotlin_version (e.g. "1.9.x")
+
+compose_compiler/compose_material3 version compatibility (e.g. Compose Material3 stable primitives like Text, Column, Button are available)
+
+android Gradle plugin / compileSdk / minSdk assumptions from Phase 1 gradle
+
+any naming/ID constraints for applicationId / packageName (these are ALREADY LOCKED in Phase 1; you MUST NOT change them)
+
+You MUST generate BLOCK code that is valid for Jetpack Compose Material 3 in this environment.
+You MUST generate HOOK objects that do not contradict Phase 1 gradle constraints (no new dependencies, no new permissions unless Phase 1 already enabled them).
+
+Few-shot examples (approved patterns that ALREADY PASSED build in previous runs):
+[[FEWSHOT_EXAMPLES]]
+
+This gives you 1..N pairs of:
+
+example BLOCK anchor → a valid @Composable function string that compiled
+
+example HOOK anchor → a valid hook object or "noop" that passed downstream validation
+These examples are authoritative style guides.
+You MUST imitate their style (structure, tone, allowed primitives, hook wiring style).
+You MUST NOT copy identifiers that conflict with Phase 1 (e.g. wrong route names or disabled features).
+You MUST NOT introduce anything outside what these examples and the Feature graph allow.
 
 SKELETON (lock structure and order – fill values but DO NOT change keys or order):
 [[SKELETON_JSON]]
@@ -35,233 +145,293 @@ SKELETON (lock structure and order – fill values but DO NOT change keys or ord
 SCHEMA (authoritative definition for types, required anchors, value formats, cross-field rules):
 [[SCHEMA_FRAGMENT]]
 
----
-
-## SCOPE OF THIS CALL (PHASE 2)
+SCOPE OF THIS CALL (PHASE 2)
 
 This call ONLY produces IMPLEMENTATION / MATERIALIZATION anchors.
 
 In this phase you MUST populate ONLY these groups inside anchorsGrouped:
 
-* block
-* hook
+block
+
+hook
 
 You MUST NOT (re)define or change these groups in anchorsGrouped:
 
-* text
-* if
-* list
-* gradle
+text
+
+if
+
+list
+
+gradle
 
 If the provided SKELETON contains those other groups, you MUST leave them exactly as provided in [[PHASE1_SPEC_JSON]] without altering any value. Do not invent new keys in them, do not delete keys, and do not change values.
 
 Behavioral constraints:
 
-* Produce exactly one JSON object that follows the SKELETON and fully complies with the SCHEMA.
-* Every required anchor from the SCHEMA that lives in groups block / hook MUST appear with a valid, non-empty value.
-* Optional anchors from block / hook SHOULD also be included IF AND ONLY IF they are permitted by the Phase 1 spec (see IF rules below).
-* "files" MUST be [].
+Produce exactly one JSON object that follows the SKELETON and fully complies with the SCHEMA.
 
----
+Every required anchor from the SCHEMA that lives in groups block / hook MUST appear with a valid, non-empty value.
 
-## BLOCK ANCHORS (UI CODE REQUIREMENTS)
+Optional anchors from block / hook SHOULD also be included IF AND ONLY IF they are permitted by the Feature graph (derived from Phase 1 IF/LIST).
 
-You are generating REAL Kotlin Jetpack Compose code snippets that MUST compile in isolation inside a standard Material 3 + Compose setup.
+"files" MUST be [].
+
+BLOCK ANCHORS (UI CODE REQUIREMENTS)
+
+You are generating REAL Kotlin Jetpack Compose code snippets that MUST compile in isolation inside a standard Material 3 + Compose setup under [[ENVIRONMENT_SPECS]].
 
 For EVERY key in anchorsGrouped.block in the SKELETON:
 
-* You MUST output a STRING containing a COMPLETE, SELF-CONTAINED Composable definition.
-* The string MUST include:
+You MUST output a STRING containing a COMPLETE, SELF-CONTAINED Composable definition.
 
-  * An @Composable function definition with a function name.
-  * Only local state or hardcoded literals that do not depend on any undefined classes, models, repositories, navigation controllers, coroutines, preview annotations, or other modules.
-  * Only standard Compose / Material3 primitives like:
+Each Composable string MUST include:
 
-    * @Composable
-    * Column, Row, Box, LazyColumn, Spacer
-    * Text, Button, IconButton, OutlinedTextField
-    * TopAppBar, Card, Surface
-    * remember { mutableStateOf(...) } for local state
-      These primitives are considered available.
+An @Composable function definition with a function name.
+
+Only local state or hardcoded literals that do not depend on any undefined classes, models, repositories, navigation controllers, coroutines, preview annotations, or other modules.
+
+Only standard Compose / Material3 primitives like:
+
+@Composable
+
+Column, Row, Box, LazyColumn, Spacer
+
+Text, Button, OutlinedTextField, Card, Surface, TopAppBar
+
+remember { mutableStateOf(...) } for local state
+These primitives are considered available in [[ENVIRONMENT_SPECS]].
 
 STRICT FORBIDDENS inside block code:
 
-* You MUST NOT reference custom data/model types (User, Post, Comment, NotificationItem, Ad, etc.).
-* You MUST NOT call external functions or methods that are not defined inside the same Composable (fetchPost(), fetchComments(), toggleLike(), uploadMedia(), etc.).
-* You MUST NOT reference ViewModels, repositories, coroutines, rememberCoroutineScope, rememberLauncherForActivityResult, ActivityResultContracts, navController, etc.
-* You MUST NOT reference drawable / resource lookups such as R.drawable.*, painterResource(...), Icons.Default.*, etc.
-* You MUST NOT construct network calls, database calls, or file I/O.
-* You MUST NOT assume runtime permissions or runtime callbacks.
-* You MUST NOT import or reference anything outside Compose Material 3 primitives and basic Kotlin stdlib-level state like remember/mutableStateOf.
+You MUST NOT reference custom data/model types (User, Post, Comment, NotificationItem, Ad, etc.).
+
+You MUST NOT call external functions or methods that are not defined inside the same Composable (fetchPost(), fetchComments(), toggleLike(), uploadMedia(), etc.).
+
+You MAY include a comment marker to show intended call, but you MUST NOT actually call it.
+
+You MUST NOT reference ViewModels, repositories, coroutines, rememberCoroutineScope, rememberLauncherForActivityResult, ActivityResultContracts, navController, etc.
+
+You MUST NOT reference drawable / resource lookups such as R.drawable., painterResource(...), Icons.Default., etc.
+
+You MUST NOT construct network calls, database calls, or file I/O.
+
+You MUST NOT assume runtime permissions or runtime callbacks.
+
+You MUST NOT import or reference anything outside Compose Material3 primitives and basic Kotlin stdlib-level state like remember/mutableStateOf.
 
 ALLOWED patterns:
 
-* Text("Welcome")
-* Text("Profile name")
-* Button(onClick = { /* submitPost() */ }) { Text("Post") }
+Text("Welcome")
 
-  * The lambda MAY include a comment that names an imaginary function like submitPost(), but MUST NOT actually CALL that function directly. The body MUST be either empty `{}` or an inline comment `/* submitPost() */`. Do NOT write `submitPost()` as live code.
-* OutlinedTextField with local state using remember { mutableStateOf("") }
+Text("Profile name")
 
-If you want icons or visual markers, just display them as plain text, e.g. Text("★") instead of Icon(Icons.Default.Star).
+Button(onClick = { /* submitPost */ }) { Text("Post") }
+
+The lambda MAY include a comment that names an imaginary function (e.g. submitPost), but MUST NOT invoke it.
+
+The body MUST be either {} or { /* submitPost */ }. Do NOT write submitPost() live.
+
+OutlinedTextField with local state using remember { mutableStateOf("") }
+
+If you want icons, emojis, or visual markers, just display them as plain text, e.g. Text("★") instead of Icon(...).
 
 Each Composable must be ≥ ~40 characters of code in the body so it's meaningful UI.
 
 ROUTE / FEATURE CONSTRAINT:
 
-* You MAY show route names, feature names, etc. as literal strings in Text(), e.g. Text("Home"), Text("Notifications"), Text("Edit Profile").
-* You MUST NOT navigate to those routes programmatically (no navController).
-* You MUST tailor the screen based on Phase 1 feature flags:
+You MAY show route names, feature names, etc. as literal strings in Text(), e.g. Text("Home"), Text("Notifications"), Text("Edit Profile").
 
-  * If Phase 1 says IF:ENABLE_COMMENTS=false, the BLOCK:COMMENTS_SCREEN Composable MUST exist if required by schema, but should just show static disabled UI like:
-    "@Composable fun CommentsScreen(){ Column { Text("Comments disabled") } }"
-  * If IF:ENABLE_COMMENTS=true, then BLOCK:COMMENTS_SCREEN should show a simple comment input and list using local state only, with NO network calls.
+You MUST NOT navigate to those routes programmatically (no navController).
 
-The goal: Every generated block string can be copy/pasted into a Compose module and compile with only Compose/Material3 + Kotlin stdlib. No missing symbols. No Android resource lookups. No external types.
+You MUST tailor the screen based on the Feature graph from [[FEATURE_GRAPH]]:
 
----
+If IF:ENABLE_COMMENTS=false, and the schema still requires BLOCK:COMMENTS_SCREEN, then BLOCK:COMMENTS_SCREEN MUST exist but should just show static disabled UI like:
+"@Composable fun CommentsScreen(){ Column { Text("Comments disabled") } }"
 
-## HOOK ANCHORS (RUNTIME / PIPELINE HOOKS)
+If IF:ENABLE_COMMENTS=true, then BLOCK:COMMENTS_SCREEN should show a simple comment input and list using ONLY local state and Text/Column/etc., NO network calls, NO external models.
+
+The goal: Every generated block string can be copy/pasted into the target template's Compose source file and compile with only Compose/Material3 + Kotlin stdlib, under the Gradle/Kotlin versions in [[ENVIRONMENT_SPECS]]. No missing symbols. No Android resource lookups. No external types.
+
+You MUST align visual / textual intent with:
+
+[[USER_NEED]] for tone/branding wording,
+
+[[FEATURE_GRAPH]] for which features and sections actually exist,
+
+[[ANCHOR_FORMAT_AND_EXAMPLES]] and [[FEWSHOT_EXAMPLES]] for shape and style.
+
+HOOK ANCHORS (RUNTIME / PIPELINE HOOKS)
 
 For EVERY key in anchorsGrouped.hook in the SKELETON:
 
-* You MUST output a JSON VALUE, not code fences.
-* The value MUST be EITHER:
-  A) an object of shape:
-  {
-  "type": "<one of: compose_inject | gradle_task | post_build | shell>",
-  "value": "<functionOrTaskName>"
-  }
-  OR
-  B) the string "noop" ONLY IF that hook is truly irrelevant or disabled by the Phase 1 feature flags.
+You MUST output a JSON VALUE, not code fences.
+
+The value MUST be EITHER:
+A) an object of shape:
+{
+"type": "<one of: compose_inject | gradle_task | post_build | shell>",
+"value": "<functionOrTaskName>"
+}
+where "functionOrTaskName" is a short identifier using letters/numbers/underscore ONLY, with NO parentheses.
+OR
+B) the string "noop" ONLY IF that hook is truly irrelevant or disabled by the Feature graph (which mirrors [[PHASE1_SPEC_JSON]].anchorsGrouped.if).
 
 Global hard requirements:
 
-1. You MUST NOT return "noop" for EVERY hook. At least one hook MUST be non-"noop".
+You MUST NOT return "noop" for EVERY hook. At least one hook MUST be non-"noop".
 
-2. Feature-driven non-noop requirements based on [[PHASE1_SPEC_JSON]].anchorsGrouped.if:
+Feature-driven non-noop requirements based on [[FEATURE_GRAPH]] / Phase 1 IF flags:
 
-   * If IF:ENABLE_POSTING is true, then HOOK:POST_SUBMIT MUST NOT be "noop".
-     Use:
-     { "type": "compose_inject", "value": "submitPost" }
-     (Note: "submitPost" is a function name string, NOT a function call. No parentheses.)
-     In the corresponding block for composing a post (e.g. BLOCK:POST_COMPOSER), you MUST include a Button whose onClick lambda comment references this same name:
-     Button(onClick = { /* submitPost */ }) { Text("Post") }
-     This establishes wiring between UI and hook.
-   * If IF:ENABLE_COMMENTS is true, HOOK:COMMENT_SUBMIT MUST NOT be "noop".
-     Use:
-     { "type": "compose_inject", "value": "submitComment" }
-     and in the related block (e.g. BLOCK:COMMENTS_SCREEN), include a Button with onClick = { /* submitComment */ }.
-   * If IF:ENABLE_LIKES is true, HOOK:LIKE_TOGGLE MUST NOT be "noop".
-     Use:
-     { "type": "compose_inject", "value": "toggleLike" }
-     and in BLOCK:LIKE_BUTTON include Button(onClick = { /* toggleLike */ }) { Text("Like") } or a Row/Text simulating that control.
-   * If IF:SHOW_NOTIFICATIONS is true, HOOK:FETCH_NOTIFICATIONS MUST NOT be "noop".
-     Use:
-     { "type": "gradle_task", "value": "fetchNotificationsTask" }
-     and in BLOCK:NOTIFICATIONS_SCREEN you MUST visually acknowledge notifications are fetched, e.g. Text("Notifications loaded") (static text is fine).
-   * If IF:REQUIRE_LOGIN is true, you SHOULD set HOOK:AFTER_INSTALL:HOOK to a non-noop such as:
-     { "type": "post_build", "value": "initAfterInstall" }
+If IF:ENABLE_POSTING is true, then HOOK:POST_SUBMIT MUST NOT be "noop".
+Use:
+{ "type": "compose_inject", "value": "submitPost" }
+In the corresponding post composer block (e.g. BLOCK:POST_COMPOSER), you MUST include a Button whose onClick lambda comment references this same name:
+Button(onClick = { /* submitPost */ }) { Text("Post") }
+This creates a stable connection between UI and hook.
 
-3. For any hook where the corresponding feature flag is false or obviously irrelevant, "noop" is acceptable.
+If IF:ENABLE_COMMENTS is true, HOOK:COMMENT_SUBMIT MUST NOT be "noop".
+Use:
+{ "type": "compose_inject", "value": "submitComment" }
+and in BLOCK:COMMENTS_SCREEN include Button(onClick = { /* submitComment */ }) { Text("Send") } or similar.
 
-4. You MUST keep hook values JSON-valid. No comments inside hook JSON objects.
+If IF:ENABLE_LIKES is true, HOOK:LIKE_TOGGLE MUST NOT be "noop".
+Use:
+{ "type": "compose_inject", "value": "toggleLike" }
+and in BLOCK:LIKE_BUTTON include Button(onClick = { /* toggleLike */ }) { Text("Like") } or equivalent Row/Text simulating that control.
 
-This hook contract gives downstream codegen a stable place to connect UI actions (like submitPost) with build/runtime steps. The hook does not have to compile; it just has to exist and match names you referenced in comments inside the relevant Composables.
+If IF:SHOW_NOTIFICATIONS is true, HOOK:FETCH_NOTIFICATIONS MUST NOT be "noop".
+Use:
+{ "type": "gradle_task", "value": "fetchNotificationsTask" }
+and in BLOCK:NOTIFICATIONS_SCREEN you MUST visually acknowledge notifications are available, e.g. Text("Notifications loaded").
 
----
+If IF:REQUIRE_LOGIN is true, you SHOULD set HOOK:AFTER_INSTALL (or equivalent login/init hook defined in [[ANCHOR_FORMAT_AND_EXAMPLES]]) to a non-noop such as:
+{ "type": "post_build", "value": "initAfterInstall" }
 
-## PHASE 1 LOCK / IMMUTABILITY
+For any hook where the corresponding feature flag is false or not present in [[FEATURE_GRAPH]], "noop" is acceptable.
+
+You MUST keep hook values JSON-valid. No comments inside hook JSON objects.
+
+The hook contract is consumed later by downstream automation. The hook object itself does not have to compile; it just has to (1) obey the schema, (2) match the feature state, and (3) line up with the comment markers you placed in the related BLOCK composables.
+
+PHASE 1 LOCK / IMMUTABILITY
 
 Everything in [[PHASE1_SPEC_JSON]] is frozen:
 
-* anchorsGrouped.text is LOCKED.
-* anchorsGrouped.list is LOCKED.
-* anchorsGrouped.if is LOCKED.
-* anchorsGrouped.gradle is LOCKED.
+anchorsGrouped.text is LOCKED.
+
+anchorsGrouped.list is LOCKED.
+
+anchorsGrouped.if is LOCKED.
+
+anchorsGrouped.gradle is LOCKED.
 
 You MUST copy them EXACTLY into the final output.
 You MUST NOT:
 
-* change any values,
-* add new keys,
-* delete keys,
-* rename keys,
-* inject new routes,
-* inject new permissions,
-* inject new toggles,
-* add new locales,
-* mutate applicationId/packageName,
-* change any text label values.
+change any values,
 
-Any attempt to "improve" or "fix" Phase 1 values is forbidden. Phase 1 is the source of truth.
+add new keys,
 
-Your ONLY job is:
+delete keys,
 
-* fill anchorsGrouped.block with valid Composable strings that meet the BLOCK ANCHORS rules above,
-* fill anchorsGrouped.hook with valid hook objects/strings that meet the HOOK ANCHORS rules above,
-* preserve all locked groups exactly.
+rename keys,
 
----
+inject new routes,
 
-## STRICT CONSISTENCY RULES (FINAL OUTPUT)
+inject new permissions,
+
+inject new toggles,
+
+add new locales,
+
+mutate applicationId/packageName,
+
+change any text label values.
+
+Any attempt to "improve" or "fix" Phase 1 values is forbidden. Phase 1 is the single source of truth.
+
+Your ONLY job in Phase 2 is:
+
+fill anchorsGrouped.block with valid Composable strings that meet the BLOCK ANCHORS rules above,
+
+fill anchorsGrouped.hook with valid hook objects/strings that meet the HOOK ANCHORS rules above,
+
+preserve all locked groups exactly (byte-for-byte identical to [[PHASE1_SPEC_JSON]] for text / list / if / gradle).
+
+STRICT CONSISTENCY RULES (FINAL OUTPUT)
 
 Before you output the final JSON, internally SELF-CHECK these rules:
 
-1. Top-level object:
+Top-level object:
 
-   * Key order MUST be exactly:
+Key order MUST be exactly:
 
-     1. "metadata"
-     2. "anchorsGrouped"
-     3. "files"
+"metadata"
 
-2. "files" MUST be [].
+"anchorsGrouped"
 
-3. "metadata":
+"files"
 
-   * MUST include "NDJC:BUILD_META:RUNID" identical to Phase 1.
-   * MAY include Phase 1's template/appName/mode/etc. if given.
-   * MUST NOT invent unrelated metadata keys.
+"files" MUST be [].
 
-4. "anchorsGrouped":
+"metadata":
 
-   * MUST include ALL of: "text", "list", "if", "gradle", "block", "hook".
-   * The "text", "list", "if", and "gradle" sub-objects MUST be EXACT byte-for-byte copies of the values from [[PHASE1_SPEC_JSON]].anchorsGrouped.*
-     You MUST NOT modify them.
-   * The "block" sub-object MUST contain every block anchor from the SKELETON. Each value MUST be a single string containing a full @Composable function that follows all BLOCK ANCHORS rules.
-   * The "hook" sub-object MUST contain every hook anchor from the SKELETON. Each value MUST be either:
+MUST include "NDJC:BUILD_META:RUNID" identical to Phase 1.
 
-     * a structured object { "type": "...", "value": "..." } as described in HOOK ANCHORS, or
-     * "noop"
-       At least one hook MUST be non-"noop".
-       Hooks gated by IF flags that are true MUST be non-"noop" according to the HOOK ANCHORS rules.
+MAY include Phase 1's template/appName/mode/etc. if given.
 
-5. BLOCK safety:
+MUST NOT invent unrelated metadata keys.
 
-   * No usage of undefined data models, repositories, network calls, external resources, drawable IDs, navController, ViewModel, etc.
-   * Only local state, Text/Column/Row/etc., and static strings / comments.
-   * Button or other click handlers MAY include a comment that matches the hook's "value" string, but MUST NOT call that function directly. Example:
-     Button(onClick = { /* submitPost */ }) { Text("Post") }
+"anchorsGrouped":
 
-6. HOOK safety:
+MUST include ALL of: "text", "list", "if", "gradle", "block", "hook".
 
-   * Object form MUST be:
-     { "type": "<compose_inject|gradle_task|post_build|shell>", "value": "<identifier>" }
-     "value" MUST be a short identifier using letters/numbers/underscore, you MUST NOT include parentheses in "value".
-     Good: { "type": "compose_inject", "value": "submitPost" }
-     Bad:  { "type": "compose_inject", "value": "submitPost()" }
-   * String "noop" is allowed ONLY when that hook is irrelevant because the corresponding feature is disabled in [[PHASE1_SPEC_JSON]].
-   * All hook values MUST be syntactically valid JSON.
+The "text", "list", "if", and "gradle" sub-objects MUST be EXACT byte-for-byte copies of the values from [[PHASE1_SPEC_JSON]].anchorsGrouped.*.
+You MUST NOT modify them.
 
-7. Forbidden filler words/phrases:
+The "block" sub-object MUST contain every block anchor from the SKELETON. Each value MUST be a single string containing a full @Composable function that follows all BLOCK ANCHORS rules and matches [[TEMPLATE_CONTEXT]], [[FEATURE_GRAPH]], [[ANCHOR_FORMAT_AND_EXAMPLES]], [[ENVIRONMENT_SPECS]], and [[FEWSHOT_EXAMPLES]].
 
-   * You MUST NOT output values that are literally "lorem", "tbd", "n/a", "-", "ready", or "content ready for rendering...".
-   * Static explanatory text like Text("Write something") or Text("Comments disabled") IS allowed.
+The "hook" sub-object MUST contain every hook anchor from the SKELETON. Each value MUST be either:
 
-8. Output discipline:
+a structured object { "type": "...", "value": "..." } as described in HOOK ANCHORS and aligned with [[ANCHOR_FORMAT_AND_EXAMPLES]], OR
 
-   * Return ONE final JSON object ONLY.
-   * No backticks, no Markdown fencing, no commentary.
+"noop"
+At least one hook MUST be non-"noop".
+Hooks gated by IF flags that are true in [[FEATURE_GRAPH]] MUST be non-"noop" as defined above.
+
+BLOCK safety:
+
+No usage of undefined data models, repositories, network calls, external resources, drawable IDs, navController, ViewModel, etc.
+
+Only local state, Text/Column/Row/etc., and static strings / comments.
+
+Button or other click handlers MAY include a comment that matches the hook's "value" string, but MUST NOT call that function directly.
+Example:
+Button(onClick = { /* submitPost */ }) { Text("Post") }
+
+HOOK safety:
+
+Object form MUST be:
+{ "type": "<compose_inject|gradle_task|post_build|shell>", "value": "<identifier>" }
+"value" MUST be a short identifier using letters/numbers/underscore, with NO parentheses.
+Good: { "type": "compose_inject", "value": "submitPost" }
+Bad: { "type": "compose_inject", "value": "submitPost()" }
+
+String "noop" is allowed ONLY when that hook is irrelevant because its feature is disabled in [[FEATURE_GRAPH]].
+
+All hook values MUST be syntactically valid JSON.
+
+Forbidden filler words/phrases:
+
+You MUST NOT output values that are literally "lorem", "tbd", "n/a", "-", "ready", or "content ready for rendering...".
+
+Static explanatory text like Text("Write something") or Text("Comments disabled") IS allowed.
+
+Output discipline:
+
+Return ONE final JSON object ONLY.
+
+No backticks, no Markdown fencing, no commentary.
 
 If any rule conflicts, ALWAYS favor SCHEMA compliance and these rules.
