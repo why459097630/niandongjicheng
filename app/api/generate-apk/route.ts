@@ -327,7 +327,7 @@ export async function POST(req: NextRequest) {
           content: JSON.stringify(contractOut, null, 2),
         },
         {
-          path: `${runDir}/02_phase1Spec.json`,
+          path: `${runDir}/02_plan.json`,
           content: JSON.stringify(orches.phase1Spec ?? {}, null, 2),
         },
         {
