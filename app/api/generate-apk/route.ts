@@ -118,11 +118,12 @@ export async function POST(req: NextRequest) {
     /* ---------------- 构造 apply 结果（stub） ---------------- */
     const applyStub = {
       status: "ok",
-      template: o?.template || input?.template,
-      mode: o?._mode || "A",
+      template: (o as any)?.template || input?.template,
+      mode: (o as any)?._mode || "A",
       anchorsCount: Object.keys(planV1?.anchorsGrouped?.text || {}).length,
       timestamp: new Date().toISOString(),
     };
+
 
     /* =========================================================
      * 00_debug_two_phase.json — 两阶段构建日志
