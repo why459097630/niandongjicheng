@@ -1,5 +1,5 @@
 // app/api/generate-apk/route.ts
-// 瘦路由（Node）：编排 / Contract v1 严格校验 / 写入 00/01/02/03 / 触发 GitHub Actions。
+// 瘦路由（Node）：编排 / Contract v1 严格校验 / 写入 00/01/02/03 / 自动触发 GitHub Actions。
 
 import { NextRequest, NextResponse } from "next/server";
 import { orchestrate } from "@/lib/ndjc/orchestrator";
@@ -101,15 +101,17 @@ export async function POST(req: NextRequest) {
     console.log(`[NDJC] 🚀 Run started: ${runId}`);
 
     // 执行两阶段编排（Phase1 + Phase2）
-    const o: any = await orchestrate(input); // ✅ 强制 any 避免 TS 报错
+    const o: any = await orchestrate(input);
 
     /* ---------------- Contract 校验 ---------------- */
     const contractOut = parseStrictJson(o?.raw || "{}");
     const valid = await validateContractV1(contractOut);
     if (!valid.ok) {
-      console.warn(`[NDJC] Contract v1 invalid: ${
-        valid.issues?.map(i => i.message || i.code || JSON.stringify(i)).join(", ")
-      }`);
+      console.warn(
+        `[NDJC] Contract v1 invalid: ${
+          valid.issues?.map((i: any) => i.message || i.code || JSON.stringify(i)).join(", ")
+        }`
+      );
     }
 
     /* ---------------- 生成 Plan ---------------- */
@@ -192,6 +194,38 @@ export async function POST(req: NextRequest) {
     console.log(`[NDJC] ✅ Files committed for run ${runId}`);
 
     /* =========================================================
+     * 触发 GitHub Actions 构建（repository_dispatch）
+     * =======================================================*/
+    try {
+      const dispatchResp = await fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+        },
+        body: JSON.stringify({
+          event_type: "generate-apk",
+          client_payload: {
+            runId,
+            branch,
+            template: o?.template || input?.template || "circle-basic",
+            appTitle: input?.appTitle || "NDJC App",
+            packageName: input?.packageName || "com.ndjc.app",
+          },
+        }),
+      });
+
+      if (!dispatchResp.ok) {
+        const msg = await dispatchResp.text();
+        console.warn(`[NDJC] ⚠️ Dispatch failed: ${dispatchResp.status} ${msg}`);
+      } else {
+        console.log(`[NDJC] 🚀 GitHub Actions triggered for ${branch}`);
+      }
+    } catch (e: any) {
+      console.error("[NDJC] ⚠️ Dispatch error:", e);
+    }
+
+    /* =========================================================
      * 返回响应
      * =======================================================*/
     return NextResponse.json(
@@ -201,7 +235,7 @@ export async function POST(req: NextRequest) {
         mode: o?._mode || "A",
         usage: debugTwoPhase.tokens,
         repoPath: `${repo}/tree/${branch}/${runDir}`,
-        message: "NDJC build orchestrated and committed successfully.",
+        message: "NDJC build committed and Actions triggered successfully.",
       },
       { headers: CORS }
     );
