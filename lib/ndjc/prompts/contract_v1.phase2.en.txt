@@ -3,16 +3,18 @@ You are GPT-5 Thinking.
 Output EXACTLY ONE JSON object and NOTHING ELSE.
 
 Hard rules:
-- Top-level key ORDER is FIXED: "metadata" → "anchorsGrouped" → "files".
-- Follow the provided SKELETON exactly: DO NOT add, remove, rename, or reorder keys.
-- Fill values strictly to satisfy the provided SCHEMA (types, enums, regex, required, cross-field constraints).
-- "files" MUST be [].
-- No Markdown, comments, or explanations.
-- DO NOT include any placeholders or filler words such as those in [[PLACEHOLDER_BLACKLIST]].
-- Before returning, SELF-CHECK internally against the SCHEMA; fix violations silently and return only the final valid JSON.
-- Temperature: 0–0.2 for deterministic output.
+
+* Top-level key ORDER is FIXED: "metadata" → "anchorsGrouped" → "files".
+* Follow the provided SKELETON exactly: DO NOT add, remove, rename, or reorder keys.
+* Fill values strictly to satisfy the provided SCHEMA (types, enums, regex, required, cross-field constraints).
+* "files" MUST be [].
+* No Markdown, comments, or explanations.
+* DO NOT include any placeholders or filler words such as those in [[PLACEHOLDER_BLACKLIST]].
+* Before returning, SELF-CHECK internally against the SCHEMA; fix violations silently and return only the final valid JSON.
+* Temperature: 0–0.2 for deterministic output.
 
 Inputs you receive:
+
 1. User need (natural language):
    [[USER_NEED]]
 
@@ -20,17 +22,12 @@ Inputs you receive:
    [[PHASE1_SPEC_JSON]]
 
    This spec contains final, validated values for:
-   - anchorsGrouped.text
-   - anchorsGrouped.if
-   - anchorsGrouped.list
-   - anchorsGrouped.gradle
-   You MUST treat these values as locked and canonical. You MUST NOT modify or contradict them.
 
-3. Feature binding policy (how feature flags map to required UI blocks and required hooks):
-   [[FEATURE_POLICY_JSON]]
-
-   For each IF:* flag that is true in [[PHASE1_SPEC_JSON]], every listed relatedBlocks MUST become a real, functional code snippet in anchorsGrouped.block, and every listed requiredHooks MUST become a non-"noop" hook in anchorsGrouped.hook.  
-   For each IF:* flag that is false, you MAY still emit stubs for SCHEMA-required blocks, but they MUST be harmless (simple static UI) and MUST NOT reference behavior from a disabled feature. Hooks for disabled features MAY be "noop".
+   * anchorsGrouped.text
+   * anchorsGrouped.if
+   * anchorsGrouped.list
+   * anchorsGrouped.gradle
+     You MUST treat these values as locked and canonical. You MUST NOT modify or contradict them.
 
 SKELETON (lock structure and order – fill values but DO NOT change keys or order):
 [[SKELETON_JSON]]
@@ -38,174 +35,233 @@ SKELETON (lock structure and order – fill values but DO NOT change keys or ord
 SCHEMA (authoritative definition for types, required anchors, value formats, cross-field rules):
 [[SCHEMA_FRAGMENT]]
 
---------------------------------
-SCOPE OF THIS CALL (PHASE 2)
---------------------------------
+---
+
+## SCOPE OF THIS CALL (PHASE 2)
+
 This call ONLY produces IMPLEMENTATION / MATERIALIZATION anchors.
 
 In this phase you MUST populate ONLY these groups inside anchorsGrouped:
-- block
-- hook
+
+* block
+* hook
 
 You MUST NOT (re)define or change these groups in anchorsGrouped:
-- text
-- if
-- list
-- gradle
 
-If the provided SKELETON contains those other groups (text / if / list / gradle), you MUST leave them EXACTLY as provided in [[PHASE1_SPEC_JSON]] without altering any value, key, route id, permission, locale, etc.  
-Do not invent new keys in them, do not delete keys, and do not change values.
+* text
+* if
+* list
+* gradle
+
+If the provided SKELETON contains those other groups, you MUST leave them exactly as provided in [[PHASE1_SPEC_JSON]] without altering any value. Do not invent new keys in them, do not delete keys, and do not change values.
 
 Behavioral constraints:
-- Produce exactly one JSON object that follows the SKELETON and fully complies with the SCHEMA.
-- Every required anchor from the SCHEMA that lives in groups block / hook MUST appear with a valid, non-empty value.
-- Optional anchors from block / hook SHOULD also be included IF AND ONLY IF they are allowed by [[PHASE1_SPEC_JSON]] and [[FEATURE_POLICY_JSON]] (see IF rules below).
-- "files" MUST be [].
 
---------------------------------
-ANCHOR-CLASS RULES (PHASE 2)
---------------------------------
+* Produce exactly one JSON object that follows the SKELETON and fully complies with the SCHEMA.
+* Every required anchor from the SCHEMA that lives in groups block / hook MUST appear with a valid, non-empty value.
+* Optional anchors from block / hook SHOULD also be included IF AND ONLY IF they are permitted by the Phase 1 spec (see IF rules below).
+* "files" MUST be [].
 
-1) BLOCK anchors
-- Each BLOCK:* value MUST be a Kotlin Jetpack Compose snippet (string).  
-  Accepted patterns:
-  - Starts with `@Composable fun Name(...) { ... }`
-  - or is clearly Compose UI code using `Column { ... }`, `Row { ... }`, `LazyColumn { ... }`, `Text("...")`, `Button(onClick = { ... }) { ... }`, etc.
+---
 
-  Good:
-    "@Composable fun HomeHeader(){ Row { Text(\"NDJC App\") } }"
-    "@Composable fun PostComposer(){ Column { TextField(value=\"\",onValueChange={}); Button(onClick={ submitPost() }){ Text(\"Post\") } } }"
-    "@Composable fun NotificationsScreen(){ Column { Text(\"Alerts\") } }"
+## BLOCK ANCHORS (UI CODE REQUIREMENTS)
 
-  Bad:
-    "Main screen with welcome message."
-    "TODO hook up feed"
-    "ready"
-    "tbd"
+You are generating REAL Kotlin Jetpack Compose code snippets that MUST compile in isolation inside a standard Material 3 + Compose setup.
 
-- Code must be syntactically plausible Compose UI. It can be thin / minimal, but must look like compilable Kotlin Compose and include at least ~40 characters for required blocks (cannot be empty or just a comment).
-- You MUST NOT reference symbols / state / variables that are not declared in-line or obviously standard Compose primitives.  
-  Examples of allowed primitives: `Column`, `Row`, `Text`, `Button`, `LazyColumn`, `TextField`, `Icon`, basic `Modifier` usage.
-- You MUST NOT reference resources, drawables, navigation routes, permission constants, network calls, or other identifiers that are not guaranteed by [[PHASE1_SPEC_JSON]].  
-  - Navigation: you MAY navigate to routes that exist in [[PHASE1_SPEC_JSON]]'s LIST:ROUTES, but you MUST NOT invent new routes outside that list.
-  - Permissions: you MUST NOT reference runtime permissions that are not already present in [[PHASE1_SPEC_JSON]]'s gradle.permissions.
-- Feature gating:
-  - For each IF:* flag that is true in [[PHASE1_SPEC_JSON]], every block listed in [[FEATURE_POLICY_JSON]].<thatFlag>.relatedBlocks MUST implement real, interactive UI for that feature (not a static placeholder).
-    Example: if IF:ENABLE_POSTING=true, `BLOCK:POST_COMPOSER` MUST include a text input and a submit button.
-  - For each IF:* flag that is false, you MUST NOT present interactive UI that implies the user can perform that action.  
-    If the SCHEMA still requires that block anchor to exist, emit a safe static stub (e.g. `@Composable fun CommentsScreen(){ Column { Text("Comments disabled") } }`) that does not call any feature-specific handlers.
+For EVERY key in anchorsGrouped.block in the SKELETON:
 
-- Hook linkage requirement (very important):
-  - If a block defines an interactive action such as `Button(onClick = { submitPost() })`, you MUST also provide a corresponding HOOK anchor (for example `HOOK:POST_SUBMIT`) whose value references the EXACT SAME function name `submitPost()`.
-  - The function name in the onClick and the function name in the hook MUST MATCH 1:1.
-  - You MUST NOT emit an onClick handler that calls a function which has no matching HOOK entry.
+* You MUST output a STRING containing a COMPLETE, SELF-CONTAINED Composable definition.
+* The string MUST include:
 
-2) HOOK anchors
-- Each HOOK:* value defines how the runtime logic or side effect is wired.
-- Preferred structured form:
-  { "type": "gradle_task" | "compose_inject" | "shell" | "post_build", "value": "<taskOrFnName>" }
+  * An @Composable function definition with a function name.
+  * Only local state or hardcoded literals that do not depend on any undefined classes, models, repositories, navigation controllers, coroutines, preview annotations, or other modules.
+  * Only standard Compose / Material3 primitives like:
 
-  Examples (good):
-    { "type": "compose_inject", "value": "submitPost()" }
-    { "type": "compose_inject", "value": "toggleLike()" }
-    { "type": "compose_inject", "value": "sendComment()" }
-    { "type": "compose_inject", "value": "loadNotifications()" }
-    { "type": "post_build", "value": "initAfterInstall" }
+    * @Composable
+    * Column, Row, Box, LazyColumn, Spacer
+    * Text, Button, IconButton, OutlinedTextField
+    * TopAppBar, Card, Surface
+    * remember { mutableStateOf(...) } for local state
+      These primitives are considered available.
 
-  Acceptable alternative (fallback string with same semantics):
-    "compose_inject:submitPost()"
-    "gradle_task:uploadMediaTask"
+STRICT FORBIDDENS inside block code:
 
-- Avoid giving the same {type,value} to all hooks. Hooks should be meaningfully distinct when features differ.
-- Use "noop" ONLY if (a) the feature is disabled in [[PHASE1_SPEC_JSON]] OR (b) the SCHEMA marks that hook optional AND there is truly no interactive usage of that hook in any block.
-- If a feature is enabled in [[PHASE1_SPEC_JSON]], then:
-  - IF:ENABLE_POSTING=true  
-    → At least one posting-related hook such as HOOK:POST_SUBMIT or HOOK:UPLOAD_MEDIA MUST be non-"noop".  
-    → That hook’s "value" function name MUST appear in the related posting block’s `onClick` or similar interactive handler.
-  - IF:ENABLE_COMMENTS=true  
-    → HOOK:COMMENT_SUBMIT and/or HOOK:FETCH_COMMENTS MUST NOT be "noop".  
-    → The handler names in those hooks MUST appear in comments-related blocks (e.g. comment composer / comment list refresh).
-  - IF:ENABLE_LIKES=true  
-    → HOOK:LIKE_TOGGLE MUST NOT be "noop".  
-    → The handler name from HOOK:LIKE_TOGGLE MUST appear in a clickable UI element in `BLOCK:LIKE_BUTTON` or equivalent.
-  - IF:SHOW_NOTIFICATIONS=true  
-    → HOOK:FETCH_NOTIFICATIONS MUST NOT be "noop".  
-    → The handler from HOOK:FETCH_NOTIFICATIONS MUST appear in something like `NotificationsScreen()` (pull-to-refresh button / load call).
-- Consistency rule:
-  - Every non-"noop" HOOK must correspond to at least one interactive UI handler in some BLOCK.
-  - Every interactive handler in a BLOCK must correspond to exactly one HOOK entry with the same function name.
-  - You MUST NOT invent hook anchors that are not present in the provided SKELETON.
+* You MUST NOT reference custom data/model types (User, Post, Comment, NotificationItem, Ad, etc.).
+* You MUST NOT call external functions or methods that are not defined inside the same Composable (fetchPost(), fetchComments(), toggleLike(), uploadMedia(), etc.).
+* You MUST NOT reference ViewModels, repositories, coroutines, rememberCoroutineScope, rememberLauncherForActivityResult, ActivityResultContracts, navController, etc.
+* You MUST NOT reference drawable / resource lookups such as R.drawable.*, painterResource(...), Icons.Default.*, etc.
+* You MUST NOT construct network calls, database calls, or file I/O.
+* You MUST NOT assume runtime permissions or runtime callbacks.
+* You MUST NOT import or reference anything outside Compose Material 3 primitives and basic Kotlin stdlib-level state like remember/mutableStateOf.
 
-3) Respect Phase 1 spec (LOCK RULES)
-- You MUST copy anchorsGrouped.text EXACTLY from [[PHASE1_SPEC_JSON]].  
-  Do not edit any values such as NDJC:APP_LABEL, NDJC:PACKAGE_NAME, etc.
-- You MUST copy anchorsGrouped.if EXACTLY from [[PHASE1_SPEC_JSON]].  
-  These booleans define which features are active. You MUST obey them.
-- You MUST copy anchorsGrouped.list EXACTLY from [[PHASE1_SPEC_JSON]].  
-  In particular:
-  - Do not add new routes that are not already in LIST:ROUTES.
-  - Do not remove routes that already exist.
-  - When generating navigation code in blocks, you MAY navigate to an existing route ID from LIST:ROUTES, but MUST NOT invent new routes.
-- You MUST copy anchorsGrouped.gradle EXACTLY from [[PHASE1_SPEC_JSON]].  
-  This includes:
-  - applicationId
-  - resConfigs
-  - permissions
-  You MUST NOT add new permissions, locales, or applicationId changes.  
-  You MUST NOT reference a permission in code that does not already exist in this locked gradle block.
-- You MUST NOT modify or contradict any value in those locked groups.
-- You MUST NOT add new keys to those locked groups.
-- You MUST NOT remove keys from those locked groups.
+ALLOWED patterns:
 
-4) Feature-policy enforcement
-- [[FEATURE_POLICY_JSON]] describes, for each IF:* flag:
-  - relatedBlocks: which BLOCK:* anchors are responsible for that feature’s UI
-  - requiredHooks: which HOOK:* anchors must become non-"noop" when that feature is enabled
-- For every IF:* === true in [[PHASE1_SPEC_JSON]]:
-  - Every block listed in relatedBlocks MUST be populated with real Compose code that exposes meaningful interaction (text fields, buttons, clickable rows, etc., NOT just static text).
-  - Every hook listed in requiredHooks MUST be non-"noop" and MUST reference the same function name you actually call in the corresponding block UI.
-- For every IF:* === false:
-  - The relatedBlocks (if still required by SCHEMA) MUST degrade to a safe static stub:
-    - Example: "@Composable fun NotificationsScreen(){ Column { Text(\"Notifications disabled\") } }"
-    - No interactive handler that claims to perform disabled behavior.
-  - The relatedHooks MAY be "noop".
+* Text("Welcome")
+* Text("Profile name")
+* Button(onClick = { /* submitPost() */ }) { Text("Post") }
 
---------------------------------
-STRICT CONSISTENCY RULES (PHASE 2)
---------------------------------
-- anchorsGrouped MUST include:
-  - text, list, if, gradle → copied EXACTLY from [[PHASE1_SPEC_JSON]] with no changes.
-  - block, hook → generated in this phase.
-- block:
-  - Every SCHEMA-required BLOCK:* anchor (for example BLOCK:HOME_HEADER, BLOCK:HOME_BODY, BLOCK:HOME_ACTIONS, BLOCK:SPLASH_CONTENT, etc.) MUST be present.
-  - Each required BLOCK:* MUST be a Compose snippet string with at least ~40 characters of code, not prose.
-  - There MUST be no placeholder-only strings such as "lorem", "tbd", "n/a", "ready", "-", "content ready for rendering".
-  - If the feature linked to that block is disabled, emit a static, harmless Compose stub instead of active behavior.
-- hook:
-  - Every SCHEMA-required HOOK:* anchor MUST be present.
-  - Hooks tied to enabled features MUST NOT be "noop".
-  - The function names in non-"noop" hooks MUST appear in the relevant BLOCK code as click handlers / submit handlers / etc.
-  - If a feature is disabled, its hook MAY be "noop".
-- Navigation in the Compose snippets MUST only reference routes that exist in LIST:ROUTES from [[PHASE1_SPEC_JSON]]. Do NOT invent new route IDs.
-- Do NOT add arbitrary imports, Gradle plugins, network libraries, or permissions not present in [[PHASE1_SPEC_JSON]].
-- "files" MUST be [].
-- Top-level ordering MUST remain: "metadata", then "anchorsGrouped", then "files".
+  * The lambda MAY include a comment that names an imaginary function like submitPost(), but MUST NOT actually CALL that function directly. The body MUST be either empty `{}` or an inline comment `/* submitPost() */`. Do NOT write `submitPost()` as live code.
+* OutlinedTextField with local state using remember { mutableStateOf("") }
 
------------------------
-FINAL SELF-CHECK (must)
------------------------
-Before returning, verify:
-- You are returning ONE and ONLY ONE JSON object, with key order: metadata → anchorsGrouped → files.
-- "files" is [].
-- anchorsGrouped contains ALL SIX groups: "text","list","if","gradle","block","hook".
-- "text","list","if","gradle" are byte-for-byte copies of [[PHASE1_SPEC_JSON]] (same keys, same values, same routes, same permissions, etc.).
-- "block" and "hook" are fully populated, following:
-  - [[SCHEMA_FRAGMENT]] requirements,
-  - enabled feature requirements from [[PHASE1_SPEC_JSON]].anchorsGrouped.if,
-  - and mappings from [[FEATURE_POLICY_JSON]].
-- Every interactive handler referenced inside a BLOCK (e.g. submitPost(), toggleLike(), sendComment(), loadNotifications()) appears in the corresponding HOOK with the SAME function name in its "value".
-- Every HOOK that is required by an enabled feature is non-"noop".
-- No disabled feature is accidentally exposed as interactive.
-- No placeholder words from [[PLACEHOLDER_BLACKLIST]] appear.
-- Navigation routes / permissions / locales remain consistent with [[PHASE1_SPEC_JSON]] and are not invented.
-- Return ONLY the final valid JSON, no markdown fences, no commentary.
+If you want icons or visual markers, just display them as plain text, e.g. Text("★") instead of Icon(Icons.Default.Star).
+
+Each Composable must be ≥ ~40 characters of code in the body so it's meaningful UI.
+
+ROUTE / FEATURE CONSTRAINT:
+
+* You MAY show route names, feature names, etc. as literal strings in Text(), e.g. Text("Home"), Text("Notifications"), Text("Edit Profile").
+* You MUST NOT navigate to those routes programmatically (no navController).
+* You MUST tailor the screen based on Phase 1 feature flags:
+
+  * If Phase 1 says IF:ENABLE_COMMENTS=false, the BLOCK:COMMENTS_SCREEN Composable MUST exist if required by schema, but should just show static disabled UI like:
+    "@Composable fun CommentsScreen(){ Column { Text("Comments disabled") } }"
+  * If IF:ENABLE_COMMENTS=true, then BLOCK:COMMENTS_SCREEN should show a simple comment input and list using local state only, with NO network calls.
+
+The goal: Every generated block string can be copy/pasted into a Compose module and compile with only Compose/Material3 + Kotlin stdlib. No missing symbols. No Android resource lookups. No external types.
+
+---
+
+## HOOK ANCHORS (RUNTIME / PIPELINE HOOKS)
+
+For EVERY key in anchorsGrouped.hook in the SKELETON:
+
+* You MUST output a JSON VALUE, not code fences.
+* The value MUST be EITHER:
+  A) an object of shape:
+  {
+  "type": "<one of: compose_inject | gradle_task | post_build | shell>",
+  "value": "<functionOrTaskName>"
+  }
+  OR
+  B) the string "noop" ONLY IF that hook is truly irrelevant or disabled by the Phase 1 feature flags.
+
+Global hard requirements:
+
+1. You MUST NOT return "noop" for EVERY hook. At least one hook MUST be non-"noop".
+
+2. Feature-driven non-noop requirements based on [[PHASE1_SPEC_JSON]].anchorsGrouped.if:
+
+   * If IF:ENABLE_POSTING is true, then HOOK:POST_SUBMIT MUST NOT be "noop".
+     Use:
+     { "type": "compose_inject", "value": "submitPost" }
+     (Note: "submitPost" is a function name string, NOT a function call. No parentheses.)
+     In the corresponding block for composing a post (e.g. BLOCK:POST_COMPOSER), you MUST include a Button whose onClick lambda comment references this same name:
+     Button(onClick = { /* submitPost */ }) { Text("Post") }
+     This establishes wiring between UI and hook.
+   * If IF:ENABLE_COMMENTS is true, HOOK:COMMENT_SUBMIT MUST NOT be "noop".
+     Use:
+     { "type": "compose_inject", "value": "submitComment" }
+     and in the related block (e.g. BLOCK:COMMENTS_SCREEN), include a Button with onClick = { /* submitComment */ }.
+   * If IF:ENABLE_LIKES is true, HOOK:LIKE_TOGGLE MUST NOT be "noop".
+     Use:
+     { "type": "compose_inject", "value": "toggleLike" }
+     and in BLOCK:LIKE_BUTTON include Button(onClick = { /* toggleLike */ }) { Text("Like") } or a Row/Text simulating that control.
+   * If IF:SHOW_NOTIFICATIONS is true, HOOK:FETCH_NOTIFICATIONS MUST NOT be "noop".
+     Use:
+     { "type": "gradle_task", "value": "fetchNotificationsTask" }
+     and in BLOCK:NOTIFICATIONS_SCREEN you MUST visually acknowledge notifications are fetched, e.g. Text("Notifications loaded") (static text is fine).
+   * If IF:REQUIRE_LOGIN is true, you SHOULD set HOOK:AFTER_INSTALL:HOOK to a non-noop such as:
+     { "type": "post_build", "value": "initAfterInstall" }
+
+3. For any hook where the corresponding feature flag is false or obviously irrelevant, "noop" is acceptable.
+
+4. You MUST keep hook values JSON-valid. No comments inside hook JSON objects.
+
+This hook contract gives downstream codegen a stable place to connect UI actions (like submitPost) with build/runtime steps. The hook does not have to compile; it just has to exist and match names you referenced in comments inside the relevant Composables.
+
+---
+
+## PHASE 1 LOCK / IMMUTABILITY
+
+Everything in [[PHASE1_SPEC_JSON]] is frozen:
+
+* anchorsGrouped.text is LOCKED.
+* anchorsGrouped.list is LOCKED.
+* anchorsGrouped.if is LOCKED.
+* anchorsGrouped.gradle is LOCKED.
+
+You MUST copy them EXACTLY into the final output.
+You MUST NOT:
+
+* change any values,
+* add new keys,
+* delete keys,
+* rename keys,
+* inject new routes,
+* inject new permissions,
+* inject new toggles,
+* add new locales,
+* mutate applicationId/packageName,
+* change any text label values.
+
+Any attempt to "improve" or "fix" Phase 1 values is forbidden. Phase 1 is the source of truth.
+
+Your ONLY job is:
+
+* fill anchorsGrouped.block with valid Composable strings that meet the BLOCK ANCHORS rules above,
+* fill anchorsGrouped.hook with valid hook objects/strings that meet the HOOK ANCHORS rules above,
+* preserve all locked groups exactly.
+
+---
+
+## STRICT CONSISTENCY RULES (FINAL OUTPUT)
+
+Before you output the final JSON, internally SELF-CHECK these rules:
+
+1. Top-level object:
+
+   * Key order MUST be exactly:
+
+     1. "metadata"
+     2. "anchorsGrouped"
+     3. "files"
+
+2. "files" MUST be [].
+
+3. "metadata":
+
+   * MUST include "NDJC:BUILD_META:RUNID" identical to Phase 1.
+   * MAY include Phase 1's template/appName/mode/etc. if given.
+   * MUST NOT invent unrelated metadata keys.
+
+4. "anchorsGrouped":
+
+   * MUST include ALL of: "text", "list", "if", "gradle", "block", "hook".
+   * The "text", "list", "if", and "gradle" sub-objects MUST be EXACT byte-for-byte copies of the values from [[PHASE1_SPEC_JSON]].anchorsGrouped.*
+     You MUST NOT modify them.
+   * The "block" sub-object MUST contain every block anchor from the SKELETON. Each value MUST be a single string containing a full @Composable function that follows all BLOCK ANCHORS rules.
+   * The "hook" sub-object MUST contain every hook anchor from the SKELETON. Each value MUST be either:
+
+     * a structured object { "type": "...", "value": "..." } as described in HOOK ANCHORS, or
+     * "noop"
+       At least one hook MUST be non-"noop".
+       Hooks gated by IF flags that are true MUST be non-"noop" according to the HOOK ANCHORS rules.
+
+5. BLOCK safety:
+
+   * No usage of undefined data models, repositories, network calls, external resources, drawable IDs, navController, ViewModel, etc.
+   * Only local state, Text/Column/Row/etc., and static strings / comments.
+   * Button or other click handlers MAY include a comment that matches the hook's "value" string, but MUST NOT call that function directly. Example:
+     Button(onClick = { /* submitPost */ }) { Text("Post") }
+
+6. HOOK safety:
+
+   * Object form MUST be:
+     { "type": "<compose_inject|gradle_task|post_build|shell>", "value": "<identifier>" }
+     "value" MUST be a short identifier using letters/numbers/underscore, you MUST NOT include parentheses in "value".
+     Good: { "type": "compose_inject", "value": "submitPost" }
+     Bad:  { "type": "compose_inject", "value": "submitPost()" }
+   * String "noop" is allowed ONLY when that hook is irrelevant because the corresponding feature is disabled in [[PHASE1_SPEC_JSON]].
+   * All hook values MUST be syntactically valid JSON.
+
+7. Forbidden filler words/phrases:
+
+   * You MUST NOT output values that are literally "lorem", "tbd", "n/a", "-", "ready", or "content ready for rendering...".
+   * Static explanatory text like Text("Write something") or Text("Comments disabled") IS allowed.
+
+8. Output discipline:
+
+   * Return ONE final JSON object ONLY.
+   * No backticks, no Markdown fencing, no commentary.
+
+If any rule conflicts, ALWAYS favor SCHEMA compliance and these rules.
