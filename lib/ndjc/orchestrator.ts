@@ -6,9 +6,9 @@
 // Phase 2: ask LLM for implementation (block / hook) using locked Phase 1 spec
 //
 // Slim version goals:
-// - We STOP blasting huge prompt walls (no giant contract_v1.phase1.en.txt / phase2 full text).
-// - We STOP inlining giant schema fragments and repeating userNeed twice.
-// - We ONLY send minimal hard rules + skeleton + (for phase1) critical schema + need.
+// - We STOP blasting huge prompt walls.
+// - We ONLY send minimal hard rules + skeleton + need.
+// - We capture per-phase raw / checked / usage so the API+CI can write debug logs.
 //
 // RUNTIME BEHAVIOR:
 // - If process.env.VERCEL is set => treat FS as read-only, DO NOT write to disk.
@@ -16,17 +16,43 @@
 //
 // PUBLIC API:
 //   orchestrateTwoPhase(req: NdjcRequest)
-//   orchestrate(req: NdjcRequest)   // legacy alias
+//   orchestrate(req: NdjcRequest)   // alias
 //
-// RETURN SHAPE:
+// RETURN SHAPE (IMPORTANT for route.ts and CI):
 // {
 //   ok: boolean,
 //   runId: string,
-//   plan: any | null,              // merged final contract (phase2)
-//   phase1Spec: any,               // locked phase1 spec
-//   violations: string[],          // if phase2 failed validation
-//   usage: { ... },                // prompt/completion token approx per phase
-//   debug: { phase1Raw, phase1Clean, phase2Raw }  // in-memory "build log"
+//
+//   // high-level build info
+//   plan: any | null,          // merged final plan (phase2_checked if valid, else null)
+//   phase1Spec: any,           // phase1_checked
+//   violations: string[],      // phase2 validation failures
+//
+//   // phase1 / phase2 debug
+//   phase1_raw: any,
+//   phase1_checked: any,
+//   phase1_issues: string[],   // currently [] (we hard-throw instead of soft-warn in guardPhase1)
+//
+//   phase2_raw: any,
+//   phase2_checked: any | null,
+//   phase2_issues: string[],   // same as violations
+//
+//   usage: {
+//     phase1_in: number,
+//     phase1_out: number,
+//     phase1_total: number,
+//     phase2_in: number,
+//     phase2_out: number,
+//     phase2_total: number,
+//     total_in: number,
+//     total_out: number,
+//     total: number,
+//     model_phase1: string,
+//     model_phase2: string,
+//     timestamp_utc: string,
+//   },
+//
+//   trace: { ...same debug fields duplicated for convenience ... }
 // }
 
 import fs from "node:fs/promises";
@@ -55,25 +81,18 @@ type PhaseUsage = {
   model: string;
 };
 
-type UsageReport = {
-  runId: string;
-  phase1?: PhaseUsage | null;
-  phase2?: PhaseUsage | null;
-  total_tokens_all_phases: number;
-  timestamp_utc: string;
-};
-
 type Phase1Result = {
-  raw: any;
-  clean: any;
   runId: string;
+  phase1_raw: any;
+  phase1_checked: any;
+  phase1_issues: string[]; // keep array for symmetry (guardPhase1 throws instead of collecting)
   usage: PhaseUsage;
 };
 
 type Phase2Result = {
-  raw: any;
-  final: any | null;
-  violations: string[];
+  phase2_raw: any;
+  phase2_checked: any | null;
+  phase2_issues: string[];
   usage: PhaseUsage;
 };
 
@@ -89,91 +108,162 @@ function canWriteToDisk() {
 
 export async function orchestrateTwoPhase(req: NdjcRequest) {
   // ---------- Phase 1 ----------
-  const phase1 = await runPhase1(req);
-
-  // maybe persist Phase1 artifacts locally
-  let runDir = "";
-  if (canWriteToDisk()) {
-    const baseDir =
-      process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
-    runDir = path.join(baseDir, phase1.runId);
-    await fs.mkdir(runDir, { recursive: true });
-
-    await fs.writeFile(
-      path.join(runDir, "02_phase1_raw.json"),
-      JSON.stringify(phase1.raw, null, 2),
-      "utf8"
-    );
-    await fs.writeFile(
-      path.join(runDir, "02_phase1_clean.json"),
-      JSON.stringify(phase1.clean, null, 2),
-      "utf8"
-    );
-  }
+  const p1 = await runPhase1(req);
 
   // ---------- Phase 2 ----------
-  const phase2 = await runPhase2(req, phase1.clean);
+  const p2 = await runPhase2(req, p1.phase1_checked);
 
-  // maybe persist Phase2
-  if (canWriteToDisk()) {
-    await fs.writeFile(
-      path.join(runDir, "03_phase2_raw.json"),
-      JSON.stringify(phase2.raw, null, 2),
-      "utf8"
-    );
+  // ---------- usage summary for route.ts / CI ----------
+  const usageSummary = buildUsageSummary(p1.usage, p2.usage);
 
-    if (phase2.final) {
-      await fs.writeFile(
-        path.join(runDir, "03_phase2_plan.json"),
-        JSON.stringify(phase2.final, null, 2),
-        "utf8"
-      );
-    } else {
-      const vioPayload = {
-        errors: phase2.violations,
-        note: "Phase2 validation failed. No 03_phase2_plan.json emitted.",
-      };
-      await fs.writeFile(
-        path.join(runDir, "plan-violations.json"),
-        JSON.stringify(vioPayload, null, 2),
-        "utf8"
-      );
-    }
-  }
-
-  // ---------- usage summary ----------
-  const usageReport: UsageReport = {
-    runId: phase1.runId,
-    phase1: phase1.usage,
-    phase2: phase2.usage,
-    total_tokens_all_phases:
-      (phase1.usage?.total_tokens ?? 0) +
-      (phase2.usage?.total_tokens ?? 0),
-    timestamp_utc: new Date().toISOString(),
-  };
-
+  // ---------- maybe persist locally (dev env only) ----------
   if (canWriteToDisk()) {
     const baseDir =
       process.env.NDJC_REQUESTS_DIR || path.join(process.cwd(), "requests");
-    const runDir2 = path.join(baseDir, phase1.runId);
+    const runDir = path.join(baseDir, p1.runId);
+    await fs.mkdir(runDir, { recursive: true });
+
+    // per-phase raw/checked
     await fs.writeFile(
-      path.join(runDir2, "01_usage.json"),
-      JSON.stringify(usageReport, null, 2),
+      path.join(runDir, "00_phase1_raw.json"),
+      JSON.stringify(
+        { runId: p1.runId, stage: "phase1", kind: "raw", data: p1.phase1_raw },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(runDir, "00_phase1_checked.json"),
+      JSON.stringify(
+        {
+          runId: p1.runId,
+          stage: "phase1",
+          kind: "checked",
+          data: p1.phase1_checked,
+          issues: p1.phase1_issues,
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    await fs.writeFile(
+      path.join(runDir, "00_phase2_raw.json"),
+      JSON.stringify(
+        { runId: p1.runId, stage: "phase2", kind: "raw", data: p2.phase2_raw },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(runDir, "00_phase2_checked.json"),
+      JSON.stringify(
+        {
+          runId: p1.runId,
+          stage: "phase2",
+          kind: "checked",
+          data: p2.phase2_checked,
+          issues: p2.phase2_issues,
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    // combined quick look
+    const debugTwoPhase = {
+      runId: p1.runId,
+      timestamp: new Date().toISOString(),
+      phase1: {
+        raw: p1.phase1_raw,
+        checked: p1.phase1_checked,
+        issues: p1.phase1_issues,
+      },
+      phase2: {
+        raw: p2.phase2_raw,
+        checked: p2.phase2_checked,
+        issues: p2.phase2_issues,
+      },
+      usage: usageSummary,
+    };
+    await fs.writeFile(
+      path.join(runDir, "00_debug_two_phase.json"),
+      JSON.stringify(debugTwoPhase, null, 2),
+      "utf8"
+    );
+
+    // token breakdown
+    await fs.writeFile(
+      path.join(runDir, "00_token_usage.json"),
+      JSON.stringify(usageSummary, null, 2),
+      "utf8"
+    );
+
+    // also expose final contract/plan shape like old flow did (02_/03_...)
+    await fs.writeFile(
+      path.join(runDir, "01_contract.json"),
+      JSON.stringify(p1.phase1_checked, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(runDir, "02_plan.json"),
+      JSON.stringify(p2.phase2_checked ?? {}, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(runDir, "03_apply_result.json"),
+      JSON.stringify(
+        {
+          status: p2.phase2_checked ? "ok" : "invalid",
+          note: p2.phase2_checked
+            ? "ready for materialize"
+            : "phase2 validation failed, see issues",
+          issues: p2.phase2_issues,
+        },
+        null,
+        2
+      ),
       "utf8"
     );
   }
 
+  // ---------- final API return ----------
+  const ok = !!p2.phase2_checked;
+  const mergedPlan = p2.phase2_checked; // final usable plan if ok, else null
+
   return {
-    ok: !!phase2.final,
-    runId: phase1.runId,
-    plan: phase2.final,
-    phase1Spec: phase1.clean,
-    violations: phase2.final ? [] : phase2.violations,
-    usage: usageReport,
-    debug: {
-      phase1Raw: phase1.raw,
-      phase1Clean: phase1.clean,
-      phase2Raw: phase2.raw,
+    ok,
+    runId: p1.runId,
+
+    // high-level
+    plan: mergedPlan,
+    phase1Spec: p1.phase1_checked,
+    violations: p2.phase2_issues,
+
+    // debug blobs for route.ts (will get written to GH)
+    phase1_raw: p1.phase1_raw,
+    phase1_checked: p1.phase1_checked,
+    phase1_issues: p1.phase1_issues,
+    phase2_raw: p2.phase2_raw,
+    phase2_checked: p2.phase2_checked,
+    phase2_issues: p2.phase2_issues,
+
+    // usage summary
+    usage: usageSummary,
+
+    // trace (compat with older route.ts expectations)
+    trace: {
+      phase1_raw: p1.phase1_raw,
+      phase1_checked: p1.phase1_checked,
+      phase1_issues: p1.phase1_issues,
+      phase2_raw: p2.phase2_raw,
+      phase2_checked: p2.phase2_checked,
+      phase2_issues: p2.phase2_issues,
+      usage: usageSummary,
     },
   };
 }
@@ -187,61 +277,36 @@ export async function orchestrate(req: NdjcRequest) {
  * PHASE 1  (SLIM PROMPT)
  * =======================================================*/
 
-/**
- * We now build a SLIM system/user message pair.
- *
- * system: just the hard behavioral rules, compressed.
- * user:   one JSON blob bundling:
- *   - need (userNeed)
- *   - skeletonPhase1 (final desired shape / keys / groups for phase1)
- *   - schemaCorePhase1 (critical constraints that must pass guardPhase1)
- */
 async function runPhase1(req: NdjcRequest): Promise<Phase1Result> {
   const templateKey = req.template_key ?? "circle-basic";
   const userNeed = (req.requirement ?? "").trim();
 
-  // --- build skeleton (phase1)
+  // skeleton + schema core
   const skeletonP1 = buildSkeletonPhase1(registryP1);
-  const skeletonPhase1Str = stableStringify(skeletonP1);
-
-  // --- build minimal schema core for Phase1
   const schemaCoreP1 = buildSchemaCorePhase1(registryP1);
-  const schemaCoreP1Str = stableStringify(schemaCoreP1);
 
-  // SYSTEM MESSAGE (slim)
   const sysHeaderPhase1 = [
     "You are NDJC Phase 1.",
     "Goal: Produce EXACTLY ONE valid JSON object and NOTHING ELSE.",
-    '',
-    // Top-level contract shape
+    "",
     'Top-level keys in this exact order: "metadata" -> "anchorsGrouped" -> "files".',
     '"files" MUST be an empty array [].',
-    '',
-    // Allowed groups for Phase1
-    'anchorsGrouped MUST contain ONLY these groups: "text","list","if","gradle".',
+    "",
+    'anchorsGrouped MUST contain ONLY "text","list","if","gradle".',
     'DO NOT output "block" or "hook" in Phase1.',
-    '',
-    // Filling requirements
-    "You MUST fill every anchor shown in skeletonPhase1.",
-    "Use native JSON types: booleans as true/false (not strings), numbers as numbers (not strings).",
-    "Objects must be real JSON objects, not stringified.",
-    "URLs must be https:// when required.",
-    "Package IDs must be valid Android package names (lowercase dot segments).",
-    "Locale tags in gradle.resConfigs must match ^[a-z]{2}(-r[A-Z]{2,3})?$ such as 'en' or 'zh-rCN'.",
-    "gradle.permissions must include at least 'android.permission.INTERNET' and only valid android.permission.* constants.",
-    "LIST:ROUTES must contain at least one valid route id matching ^[a-z][a-z0-9_-]*$.",
+    "",
+    "You MUST fill every anchor in skeletonPhase1.",
+    "Use correct JSON types (booleans true/false, arrays [], objects {}).",
+    "Package/applicationId must match ^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$ .",
+    "gradle.permissions must include android.permission.INTERNET and only android.permission.*.",
+    "gradle.resConfigs must be locale tags like en or zh-rCN.",
+    "LIST:ROUTES must have >=1 valid route id like 'home' (^[a-z][a-z0-9_-]*$).",
     "NDJC:BUILD_META:RUNID must match ^run_[0-9]{8}_[0-9]{3}$.",
-    '',
-    // Forbidden placeholders
-    "NEVER use placeholders/filler like: lorem, tbd, n/a, -, ready, content ready for rendering...",
-    '',
-    // Output discipline
-    "Return ONLY the final JSON object, with correct key order.",
-    "No markdown fences, no commentary, no backticks.",
+    "",
+    "NEVER output placeholders (lorem, tbd, n/a, ready...).",
+    "Return ONLY JSON (no markdown fences).",
   ].join("\n");
 
-  // USER MESSAGE (all data for model to reason about)
-  // We pack userNeed + skeletonPhase1 + schemaCorePhase1
   const userMsgPhase1Obj = {
     need: userNeed,
     skeletonPhase1: skeletonP1,
@@ -256,32 +321,33 @@ async function runPhase1(req: NdjcRequest): Promise<Phase1Result> {
 
   const { text: llmText, usage } = await runGroqChat(msgs);
 
-  // parse + ensure structure
+  // raw JSON from model
   const rawJson = parseAndEnsureTopLevel(llmText);
 
-  // sanitize/normalize
-  const clean = sanitizePhase1(rawJson, registryP1, templateKey);
+  // normalize / sanitize
+  const checked = sanitizePhase1(rawJson, registryP1, templateKey);
 
-  // unify runId
+  // derive runId and enforce guard
   const runIdGuess =
-    clean?.metadata?.["NDJC:BUILD_META:RUNID"] ||
-    clean?.anchorsGrouped?.text?.["NDJC:BUILD_META:RUNID"] ||
+    checked?.metadata?.["NDJC:BUILD_META:RUNID"] ||
+    checked?.anchorsGrouped?.text?.["NDJC:BUILD_META:RUNID"] ||
     `run_${genDateStamp()}_000`;
 
-  if (!clean.metadata) clean.metadata = {};
-  clean.metadata["NDJC:BUILD_META:RUNID"] = runIdGuess;
+  if (!checked.metadata) checked.metadata = {};
+  checked.metadata["NDJC:BUILD_META:RUNID"] = runIdGuess;
 
-  if (!clean.anchorsGrouped) clean.anchorsGrouped = {};
-  if (!clean.anchorsGrouped.text) clean.anchorsGrouped.text = {};
-  clean.anchorsGrouped.text["NDJC:BUILD_META:RUNID"] = runIdGuess;
+  if (!checked.anchorsGrouped) checked.anchorsGrouped = {};
+  if (!checked.anchorsGrouped.text) checked.anchorsGrouped.text = {};
+  checked.anchorsGrouped.text["NDJC:BUILD_META:RUNID"] = runIdGuess;
 
-  // final guard
-  guardPhase1(clean, registryP1);
+  // guard throws on invalid -> if it doesn't throw, no issues
+  guardPhase1(checked, registryP1);
 
   return {
-    raw: rawJson,
-    clean,
     runId: runIdGuess,
+    phase1_raw: rawJson,
+    phase1_checked: checked,
+    phase1_issues: [], // guardPhase1() throws instead of collecting
     usage,
   };
 }
@@ -290,27 +356,16 @@ async function runPhase1(req: NdjcRequest): Promise<Phase1Result> {
  * PHASE 2 (SLIM PROMPT)
  * =======================================================*/
 
-/**
- * Phase2 slim prompt:
- *
- * system: strict rules for block/hook only.
- * user:   bundle:
- *   - need (userNeed)
- *   - lockedSpecFromPhase1 (text/list/if/gradle we must NOT change)
- *   - skeletonPhase2 (phase2 final shape with empty block/hook)
- *
- * We explicitly do NOT resend giant prompt texts or duplicate userNeed.
- */
 async function runPhase2(
   req: NdjcRequest,
   phase1Clean: any
 ): Promise<Phase2Result> {
   const userNeed = (req.requirement ?? "").trim();
 
-  // Build final skeleton for Phase2 (text/list/if/gradle locked from phase1; block/hook empty)
+  // skeleton2 with locked text/list/if/gradle + empty block/hook
   const skeletonP2 = buildSkeletonPhase2(registryP2, phase1Clean);
 
-  // We'll also pass a compact "lockedSpec" = the frozen text/list/if/gradle from phase1Clean
+  // lockedSpec (must not change)
   const lockedSpec = {
     metadata: phase1Clean?.metadata || {},
     anchorsGrouped: {
@@ -321,7 +376,6 @@ async function runPhase2(
     },
   };
 
-  // SYSTEM MESSAGE for Phase2 (slim rules)
   const sysHeaderPhase2 = [
     "You are NDJC Phase 2.",
     "Goal: Produce EXACTLY ONE valid JSON object and NOTHING ELSE.",
@@ -329,31 +383,25 @@ async function runPhase2(
     'Top-level keys in this exact order: "metadata" -> "anchorsGrouped" -> "files".',
     '"files" MUST be an empty array [].',
     "",
-    "anchorsGrouped MUST contain ALL of these groups:",
-    '"text","list","if","gradle","block","hook".',
+    'anchorsGrouped MUST contain ALL groups: "text","list","if","gradle","block","hook".',
     "",
     "CRITICAL LOCK RULE:",
-    "You MUST copy text/list/if/gradle EXACTLY from lockedSpec. Do not modify their values or keys.",
+    "You MUST copy text/list/if/gradle EXACTLY from lockedSpec. DO NOT MODIFY them.",
     "You MUST fill EVERY key in anchorsGrouped.block and anchorsGrouped.hook in skeletonPhase2.",
     "",
     "BLOCK RULES:",
-    "- Each block value must be a Kotlin/Jetpack Compose snippet (string).",
-    '- It should look like @Composable fun ... { ... Text("...") ... } or use Compose calls like Text( ), Column{ }, Row{ }.',
-    "- It should be at least ~40 characters of code, not just a label.",
-    "- Do not output placeholders like lorem / tbd / n/a / ready / content ready.",
+    "- Each block value: Jetpack Compose snippet string (@Composable ... Text(...), Column{ }, Row{ } ...).",
+    "- It must be > ~40 chars of plausible Compose UI code, not just a label.",
+    "- No placeholders like lorem/tbd/n/a/ready/etc.",
     "",
     "HOOK RULES:",
-    '- Each hook value must be either "noop", a simple string (like "gradle_task:uploadMedia"),',
+    '- Each hook value must be "noop", a short string like "gradle_task:uploadMedia",',
     '  or a small object { "type": "...", "value": "..." }.',
-    "- Hooks must be syntactically valid JSON.",
     "",
     "RETURN RULES:",
-    "Return ONLY the final JSON (no commentary, no markdown fences).",
+    "Return ONLY JSON. No commentary, no markdown fences.",
   ].join("\n");
 
-  // USER MESSAGE for Phase2:
-  // We pack userNeed, lockedSpec (text/list/if/gradle from phase1),
-  // and skeletonPhase2 (desired final shape with block/hook placeholders).
   const userMsgPhase2Obj = {
     need: userNeed,
     lockedSpec,
@@ -368,16 +416,16 @@ async function runPhase2(
 
   const { text: llmText, usage } = await runGroqChat(msgs);
 
-  // parse model output
+  // model raw
   const rawJson = parseAndEnsureTopLevel(llmText);
 
-  // validate and merge with phase1
+  // validate & merge with locked groups
   const { final, violations } = validatePhase2(rawJson, phase1Clean, registryP2);
 
   return {
-    raw: rawJson,
-    final,
-    violations,
+    phase2_raw: rawJson,
+    phase2_checked: final,
+    phase2_issues: violations,
     usage,
   };
 }
@@ -399,7 +447,7 @@ async function runGroqChat(
       ? r.text
       : (r?.choices?.[0]?.message?.content as string) || "";
 
-  // approximate token usage if not provided
+  // fallback approximate token usage
   const concatPrompt = msgs.map((m) => m.content).join("\n");
   const approxTokens = (s: string) => Math.ceil((s ?? "").length / 4);
 
@@ -420,11 +468,40 @@ async function runGroqChat(
   return { text, usage };
 }
 
+/* helper to summarize two PhaseUsage blocks into what route.ts / CI expects */
+function buildUsageSummary(p1: PhaseUsage, p2: PhaseUsage) {
+  const phase1_in = p1?.prompt_tokens ?? 0;
+  const phase1_out = p1?.completion_tokens ?? 0;
+  const phase1_total = p1?.total_tokens ?? phase1_in + phase1_out;
+
+  const phase2_in = p2?.prompt_tokens ?? 0;
+  const phase2_out = p2?.completion_tokens ?? 0;
+  const phase2_total = p2?.total_tokens ?? phase2_in + phase2_out;
+
+  const total_in = phase1_in + phase2_in;
+  const total_out = phase1_out + phase2_out;
+  const total = phase1_total + phase2_total;
+
+  return {
+    phase1_in,
+    phase1_out,
+    phase1_total,
+    phase2_in,
+    phase2_out,
+    phase2_total,
+    total_in,
+    total_out,
+    total,
+    model_phase1: p1?.model ?? "unknown",
+    model_phase2: p2?.model ?? "unknown",
+    timestamp_utc: new Date().toISOString(),
+  };
+}
+
 /* =========================================================
  * SKELETON BUILDERS
  * =======================================================*/
 
-// Phase1 skeleton: only text / list / if / gradle
 function buildSkeletonPhase1(regP1: any) {
   const metadata: Record<string, any> = {
     "NDJC:BUILD_META:RUNID": "",
@@ -463,7 +540,7 @@ function buildSkeletonPhase1(regP1: any) {
   };
 }
 
-// Phase2 skeleton: lock phase1 text/list/if/gradle; create empty block/hook
+// lock text/list/if/gradle from phase1; create empty block/hook
 function buildSkeletonPhase2(regP2: any, phase1Clean: any) {
   const locked = phase1Clean?.anchorsGrouped || {};
 
@@ -503,32 +580,17 @@ function buildSkeletonPhase2(regP2: any, phase1Clean: any) {
 
 /* =========================================================
  * PHASE1 "SCHEMA CORE"
- * (critical constraints we actually enforce in guardPhase1)
+ * (only constraints we truly enforce in guardPhase1)
  * =======================================================*/
 
 function buildSchemaCorePhase1(regP1: any) {
-  // We keep only the constraints that guardPhase1() will hard-reject on
-  // and those needed so LLM outputs passable values.
-
-  // RUNID regex
   const runIdRule = "^run_[0-9]{8}_[0-9]{3}$";
-
-  // packageId / applicationId regex
   const pkgRule = "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$";
-
-  // https URL rule for DATA_SOURCE
   const httpsRule = "^https://[\\w.-]+(:\\d+)?(/.*)?$";
-
-  // route item regex
   const routeRule = "^[a-z][a-z0-9_-]*$";
-
-  // locale tag regex
   const localeRule = "^[a-z]{2}(-r[A-Z]{2,3})?$";
-
-  // permission regex
   const permRule = "^android\\.permission\\.[A-Z_]+$";
 
-  // minimal required groups we actually depend on
   const required = regP1.required ?? {};
 
   return {
@@ -570,7 +632,7 @@ function sanitizePhase1(rawJson: any, _regP1: any, templateKey: string) {
     out.anchorsGrouped.if[k] = toBool(out.anchorsGrouped.if[k]);
   }
 
-  // ensure THEME_COLORS / STRINGS_EXTRA become real objects if present
+  // THEME_COLORS / STRINGS_EXTRA to proper objects
   if (out.anchorsGrouped.text["NDJC:THEME_COLORS"] !== undefined) {
     out.anchorsGrouped.text["NDJC:THEME_COLORS"] = normalizeJsonObject(
       out.anchorsGrouped.text["NDJC:THEME_COLORS"],
@@ -584,7 +646,7 @@ function sanitizePhase1(rawJson: any, _regP1: any, templateKey: string) {
     );
   }
 
-  // Gradle sanity
+  // gradle.applicationId / resConfigs / permissions cleanup
   const g = out.anchorsGrouped.gradle;
   g.applicationId = ensurePkg(
     g.applicationId ||
@@ -592,7 +654,6 @@ function sanitizePhase1(rawJson: any, _regP1: any, templateKey: string) {
       "com.example.ndjc"
   );
 
-  // resConfigs
   let resCfgs: string[] = Array.isArray(g.resConfigs)
     ? g.resConfigs.map(String)
     : [];
@@ -600,7 +661,6 @@ function sanitizePhase1(rawJson: any, _regP1: any, templateKey: string) {
   if (!resCfgs.length) resCfgs = ["en"];
   g.resConfigs = resCfgs;
 
-  // permissions
   let perms: string[] = Array.isArray(g.permissions)
     ? g.permissions.map(String)
     : [];
@@ -608,7 +668,7 @@ function sanitizePhase1(rawJson: any, _regP1: any, templateKey: string) {
   if (!perms.length) perms = ["android.permission.INTERNET"];
   g.permissions = perms;
 
-  // metadata normative info
+  // metadata normalization
   out.metadata.template =
     templateKey || out.metadata.template || "circle-basic";
   out.metadata.appName =
@@ -622,10 +682,7 @@ function sanitizePhase1(rawJson: any, _regP1: any, templateKey: string) {
 }
 
 function guardPhase1(clean: any, _regP1: any) {
-  if (
-    !clean.anchorsGrouped ||
-    typeof clean.anchorsGrouped !== "object"
-  ) {
+  if (!clean.anchorsGrouped || typeof clean.anchorsGrouped !== "object") {
     throw new Error("Phase1 guard: anchorsGrouped missing/invalid");
   }
 
@@ -673,16 +730,14 @@ function validatePhase2(
   ) {
     return {
       final: null,
-      violations: [
-        "Phase2: anchorsGrouped missing or not object",
-      ],
+      violations: ["Phase2: anchorsGrouped missing or not object"],
     };
   }
 
   const locked = phase1Clean.anchorsGrouped || {};
   const got = phase2Raw.anchorsGrouped || {};
 
-  // enforce lock: text/list/if/gradle must match exactly
+  // locked groups must match exactly
   const groupsToLock = ["text", "list", "if", "gradle"] as const;
   for (const g of groupsToLock) {
     const beforeStr = stableStringify(locked[g] || {});
@@ -692,7 +747,7 @@ function validatePhase2(
     }
   }
 
-  // ensure block/hook exist
+  // require block/hook
   if (!got.block || typeof got.block !== "object") {
     violations.push("Phase2: block group missing/invalid");
   }
@@ -700,13 +755,12 @@ function validatePhase2(
     violations.push("Phase2: hook group missing/invalid");
   }
 
-  // block validation with explicit typing
+  // block validation
   if (got.block) {
     for (const [rawName, rawVal] of Object.entries(got.block)) {
       const anchorName: string = String(rawName);
       const val: unknown = rawVal;
 
-      // length / string check
       if (typeof val !== "string" || val.trim().length < 10) {
         violations.push(
           `Phase2: block ${anchorName} too short or not string`
@@ -714,7 +768,6 @@ function validatePhase2(
         continue;
       }
 
-      // check compose-ish content
       if (
         !/@Composable/.test(val) &&
         !/Text\(/.test(val) &&
@@ -728,7 +781,7 @@ function validatePhase2(
     }
   }
 
-  // hook validation with explicit typing
+  // hook validation
   if (got.hook) {
     for (const [rawName, rawVal] of Object.entries(got.hook)) {
       const anchorName: string = String(rawName);
@@ -749,7 +802,7 @@ function validatePhase2(
     return { final: null, violations };
   }
 
-  // merge locked groups + new block/hook into final
+  // merge locked groups + new block/hook into final plan
   const merged = {
     metadata: {
       ...phase2Raw.metadata,
