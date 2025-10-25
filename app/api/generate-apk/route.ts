@@ -5,7 +5,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { orchestrate } from "@/lib/ndjc/orchestrator";
 import { parseStrictJson, validateContractV1 } from "@/lib/ndjc/llm/strict-json";
 import { contractV1ToPlan } from "@/lib/ndjc/contract/contractv1-to-plan";
-import { ensureRunBranchAndCommitFiles } from "@/lib/github/write-files";
 
 export const runtime = "nodejs";
 
@@ -18,6 +17,78 @@ const CORS: Record<string, string> = {
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });
+}
+
+/* =========================================================
+ * GitHub 提交文件工具（内联版）
+ * =======================================================*/
+const GH_API = "https://api.github.com";
+
+async function gh(headers: Record<string, string>, method: string, url: string, body?: any) {
+  const r = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`${method} ${url} -> ${r.status} ${r.statusText}: ${text}`);
+  }
+  return r;
+}
+
+async function ensureRunBranchAndCommitFiles(args: {
+  owner: string;
+  repo: string;
+  baseRef: string;
+  runBranch: string;
+  token: string;
+  files: Array<{ path: string; content: string }>;
+}) {
+  const { owner, repo, baseRef, runBranch, token, files } = args;
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+  };
+
+  // 1) 找 baseRef 最新 commit SHA
+  const baseRefData = await (await gh(headers, "GET", `${GH_API}/repos/${owner}/${repo}/git/ref/heads/${baseRef}`)).json();
+  const baseSha: string = baseRefData.object.sha;
+
+  // 2) 创建 runBranch（若不存在）
+  let hasRunBranch = true;
+  try {
+    await gh(headers, "GET", `${GH_API}/repos/${owner}/${repo}/git/ref/heads/${runBranch}`);
+  } catch {
+    hasRunBranch = false;
+  }
+  if (!hasRunBranch) {
+    await gh(headers, "POST", `${GH_API}/repos/${owner}/${repo}/git/refs`, {
+      ref: `refs/heads/${runBranch}`,
+      sha: baseSha,
+    });
+  }
+
+  // 3) 提交文件到 runBranch
+  for (const f of files) {
+    const url = `${GH_API}/repos/${owner}/${repo}/contents/${encodeURIComponent(f.path)}`;
+    let sha: string | undefined;
+    try {
+      const existing = await (await gh(headers, "GET", `${url}?ref=${runBranch}`)).json();
+      sha = existing.sha;
+    } catch {
+      sha = undefined;
+    }
+    await gh(headers, "PUT", url, {
+      message: `NDJC: materialize ${runBranch} -> ${f.path}`,
+      content: Buffer.from(f.content, "utf8").toString("base64"),
+      branch: runBranch,
+      sha,
+    });
+  }
 }
 
 /* =========================================================
@@ -59,19 +130,16 @@ export async function POST(req: NextRequest) {
       timestamp: new Date().toISOString(),
       template: o?.template || input?.template || "circle-basic",
       mode: o?._mode || "A",
-
       phase1: {
         raw: o?.trace?.phase1_raw || o?.phase1_raw || null,
         checked: o?.trace?.phase1_checked || o?.phase1_checked || null,
         issues: o?.trace?.phase1_issues || [],
       },
-
       phase2: {
         raw: o?.trace?.phase2_raw || o?.phase2_raw || null,
         checked: planV1 || o?.trace?.phase2_checked || null,
         issues: o?.trace?.phase2_issues || [],
       },
-
       tokens: {
         phase1_in: o?.usage?.phase1_in || o?.trace?.usage?.phase1_in || null,
         phase1_out: o?.usage?.phase1_out || o?.trace?.usage?.phase1_out || null,
@@ -90,7 +158,7 @@ export async function POST(req: NextRequest) {
       GH_OWNER: owner,
       GH_REPO: repo,
       GH_BRANCH: wfBranch,
-      GH_TOKEN: token,
+      GH_PAT: token,
     } = process.env as Record<string, string>;
 
     const branch = `ndjc-run/${runId}`;
