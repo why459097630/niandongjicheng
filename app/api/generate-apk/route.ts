@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     /* ---------------- Contract 校验 ---------------- */
     // ✅ 修正行：添加 (o as any)，避免 TS 编译报错
     const contractOut = parseStrictJson((o as any)?.raw || "{}");
-    const valid = validateContractV1(contractOut);
+    const valid = await validateContractV1(contractOut);
     if (!valid.ok) {
       console.warn(`[NDJC] Contract v1 invalid: ${valid.errors?.join(", ")}`);
     }
