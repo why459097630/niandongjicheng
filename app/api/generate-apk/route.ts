@@ -71,9 +71,13 @@ async function triggerBuild({
       status: "queued", // 构建状态：queued, running, success, failure等
       artifactUrl: "https://example.com/download/artifact", // 构建产物下载 URL
     };
-  } catch (error) {
-    throw new Error("Build process failed: " + error.message);
+} catch (error: unknown) { // 将错误类型指定为 unknown
+  if (error instanceof Error) { // 判断是否为 Error 类型
+    throw new Error('Build process failed: ' + error.message); // 访问 error.message
+  } else {
+    throw new Error('Build process failed: Unknown error'); // 处理非 Error 类型的情况
   }
+}
 }
 
 // CORS 设置（如果前端和后端在不同域）
