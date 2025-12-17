@@ -1,114 +1,93 @@
-// E:\NDJC\niandongjicheng\app\api\build\route.ts
 import { NextResponse } from "next/server";
 
-type BuildRequest = {
-  runId?: string;
-  appName?: string;
-  templateKey?: string;
-  uiPack?: string;
-  modules?: string[]; // 逻辑模块列表
-  // 可选：以后你要从前端传 iconBase64（dataURL 或纯 base64）也能直接接
-  iconBase64?: string;
-};
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-function corsHeaders() {
-  const allowOrigin = process.env.ALLOW_ORIGIN || "*";
-  return {
-    "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Methods": "POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Max-Age": "86400",
-  };
+function json(data: any, init?: ResponseInit) {
+  return NextResponse.json(data, {
+    ...init,
+    headers: {
+      "Cache-Control": "no-store",
+      ...(init?.headers || {}),
+    },
+  });
+}
+
+// 可选：如果你前端/后端分域名（Vercel 两个项目）才需要 CORS。
+// 同域（同一个 Next 项目里 page 调 api）不需要，但加上也不碍事。
+function withCors(res: NextResponse) {
+  res.headers.set("Access-Control-Allow-Origin", process.env.ALLOW_ORIGIN || "*");
+  res.headers.set("Access-Control-Allow-Methods", "POST,OPTIONS");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  return res;
 }
 
 export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+  return withCors(new NextResponse(null, { status: 204 }));
 }
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as BuildRequest;
+    const contentType = req.headers.get("content-type") || "";
 
-    const runId =
-      body.runId ||
-      `ndjc-${new Date()
-        .toISOString()
-        .replace(/[-:]/g, "")
-        .replace(/\..+/, "")}Z`;
+    // 兼容 JSON / FormData 两种提交
+    let payload: any = {};
+    if (contentType.includes("application/json")) {
+      payload = await req.json();
+    } else if (contentType.includes("multipart/form-data")) {
+      const form = await req.formData();
+      // 你前端怎么传，这里就怎么取；先做最大兼容：
+      payload.appName = String(form.get("appName") || "");
+      payload.mode = String(form.get("mode") || "");
+      payload.modules = JSON.parse(String(form.get("modules") || "[]"));
+      payload.uiPacks = JSON.parse(String(form.get("uiPacks") || "[]"));
 
-    const owner = process.env.GH_OWNER; // why459097630
-    const repo = process.env.GH_REPO; // Packaging-warehouse
-    const token = process.env.GH_PAT || process.env.GH_TOKEN;
-    const ref = process.env.GH_BRANCH || "main";
-
-    // workflow 可以用 ID 或文件名（如 android-build.yml）
-    const workflow = process.env.WORKFLOW_ID || "android-build.yml";
-
-    if (!owner || !repo || !token) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Missing env: GH_OWNER / GH_REPO / GH_PAT(or GH_TOKEN). Check Vercel env and local .env.local.",
-        },
-        { status: 500, headers: corsHeaders() }
-      );
+      const icon = form.get("icon");
+      if (icon && icon instanceof File) {
+        // 不直接在这里处理图片：交给后端/Packaging-warehouse
+        // 这里先把 meta 带上，后续你要我再把“上传到后端/写入模板”接完整
+        payload.icon = {
+          name: icon.name,
+          type: icon.type,
+          size: icon.size,
+        };
+      }
+    } else {
+      // 兜底：尝试按 json 读
+      try {
+        payload = await req.json();
+      } catch {
+        payload = {};
+      }
     }
 
-    // GitHub workflow_dispatch inputs 只能是 string
-    const inputs: Record<string, string> = {
-      run_id: runId,
-      app_name: (body.appName || "NDJC App").slice(0, 40),
-      template_key: body.templateKey || "shop-basic",
-      ui_pack: body.uiPack || "",
-      modules: Array.isArray(body.modules) ? body.modules.join(",") : "",
-      icon_base64: body.iconBase64 ? String(body.iconBase64) : "",
-    };
+    // 基础字段容错：不改变你现有前端结构，只做更稳的兜底
+    const appName = (payload.appName || payload.name || "NDJC App").toString().trim();
+    const modules = Array.isArray(payload.modules) ? payload.modules : [];
+    const uiPacks = Array.isArray(payload.uiPacks) ? payload.uiPacks : [];
 
-    const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${encodeURIComponent(
-      workflow
-    )}/dispatches`;
+    // 这里先返回 runId，确保前端“触发构建”不会再 405
+    // 下一步再把这里接到 Packaging-warehouse（写 assembly.local.json + 触发 workflow）
+    const runId = payload.runId || `ndjc-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
 
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify({
-        ref,
-        inputs,
-      }),
+    const resp = json({
+      ok: true,
+      runId,
+      appName,
+      modules,
+      uiPacks,
+      message: "API /api/build is alive (POST ok). Next: wire to Packaging-warehouse workflow.",
     });
 
-    if (!r.ok) {
-      const t = await r.text().catch(() => "");
-      return NextResponse.json(
-        {
-          ok: false,
-          error: `GitHub dispatch failed: HTTP ${r.status}`,
-          detail: t,
-        },
-        { status: 500, headers: corsHeaders() }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        ok: true,
-        runId,
-        dispatched: true,
-        repo: `${owner}/${repo}`,
-        ref,
-      },
-      { status: 200, headers: corsHeaders() }
-    );
+    return withCors(resp);
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: String(e?.message ?? e) },
-      { status: 500, headers: corsHeaders() }
+    const resp = json(
+      {
+        ok: false,
+        error: e?.message || String(e),
+      },
+      { status: 500 }
     );
+    return withCors(resp);
   }
 }
