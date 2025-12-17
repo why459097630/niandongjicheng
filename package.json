@@ -48,6 +48,10 @@
     ],
     "overrides": {
       "octokit": "5.0.3"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "unrs-resolver"
+    ]
   }
 }
