@@ -1,1 +1,6 @@
-import "../styles/tailwind.css";  // 确保引入 Tailwind CSS 文件
+import type { AppProps } from "next/app";
+import "../styles/globals.css";
+
+export default function App({ Component, pageProps }: AppProps) {
+  return <Component {...pageProps} />;
+}
