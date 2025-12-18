@@ -91,6 +91,7 @@ export default function Page() {
         appName: appName.trim(),
         uiPack,
         modules,
+        iconBase64: uploadedIcon ?? undefined,
       };
 
       const r = await fetch("/api/build", {
