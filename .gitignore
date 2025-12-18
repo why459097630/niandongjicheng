@@ -19,3 +19,6 @@ build-logs/
 android/
 **/build/
 **/outputs/
+
+.env.local
+
