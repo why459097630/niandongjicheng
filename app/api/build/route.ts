@@ -3,91 +3,185 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type BuildReq = {
+  run_id?: string;
+  uiPack?: string;          // assembly.local.json: uiPack
+  modules?: string[];       // assembly.local.json: modules
+  appName?: string;         // assembly.local.json: appName
+  iconBase64?: string;      // optional dataURL: data:image/png;base64,...
+};
+
 function json(data: any, init?: ResponseInit) {
-  return NextResponse.json(data, {
+  return NextResponse.json(data, init);
+}
+
+function requireEnv(name: string) {
+  const v = process.env[name];
+  if (!v) throw Object.assign(new Error(`Missing env: ${name}`), { status: 500 });
+  return v;
+}
+
+async function ghFetch(url: string, init: { token: string } & RequestInit) {
+  const res = await fetch(url, {
     ...init,
     headers: {
-      "Cache-Control": "no-store",
-      ...(init?.headers || {}),
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${init.token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(init.headers || {}),
     },
+  });
+
+  const text = await res.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+  if (!res.ok) {
+    throw Object.assign(new Error(data?.message || `GitHub HTTP ${res.status}`), {
+      status: res.status,
+      detail: data,
+    });
+  }
+  return data;
+}
+
+function parseDataUrlToBytes(dataUrl: string) {
+  const m = /^data:(.+?);base64,(.+)$/i.exec(dataUrl);
+  if (!m) throw Object.assign(new Error("iconBase64 must be a dataURL: data:*/*;base64,..."), { status: 400 });
+  const b64 = m[2];
+  const buf = Buffer.from(b64, "base64");
+  return buf;
+}
+
+async function upsertFile(params: {
+  owner: string;
+  repo: string;
+  branch: string;
+  path: string;
+  contentBytes: Buffer;
+  message: string;
+  token: string;
+}) {
+  const { owner, repo, branch, path, contentBytes, message, token } = params;
+  const api = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`;
+
+  // get sha if exists
+  let sha: string | undefined;
+  try {
+    const existing = await ghFetch(`${api}?ref=${encodeURIComponent(branch)}`, { token, method: "GET" });
+    sha = existing?.sha;
+  } catch (_) {
+    sha = undefined;
+  }
+
+  const body: any = {
+    message,
+    branch,
+    content: contentBytes.toString("base64"),
+  };
+  if (sha) body.sha = sha;
+
+  await ghFetch(api, {
+    token,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
 }
 
-// 可选：如果你前端/后端分域名（Vercel 两个项目）才需要 CORS。
-// 同域（同一个 Next 项目里 page 调 api）不需要，但加上也不碍事。
-function withCors(res: NextResponse) {
-  res.headers.set("Access-Control-Allow-Origin", process.env.ALLOW_ORIGIN || "*");
-  res.headers.set("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  return res;
-}
-
-export async function OPTIONS() {
-  return withCors(new NextResponse(null, { status: 204 }));
+async function dispatchWorkflow(params: {
+  owner: string;
+  repo: string;
+  workflowId: string;
+  ref: string;
+  inputs: Record<string, string>;
+  token: string;
+}) {
+  const { owner, repo, workflowId, ref, inputs, token } = params;
+  const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`;
+  // 注意：inputs 只能包含 workflow_dispatch 里声明过的键；本方案只传 run_id
+  await ghFetch(url, {
+    token,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref, inputs }),
+  });
 }
 
 export async function POST(req: Request) {
   try {
-    const contentType = req.headers.get("content-type") || "";
+    const GH_TOKEN = requireEnv("GH_TOKEN");
+    const GH_OWNER = requireEnv("GH_OWNER");
+    const GH_REPO = requireEnv("GH_REPO");
+    const GH_BRANCH = requireEnv("GH_BRANCH");
+    const WORKFLOW_ID = requireEnv("WORKFLOW_ID");
 
-    // 兼容 JSON / FormData 两种提交
-    let payload: any = {};
-    if (contentType.includes("application/json")) {
-      payload = await req.json();
-    } else if (contentType.includes("multipart/form-data")) {
-      const form = await req.formData();
-      // 你前端怎么传，这里就怎么取；先做最大兼容：
-      payload.appName = String(form.get("appName") || "");
-      payload.mode = String(form.get("mode") || "");
-      payload.modules = JSON.parse(String(form.get("modules") || "[]"));
-      payload.uiPacks = JSON.parse(String(form.get("uiPacks") || "[]"));
+    const body = (await req.json()) as BuildReq;
 
-      const icon = form.get("icon");
-      if (icon && icon instanceof File) {
-        // 不直接在这里处理图片：交给后端/Packaging-warehouse
-        // 这里先把 meta 带上，后续你要我再把“上传到后端/写入模板”接完整
-        payload.icon = {
-          name: icon.name,
-          type: icon.type,
-          size: icon.size,
-        };
-      }
-    } else {
-      // 兜底：尝试按 json 读
-      try {
-        payload = await req.json();
-      } catch {
-        payload = {};
-      }
-    }
+    const runId = body.run_id?.trim();
+    const template = "core-skeleton";
+    const uiPack = body.uiPack?.trim();
+    const modules = Array.isArray(body.modules) ? body.modules : [];
+    const appName = body.appName?.trim();
 
-    // 基础字段容错：不改变你现有前端结构，只做更稳的兜底
-    const appName = (payload.appName || payload.name || "NDJC App").toString().trim();
-    const modules = Array.isArray(payload.modules) ? payload.modules : [];
-    const uiPacks = Array.isArray(payload.uiPacks) ? payload.uiPacks : [];
+    if (!runId) return json({ ok: false, error: "run_id is required" }, { status: 400 });
+    if (!uiPack) return json({ ok: false, error: "uiPack is required" }, { status: 400 });
+    if (!appName) return json({ ok: false, error: "appName is required" }, { status: 400 });
+    if (!modules.length) return json({ ok: false, error: "modules is required" }, { status: 400 });
 
-    // 这里先返回 runId，确保前端“触发构建”不会再 405
-    // 下一步再把这里接到 Packaging-warehouse（写 assembly.local.json + 触发 workflow）
-    const runId = payload.runId || `ndjc-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
+    // 1) 写 requests/<run_id>/assembly.local.json（以你截图的键名为准）
+    const assemblyPath = `requests/${runId}/assembly.local.json`;
+    const iconReqPath = `requests/${runId}/icon.png`;
 
-    const resp = json({
-      ok: true,
-      runId,
-      appName,
+    const assembly = {
+      template,
+      uiPack,
       modules,
-      uiPacks,
-      message: "API /api/build is alive (POST ok). Next: wire to Packaging-warehouse workflow.",
+      appName,
+      iconPath: "lib/ndjc/icon.png", // 固定为后端读取路径；workflow 会把 requests/<run_id>/icon.png 拷过去
+    };
+
+    await upsertFile({
+      owner: GH_OWNER,
+      repo: GH_REPO,
+      branch: GH_BRANCH,
+      path: assemblyPath,
+      contentBytes: Buffer.from(JSON.stringify(assembly, null, 2), "utf-8"),
+      message: `ndjc: write ${assemblyPath}`,
+      token: GH_TOKEN,
     });
 
-    return withCors(resp);
+    // 2) 有图标就写 requests/<run_id>/icon.png（给 workflow 拷贝）
+    if (body.iconBase64) {
+      const bytes = parseDataUrlToBytes(body.iconBase64);
+      await upsertFile({
+        owner: GH_OWNER,
+        repo: GH_REPO,
+        branch: GH_BRANCH,
+        path: iconReqPath,
+        contentBytes: bytes,
+        message: `ndjc: write ${iconReqPath}`,
+        token: GH_TOKEN,
+      });
+    }
+
+    // 3) dispatch workflow：只传 run_id（android-build.yml 只声明了 run_id）
+    await dispatchWorkflow({
+      owner: GH_OWNER,
+      repo: GH_REPO,
+      workflowId: WORKFLOW_ID,
+      ref: GH_BRANCH,
+      inputs: { run_id: runId },
+      token: GH_TOKEN,
+    });
+
+    const actionsUrl = `https://github.com/${GH_OWNER}/${GH_REPO}/actions/workflows/${WORKFLOW_ID}`;
+
+    return json({ ok: true, runId, committed: true, actionsUrl });
   } catch (e: any) {
-    const resp = json(
-      {
-        ok: false,
-        error: e?.message || String(e),
-      },
-      { status: 500 }
+    return json(
+      { ok: false, error: e?.message || String(e), status: e?.status, detail: e?.detail },
+      { status: e?.status && Number.isInteger(e.status) ? e.status : 500 }
     );
-    return withCors(resp);
   }
 }
