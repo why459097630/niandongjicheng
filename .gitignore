@@ -21,4 +21,8 @@ android/
 **/outputs/
 
 .env.local
+!app/api/
+!app/api/build/
+!app/api/build/route.ts
+
 
