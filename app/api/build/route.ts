@@ -1,3 +1,7 @@
+export async function GET() {
+  return Response.json({ ok: true, route: "/api/build" });
+}
+
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
