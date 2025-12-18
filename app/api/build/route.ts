@@ -1,3 +1,12 @@
+export async function GET() {
+  return Response.json({
+    ok: true,
+    commitHint: "c9dd826",
+    where: "app/api/build/route.ts",
+    ts: Date.now(),
+  });
+}
+
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
