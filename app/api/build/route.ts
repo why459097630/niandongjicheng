@@ -1,3 +1,6 @@
+export async function GET() {
+  return NextResponse.json({ ok: true, hit: "app/api/build/route.ts", ts: Date.now() });
+}
 
 import { NextResponse } from "next/server";
 
