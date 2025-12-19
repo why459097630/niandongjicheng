@@ -1,3 +1,13 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  return Response.json({ ok: true, route: "/api/build" });
+}
+
+export async function POST(req: Request) {
+  return Response.json({ ok: true });
+}
 
 import { NextResponse } from "next/server";
 
