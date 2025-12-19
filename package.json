@@ -10,8 +10,6 @@
     "build": "cross-env NEXT_TELEMETRY_DISABLED=1 next build",
     "start": "next start -H 127.0.0.1 -p 4311",
     "lint": "next lint",
-    "ndjc:lint-plan": "tsx lib/ndjc/guard/plan_linter.ts",
-    "ndjc:sanitize": "tsx lib/ndjc/sanitize/index.ts"
   },
   "dependencies": {
     "@octokit/rest": "20.1.1",
