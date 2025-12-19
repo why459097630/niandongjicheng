@@ -94,7 +94,7 @@ export default function Page() {
         iconBase64: uploadedIcon ?? undefined,
       };
 
-      const r = await fetch("/api/build", {
+      const r = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
