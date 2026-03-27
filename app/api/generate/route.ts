@@ -130,6 +130,20 @@ export async function POST(req: Request) {
     if (!appName) return json({ ok: false, error: "appName is required" }, { status: 400 });
     if (!modules.length) return json({ ok: false, error: "modules is required" }, { status: 400 });
 
+    const ALLOWED_COMBINATIONS: Record<string, string[]> = {
+      "feature-showcase": ["ui-pack-showcase-greenpink"],
+    };
+
+    const selectedModule = modules[0];
+
+    if (!selectedModule || !ALLOWED_COMBINATIONS[selectedModule]) {
+      return json({ ok: false, error: "invalid module" }, { status: 400 });
+    }
+
+    if (!ALLOWED_COMBINATIONS[selectedModule].includes(uiPack)) {
+      return json({ ok: false, error: "uiPack not allowed for this module" }, { status: 400 });
+    }
+
     // 1) 写 requests/<run_id>/assembly.local.json（以你截图的键名为准）
     const assemblyPath = `requests/${runId}/assembly.local.json`;
     const iconReqPath = `requests/${runId}/icon.png`;
