@@ -2,16 +2,21 @@
 import React from "react";
 
 // 组合构建可选项
-const MODULE_TO_TEMPLATE_KEY: Record<string, string> = {
-  "feature-restaurant-menu-full": "shop-basic",
-  "feature-home-basic": "showcase-basic",
-  "feature-about-basic": "showcase-basic",
-};
+const MODULE_OPTIONS = [
+  {
+    id: "feature-showcase",
+    name: "feature-showcase",
+    templateKey: "showcase-basic",
+    uiPacks: [
+      { id: "ui-pack-showcase-greenpink", name: "ui-pack-showcase-greenpink" },
+    ],
+  },
+] as const;
 
-const DEFAULT_UI_PACKS = ["ui-pack-neumorph", "ui-pack-restaurant-soft-pastel"] as const;
-const DEFAULT_MODULES = ["feature-restaurant-menu-full", "feature-home-basic", "feature-about-basic"] as const;
+const DEFAULT_MODULE = MODULE_OPTIONS[0].id;
+const DEFAULT_UI_PACK = MODULE_OPTIONS[0].uiPacks[0].id;
 
-type DisplayTemplate = keyof typeof MODULE_TO_TEMPLATE_KEY;
+type DisplayTemplate = (typeof MODULE_OPTIONS)[number]["templateKey"];
 type Mode = "A" | "B"; // A = safe extract only, B = allow companions
 type ApiResp = {
   ok: boolean;
@@ -39,8 +44,8 @@ function utcRunId(prefix = "ndjc") {
 
 export default function Page() {
   const [appName, setAppName] = React.useState<string>("NDJC App");
-  const [uiPack, setUiPack] = React.useState<string>(DEFAULT_UI_PACKS[0]);
-  const [modules, setModules] = React.useState<string[]>([DEFAULT_MODULES[0]]);
+  const [uiPack, setUiPack] = React.useState<string>(DEFAULT_UI_PACK);
+  const [modules, setModules] = React.useState<string[]>([DEFAULT_MODULE]);
   const [uploadedIcon, setUploadedIcon] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [resp, setResp] = React.useState<ApiResp | null>(null);
@@ -119,7 +124,10 @@ export default function Page() {
   }
 
   const selectedModule = modules[0] || "";
-  const selectedTemplateKey = MODULE_TO_TEMPLATE_KEY[selectedModule] || "";
+  const selectedModuleOption =
+    MODULE_OPTIONS.find((item) => item.id === selectedModule) ?? MODULE_OPTIONS[0];
+  const selectedTemplateKey = selectedModuleOption?.templateKey || "";
+  const availableUiPacks = selectedModuleOption?.uiPacks ?? [];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -189,7 +197,7 @@ export default function Page() {
                 className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 shadow-sm outline-none ring-0 focus:border-white/20 focus:bg-black/30"
               />
               <div className="text-xs text-slate-400">
-                将随请求提交到 <span className="font-mono text-slate-200">/api/build</span>（后端写入 Manifest / APP_LABEL）。
+                将随请求提交到 <span className="font-mono text-slate-200">/api/generate</span>（后端写入 Manifest / APP_LABEL）。
               </div>
             </div>
 
@@ -237,13 +245,16 @@ export default function Page() {
             <div className="grid grid-cols-1 gap-2">
               <label className="text-sm font-medium text-slate-200">选择逻辑模块</label>
               <div className="flex flex-wrap gap-2">
-                {["feature-restaurant-menu-full", "feature-home-basic", "feature-about-basic"].map((module) => {
-                  const active = modules.includes(module);
+                {MODULE_OPTIONS.map((module) => {
+                  const active = modules.includes(module.id);
                   return (
                     <button
                       type="button"
-                      key={module}
-                      onClick={() => setModules([module])}
+                      key={module.id}
+                      onClick={() => {
+                        setModules([module.id]);
+                        setUiPack(module.uiPacks[0]?.id ?? "");
+                      }}
                       className={[
                         "rounded-2xl px-4 py-2 text-sm transition shadow-sm",
                         "border",
@@ -252,7 +263,7 @@ export default function Page() {
                           : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
                       ].join(" ")}
                     >
-                      {module}
+                      {module.name}
                     </button>
                   );
                 })}
@@ -266,13 +277,13 @@ export default function Page() {
             <div className="grid grid-cols-1 gap-2">
               <label className="text-sm font-medium text-slate-200">UI 包</label>
               <div className="flex flex-wrap gap-2">
-                {["ui-pack-neumorph", "ui-pack-restaurant-soft-pastel"].map((pack) => {
-                  const active = uiPack === pack;
+                {availableUiPacks.map((pack) => {
+                  const active = uiPack === pack.id;
                   return (
                     <button
                       type="button"
-                      key={pack}
-                      onClick={() => setUiPack(pack)}
+                      key={pack.id}
+                      onClick={() => setUiPack(pack.id)}
                       className={[
                         "rounded-2xl px-4 py-2 text-sm transition shadow-sm",
                         "border",
@@ -281,10 +292,13 @@ export default function Page() {
                           : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
                       ].join(" ")}
                     >
-                      {pack}
+                      {pack.name}
                     </button>
                   );
                 })}
+              </div>
+              <div className="text-xs text-slate-500">
+                当前仅显示所选逻辑模块可适配的 UI 包：<span className="font-mono text-slate-300">{uiPack || "—"}</span>
               </div>
             </div>
 
