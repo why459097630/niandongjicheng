@@ -221,13 +221,13 @@ export default function GeneratingPage() {
                 <div className="text-2xl font-bold tracking-[-0.03em]">{currentActivity}</div>
               </div>
               <div className="mt-2 text-xs text-slate-400">
-                Step {Math.max(1, steps.findIndex((step) => step.status === "active") + 1 || (stage === "success" ? 6 : 1))} of 6
+                Step {Math.max(1, steps.findIndex((step) => step.status === "active") + 1)} of 6
               </div>
               <div className="mx-auto mt-2 h-1.5 w-full max-w-[360px] overflow-hidden rounded-full bg-slate-200/60">
                 <div
                   className="h-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 transition-all duration-500"
                   style={{
-                    width: `${(((steps.findIndex((step) => step.status === "active") + 1) || (stage === "success" ? 6 : 1)) / 6) * 100}%`,
+                    width: `${(Math.max(1, steps.findIndex((step) => step.status === "active") + 1) / 6) * 100}%`,
                   }}
                 />
               </div>
