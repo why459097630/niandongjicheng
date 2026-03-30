@@ -1,55 +1,27 @@
 {
-  "name": "packaging-warehouse-api",
+  "name": "ndjc-web",
+  "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@10.6.2",
-  "engines": {
-    "node": ">=18.18"
-  },
   "scripts": {
-    "dev": "next dev -H 127.0.0.1 -p 4311",
-    "build": "cross-env NEXT_TELEMETRY_DISABLED=1 next build",
-    "start": "next start -H 127.0.0.1 -p 4311",
-    "lint": "next lint"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
   },
   "dependencies": {
-    "@octokit/rest": "20.1.1",
-    "ajv": "8.17.1",
-    "ajv-formats": "2.1.1",
-    "axios": "1.6.8",
-    "https-proxy-agent": "7.0.6",
-    "next": "14.2.5",
-    "node-fetch": "2.7.0",
-    "octokit": "5.0.3",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "socks-proxy-agent": "8.0.5",
-    "styled-jsx": "5.1.1",
-    "undici": "5.29.0",
-    "zod": "3.23.8"
+    "lucide-react": "^1.7.0",
+    "next": "16.2.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "@types/node": "20.12.7",
-    "@types/react": "18.2.66",
-    "@types/react-dom": "18.2.22",
-    "autoprefixer": "^10.4.21",
-    "cross-env": "7.0.3",
-    "eslint": "8.57.0",
-    "eslint-config-next": "14.2.5",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.12",
-    "tsx": "^4.17.0",
-    "typescript": "5.4.5"
-  },
-  "pnpm": {
-    "public-hoist-pattern": [
-      "*"
-    ],
-    "overrides": {
-      "octokit": "5.0.3"
-    },
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "unrs-resolver"
-    ]
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
