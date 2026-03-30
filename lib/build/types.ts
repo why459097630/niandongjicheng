@@ -57,6 +57,8 @@ export type BuildStatusResponse = {
   downloadUrl?: string | null;
   error?: string;
   appName?: string;
+  adminName?: string;
+  adminPassword?: string;
   moduleName?: string;
   uiPackName?: string;
   plan?: string;
