@@ -1,0 +1,266 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { CheckCircle2, Clock3, Download, History, LoaderCircle, TriangleAlert, ArrowRight } from "lucide-react";
+
+type BuildItem = {
+  runId: string;
+  appName: string;
+  stage: "success" | "failed" | "running" | "queued";
+  createdAt: string;
+  moduleName: string;
+  uiPackName: string;
+  mode: string;
+  downloadUrl?: string | null;
+};
+
+type BuildListResponse = {
+  ok: boolean;
+  items?: BuildItem[];
+  error?: string;
+};
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function getStageMeta(stage: BuildItem["stage"]) {
+  if (stage === "success") {
+    return {
+      label: "Completed",
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
+      chipClass: "bg-emerald-100 text-emerald-600",
+      cardClass: "border-emerald-200/80 bg-emerald-50/30 shadow-[0_14px_40px_rgba(16,185,129,0.12)]",
+    };
+  }
+
+  if (stage === "failed") {
+    return {
+      label: "Failed",
+      icon: <TriangleAlert className="h-4 w-4 text-red-500" />,
+      chipClass: "bg-red-100 text-red-500",
+      cardClass: "border-red-200/80 bg-red-50/40 shadow-[0_14px_40px_rgba(239,68,68,0.10)]",
+    };
+  }
+
+  if (stage === "running") {
+    return {
+      label: "Running",
+      icon: <LoaderCircle className="h-4 w-4 animate-spin text-fuchsia-500" />,
+      chipClass: "bg-fuchsia-100 text-fuchsia-600",
+      cardClass: "border-fuchsia-200/80 bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(255,255,255,0.98))] shadow-[0_14px_40px_rgba(217,70,239,0.16)] animate-pulse",
+    };
+  }
+
+  return {
+    label: "Queued",
+    icon: <Clock3 className="h-4 w-4 text-slate-400" />,
+    chipClass: "bg-slate-100 text-slate-500",
+    cardClass: "border-slate-200/80 bg-white/70 shadow-[0_10px_24px_rgba(148,163,184,0.05)]",
+  };
+}
+
+export default function HistoryPage() {
+  const [items, setItems] = useState<BuildItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/build-list", { cache: "no-store" })
+      .then(async (res) => {
+        const data: BuildListResponse = await res.json();
+
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Failed to load build history.");
+        }
+
+        setItems(data.items || []);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load build history.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
+
+  return (
+    <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
+      <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
+
+      <header className="relative z-20 mx-auto max-w-7xl px-6 pt-6">
+        <div className="flex items-center justify-between rounded-full border border-white/60 bg-white/70 px-6 py-3 shadow-[0_12px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-xs font-bold text-white shadow-[0_8px_18px_rgba(99,102,241,0.22)]">
+              N
+            </div>
+            <div className="leading-none">
+              <div className="text-sm font-semibold tracking-[0.06em] text-[#0f172a]">NDJC</div>
+              <div className="mt-1 text-[10px] font-medium text-[#94a3b8]">Build history</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <nav className="hidden items-center gap-2 rounded-full bg-white/60 px-3 py-1.5 text-sm font-medium text-[#64748b] backdrop-blur md:flex">
+              <a
+                href="/"
+                className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-[#0f172a]"
+              >
+                Home
+              </a>
+              <a
+                href="/history"
+                className="rounded-full bg-white px-3 py-1.5 text-[#0f172a] shadow-[0_6px_16px_rgba(15,23,42,0.04)]"
+              >
+                History
+              </a>
+            </nav>
+
+            <div className="rounded-full border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs font-medium tracking-[0.01em] text-indigo-600 shadow-[0_6px_16px_rgba(15,23,42,0.04)]">
+              history
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section className="relative z-10 mx-auto max-w-7xl px-6 py-16">
+        <div className="mb-12 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/40 px-3 py-1 text-xs font-medium tracking-[0.06em] text-[#64748b] backdrop-blur">
+              <History className="h-3.5 w-3.5" />
+              Build archive
+            </div>
+            <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-7xl">Your builds</h1>
+            <p className="mt-4 max-w-2xl text-lg leading-[1.9] text-[#475569]">
+              Review previous NDJC build runs, re-open an in-progress generation, or download completed build packages again.
+            </p>
+          </div>
+
+          <div className="rounded-[28px] border border-white/50 bg-white/60 px-5 py-4 shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+            <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Total builds</div>
+            <div className="mt-2 text-3xl font-bold tracking-[-0.04em] text-[#0f172a]">{items.length}</div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="rounded-[32px] border border-white/50 bg-white/60 p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+            <div className="text-sm text-slate-500">Loading build history...</div>
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+          </div>
+        ) : null}
+
+        {!loading && items.length === 0 ? (
+          <div className="rounded-[32px] border border-white/50 bg-white/60 p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
+              <History className="h-6 w-6" />
+            </div>
+            <div className="mt-5 text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">No builds yet</div>
+            <div className="mt-3 text-sm leading-7 text-[#64748b]">
+              Start from the home page, generate your first app, and your build history will appear here.
+            </div>
+          </div>
+        ) : null}
+
+        {!loading && items.length > 0 ? (
+          <div className="grid gap-5">
+            {items.map((item) => {
+              const meta = getStageMeta(item.stage);
+
+              return (
+                <div
+                  key={item.runId}
+                  className={`rounded-[28px] border p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_46px_rgba(15,23,42,0.07)] ${meta.cardClass}`}
+                >
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="text-xl font-bold tracking-[-0.03em] text-[#0f172a]">{item.appName}</div>
+                        <div className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${meta.chipClass}`}>
+                          {meta.icon}
+                          {meta.label}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 text-xs uppercase tracking-[0.12em] text-slate-400">
+                        Run ID · {item.runId}
+                      </div>
+
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3">
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Module</div>
+                          <div className="mt-2 text-sm font-semibold text-[#0f172a]">{item.moduleName}</div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3">
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">UI Pack</div>
+                          <div className="mt-2 text-sm font-semibold text-[#0f172a]">{item.uiPackName}</div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3">
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Mode</div>
+                          <div className="mt-2 text-sm font-semibold text-[#0f172a]">{item.mode}</div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3">
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Created</div>
+                          <div className="mt-2 text-sm font-semibold text-[#0f172a]">{formatTime(item.createdAt)}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3 lg:w-[280px] lg:justify-end">
+                      {(item.stage === "running" || item.stage === "queued") ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            window.location.href = `/generating?runId=${encodeURIComponent(item.runId)}`;
+                          }}
+                          className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-5 py-2.5 text-sm font-semibold text-indigo-600 shadow-[0_6px_16px_rgba(15,23,42,0.04)] transition hover:bg-indigo-100"
+                        >
+                          <ArrowRight className="h-4 w-4" />
+                          Continue
+                        </button>
+                      ) : null}
+
+                      {item.stage === "success" && item.downloadUrl ? (
+                        <a
+                          href={item.downloadUrl}
+                          className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(217,70,239,0.20)] transition hover:-translate-y-0.5 hover:opacity-90"
+                        >
+                          <Download className="h-4 w-4" />
+                          Download
+                        </a>
+                      ) : null}
+
+                      {item.mode === "Paid Purchase" ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-5 py-2.5 text-sm font-semibold text-indigo-600 shadow-[0_6px_16px_rgba(15,23,42,0.04)] transition hover:bg-indigo-100"
+                        >
+                          Renew
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </section>
+    </main>
+  );
+}
