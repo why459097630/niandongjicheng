@@ -158,7 +158,6 @@ export async function provisionStore(
 
   const commonHeaders = {
     apikey: serviceRoleKey,
-    Authorization: `Bearer ${serviceRoleKey}`,
     'Content-Type': 'application/json',
   };
 
