@@ -31,6 +31,23 @@ function decodeGithubContent(content: string): string {
   return Buffer.from(content.replace(/\n/g, ""), "base64").toString("utf8");
 }
 
+function normalizeRemoteStage(value: unknown): BuildStatusResponse["stage"] | undefined {
+  if (typeof value !== "string") return undefined;
+
+  const stage = value.trim();
+
+  if (stage === "preparing_request") return "preparing_request";
+  if (stage === "processing_identity") return "processing_identity";
+  if (stage === "matching_logic_module") return "matching_logic_module";
+  if (stage === "applying_ui_pack") return "applying_ui_pack";
+  if (stage === "preparing_services") return "preparing_services";
+  if (stage === "building_apk") return "building_apk";
+  if (stage === "success") return "success";
+  if (stage === "failed") return "failed";
+
+  return undefined;
+}
+
 async function readRemoteStatusFile(runId: string): Promise<Record<string, unknown> | null> {
   const token = getRequiredEnv("GH_TOKEN");
   const owner = getRequiredEnv("GH_OWNER");
@@ -73,7 +90,7 @@ function mergeStatus(
   return {
     ok: true,
     runId,
-    stage: (remote.stage as BuildStatusResponse["stage"]) || localRecord?.stage,
+    stage: normalizeRemoteStage(remote.stage) || localRecord?.stage,
     message: (remote.message as string) || localRecord?.message,
     artifactUrl:
       (remote.artifactUrl as string | null | undefined) ??
