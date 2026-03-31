@@ -104,6 +104,6 @@ export function getBuildStatus(runId: string): BuildStatusResponse {
     mode: current.mode,
     createdAt: current.createdAt,
     adminName: current.adminName,
-    adminPassword: current.adminPassword,
+    storeId: current.storeId,
   };
 }
