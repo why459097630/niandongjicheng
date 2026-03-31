@@ -31,6 +31,11 @@ export type InternalBuildRecord = {
   iconUrl?: string | null;
   adminName?: string;
   storeId?: string;
+  requestPath?: string | null;
+  workflowRunId?: number | null;
+  workflowStatus?: string | null;
+  workflowConclusion?: string | null;
+  workflowUrl?: string | null;
   createdAt: string;
   updatedAt: string;
   status: "queued" | "running" | "success" | "failed";
@@ -66,6 +71,11 @@ export type BuildStatusResponse = {
   plan?: string;
   mode?: BuildMode;
   createdAt?: string;
+  requestPath?: string | null;
+  workflowRunId?: number | null;
+  workflowStatus?: string | null;
+  workflowConclusion?: string | null;
+  workflowUrl?: string | null;
 };
 
 export type BuildHistoryItem = {
