@@ -121,6 +121,13 @@ export async function provisionStore(
   const adminName = input.adminName.trim();
   const adminPassword = input.adminPassword;
 
+  console.log('NDJC provisionStore: start', {
+    moduleType,
+    planType,
+    adminName,
+    supabaseUrl,
+  });
+
   if (!adminName) {
     return {
       ok: false,
@@ -155,6 +162,11 @@ export async function provisionStore(
     'Content-Type': 'application/json',
   };
 
+  console.log('NDJC provisionStore: calling allocate_store_id', {
+    moduleType,
+    planType,
+  });
+
   const allocateResponse = await fetch(
     `${supabaseUrl}/rest/v1/rpc/allocate_store_id`,
     {
@@ -170,7 +182,18 @@ export async function provisionStore(
 
   const allocateData = await safeReadJson(allocateResponse);
 
+  console.log('NDJC provisionStore: allocate_store_id response', {
+    status: allocateResponse.status,
+    ok: allocateResponse.ok,
+    data: allocateData,
+  });
+
   if (!allocateResponse.ok) {
+    console.error('NDJC provisionStore: allocate_store_id failed', {
+      status: allocateResponse.status,
+      data: allocateData,
+    });
+
     return {
       ok: false,
       error:
@@ -182,7 +205,15 @@ export async function provisionStore(
 
   const storeId = extractStoreIdFromRpc(allocateData);
 
+  console.log('NDJC provisionStore: extracted storeId', {
+    storeId,
+  });
+
   if (!storeId) {
+    console.error('NDJC provisionStore: empty storeId after allocate_store_id', {
+      data: allocateData,
+    });
+
     return {
       ok: false,
       error: 'Supabase allocate_store_id returned empty store id.',
@@ -190,6 +221,13 @@ export async function provisionStore(
   }
 
   const lifecycle = computeLifecycle(planType);
+
+  console.log('NDJC provisionStore: upserting stores row', {
+    storeId,
+    moduleType,
+    planType,
+    lifecycle,
+  });
 
   const storesResponse = await fetch(
     `${supabaseUrl}/rest/v1/stores?on_conflict=store_id`,
@@ -217,7 +255,18 @@ export async function provisionStore(
 
   const storesData = await safeReadJson(storesResponse);
 
+  console.log('NDJC provisionStore: stores response', {
+    status: storesResponse.status,
+    ok: storesResponse.ok,
+    data: storesData,
+  });
+
   if (!storesResponse.ok) {
+    console.error('NDJC provisionStore: stores upsert failed', {
+      status: storesResponse.status,
+      data: storesData,
+    });
+
     return {
       ok: false,
       error:
@@ -226,6 +275,11 @@ export async function provisionStore(
           : 'Failed to upsert stores row.',
     };
   }
+
+  console.log('NDJC provisionStore: creating auth user', {
+    storeId,
+    adminName,
+  });
 
   const authResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
     method: 'POST',
@@ -256,7 +310,18 @@ export async function provisionStore(
     | string
     | null;
 
+  console.log('NDJC provisionStore: auth response', {
+    status: authResponse.status,
+    ok: authResponse.ok,
+    data: authData,
+  });
+
   if (!authResponse.ok) {
+    console.error('NDJC provisionStore: auth create failed', {
+      status: authResponse.status,
+      data: authData,
+    });
+
     return {
       ok: false,
       error:
@@ -280,6 +345,12 @@ export async function provisionStore(
     };
   }
 
+  console.log('NDJC provisionStore: upserting store_memberships row', {
+    storeId,
+    authUserId,
+    adminName,
+  });
+
   const membershipResponse = await fetch(
     `${supabaseUrl}/rest/v1/store_memberships?on_conflict=store_id`,
     {
@@ -302,7 +373,18 @@ export async function provisionStore(
 
   const membershipData = await safeReadJson(membershipResponse);
 
+  console.log('NDJC provisionStore: store_memberships response', {
+    status: membershipResponse.status,
+    ok: membershipResponse.ok,
+    data: membershipData,
+  });
+
   if (!membershipResponse.ok) {
+    console.error('NDJC provisionStore: store_memberships upsert failed', {
+      status: membershipResponse.status,
+      data: membershipData,
+    });
+
     return {
       ok: false,
       error:
@@ -311,6 +393,13 @@ export async function provisionStore(
           : 'Failed to upsert store_memberships row.',
     };
   }
+
+  console.log('NDJC provisionStore: success', {
+    storeId,
+    authUserId,
+    planType,
+    moduleType,
+  });
 
   return {
     ok: true,
