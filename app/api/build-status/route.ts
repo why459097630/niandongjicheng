@@ -17,22 +17,25 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const result = getBuildStatus(runId);
+  const result = await getBuildStatus(runId);
 
   if (!result.ok) {
     return NextResponse.json(result, { status: 404 });
   }
 
   if (wantsDownload) {
+    if (result.downloadUrl) {
+      return NextResponse.redirect(result.downloadUrl, { status: 302 });
+    }
+
     const record = getBuildRecord(runId);
 
     return new NextResponse(
-      `NDJC mock build package\nrunId=${result.runId}\nappName=${result.appName}\nmodule=${result.moduleName}\nuiPack=${result.uiPackName}\nplan=${result.plan}\nadminName=${record?.adminName || ""}\nstoreId=${record?.storeId || ""}\n`,
+      `NDJC build package is not ready\nrunId=${result.runId}\nappName=${result.appName}\nmodule=${result.moduleName}\nuiPack=${result.uiPackName}\nplan=${result.plan}\nadminName=${record?.adminName || ""}\nstoreId=${record?.storeId || ""}\n`,
       {
-        status: 200,
+        status: 409,
         headers: {
-          "Content-Type": "application/zip",
-          "Content-Disposition": `attachment; filename="${runId}.zip"`,
+          "Content-Type": "text/plain; charset=utf-8",
         },
       },
     );
