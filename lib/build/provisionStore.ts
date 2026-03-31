@@ -164,6 +164,54 @@ export async function provisionStore(
     'Content-Type': 'application/json',
   };
 
+  try {
+    const pingResponse = await fetch(`${supabaseUrl}/rest/v1/`, {
+      method: 'GET',
+      headers: commonHeaders,
+      cache: 'no-store',
+    });
+
+    console.log('NDJC provisionStore: supabase rest ping', {
+      status: pingResponse.status,
+      ok: pingResponse.ok,
+      url: `${supabaseUrl}/rest/v1/`,
+    });
+  } catch (error) {
+    console.error('NDJC provisionStore: supabase rest ping threw', {
+      name: error instanceof Error ? error.name : 'UnknownError',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      cause:
+        error instanceof Error && 'cause' in error
+          ? {
+              name:
+                error.cause instanceof Error
+                  ? error.cause.name
+                  : typeof error.cause,
+              message:
+                error.cause instanceof Error
+                  ? error.cause.message
+                  : String(error.cause),
+              code:
+                typeof error.cause === 'object' &&
+                error.cause !== null &&
+                'code' in error.cause
+                  ? (error.cause as { code?: unknown }).code
+                  : undefined,
+            }
+          : undefined,
+      url: `${supabaseUrl}/rest/v1/`,
+    });
+
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? `supabase rest ping threw: ${error.message}`
+          : 'supabase rest ping threw.',
+    };
+  }
+
   console.log('NDJC provisionStore: calling allocate_store_id', {
     moduleType,
     planType,
@@ -193,6 +241,25 @@ export async function provisionStore(
       name: error instanceof Error ? error.name : 'UnknownError',
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
+      cause:
+        error instanceof Error && 'cause' in error
+          ? {
+              name:
+                error.cause instanceof Error
+                  ? error.cause.name
+                  : typeof error.cause,
+              message:
+                error.cause instanceof Error
+                  ? error.cause.message
+                  : String(error.cause),
+              code:
+                typeof error.cause === 'object' &&
+                error.cause !== null &&
+                'code' in error.cause
+                  ? (error.cause as { code?: unknown }).code
+                  : undefined,
+            }
+          : undefined,
       url: `${supabaseUrl}/rest/v1/rpc/allocate_store_id`,
     });
 
