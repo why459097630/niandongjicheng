@@ -69,7 +69,6 @@ export async function POST(request: NextRequest) {
 
     const payload: BuildRequest & {
       adminName?: string;
-      adminPassword?: string;
       storeId: string;
     } = {
       appName,
@@ -78,7 +77,6 @@ export async function POST(request: NextRequest) {
       plan,
       iconUrl,
       adminName,
-      adminPassword,
       storeId: provisionResult.storeId,
     };
 
