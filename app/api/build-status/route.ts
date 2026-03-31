@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const record = getBuildRecord(runId);
 
     return new NextResponse(
-      `NDJC mock build package\nrunId=${result.runId}\nappName=${result.appName}\nmodule=${result.moduleName}\nuiPack=${result.uiPackName}\nplan=${result.plan}\nadminName=${record?.adminName || ""}\nadminPassword=${record?.adminPassword || ""}\n`,
+      `NDJC mock build package\nrunId=${result.runId}\nappName=${result.appName}\nmodule=${result.moduleName}\nuiPack=${result.uiPackName}\nplan=${result.plan}\nadminName=${record?.adminName || ""}\nstoreId=${record?.storeId || ""}\n`,
       {
         status: 200,
         headers: {
