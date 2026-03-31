@@ -164,20 +164,43 @@ export async function provisionStore(
   console.log('NDJC provisionStore: calling allocate_store_id', {
     moduleType,
     planType,
+    url: `${supabaseUrl}/rest/v1/rpc/allocate_store_id`,
+    headers: {
+      hasApiKey: Boolean(commonHeaders.apikey),
+      contentType: commonHeaders['Content-Type'],
+    },
   });
 
-  const allocateResponse = await fetch(
-    `${supabaseUrl}/rest/v1/rpc/allocate_store_id`,
-    {
-      method: 'POST',
-      headers: commonHeaders,
-      body: JSON.stringify({
-        p_module_type: moduleType,
-        p_plan_type: planType,
-      }),
-      cache: 'no-store',
-    },
-  );
+  let allocateResponse: Response;
+  try {
+    allocateResponse = await fetch(
+      `${supabaseUrl}/rest/v1/rpc/allocate_store_id`,
+      {
+        method: 'POST',
+        headers: commonHeaders,
+        body: JSON.stringify({
+          p_module_type: moduleType,
+          p_plan_type: planType,
+        }),
+        cache: 'no-store',
+      },
+    );
+  } catch (error) {
+    console.error('NDJC provisionStore: allocate_store_id fetch threw', {
+      name: error instanceof Error ? error.name : 'UnknownError',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      url: `${supabaseUrl}/rest/v1/rpc/allocate_store_id`,
+    });
+
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? `allocate_store_id fetch threw: ${error.message}`
+          : 'allocate_store_id fetch threw.',
+    };
+  }
 
   const allocateData = await safeReadJson(allocateResponse);
 
