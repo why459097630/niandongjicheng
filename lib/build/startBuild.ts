@@ -67,6 +67,42 @@ function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): stri
   return JSON.stringify(assembly, null, 2);
 }
 
+function buildRemoteStatusJson(
+  input: BuildRequest & { storeId: string },
+  runId: string,
+): string {
+  const appName = input.appName?.trim() || "Untitled App";
+  const moduleName = input.module?.trim() || "feature-showcase";
+  const uiPackName = input.uiPack?.trim() || "ui-pack-showcase-greenpink";
+  const plan = normalizePlan(input.plan || "pro");
+  const now = new Date().toISOString();
+
+  const status = {
+    runId,
+    appName,
+    moduleName,
+    uiPackName,
+    plan,
+    storeId: input.storeId,
+    adminName: input.adminName || "",
+    createdAt: now,
+    updatedAt: now,
+    status: "running",
+    stage: "preparing_request",
+    message: "Build request accepted. Waiting for packaging workflow.",
+    artifactUrl: null,
+    downloadUrl: null,
+    error: null,
+    workflowRunId: null,
+    workflowStatus: "queued",
+    workflowConclusion: null,
+    workflowUrl: null,
+    requestPath: `requests/${runId}/status.json`,
+  };
+
+  return JSON.stringify(status, null, 2);
+}
+
 function runSafeSlug(value: string): string {
   const normalized = value
     .toLowerCase()
@@ -106,6 +142,7 @@ async function uploadBuildRequestToRepo(
   const branch = getRequiredEnv("GH_BRANCH");
 
   const assemblyJson = buildAssemblyLocalJson(input);
+  const statusJson = buildRemoteStatusJson(input, runId);
   const requestMeta = {
     runId,
     appName: input.appName,
@@ -116,6 +153,7 @@ async function uploadBuildRequestToRepo(
     adminName: input.adminName || "",
     iconUrl: input.iconUrl || null,
     createdAt: new Date().toISOString(),
+    requestPath: `requests/${runId}/status.json`,
   };
 
   const files = [
@@ -128,6 +166,11 @@ async function uploadBuildRequestToRepo(
       path: `requests/${runId}/request.json`,
       content: JSON.stringify(requestMeta, null, 2),
       message: `NDJC request ${runId}: add request.json`,
+    },
+    {
+      path: `requests/${runId}/status.json`,
+      content: statusJson,
+      message: `NDJC request ${runId}: add status.json`,
     },
   ];
 
@@ -208,13 +251,18 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
     iconUrl: input.iconUrl || null,
     adminName,
     storeId,
+    requestPath: `requests/${runId}/status.json`,
+    workflowRunId: null,
+    workflowStatus: "queued",
+    workflowConclusion: null,
+    workflowUrl: null,
     createdAt: now,
     updatedAt: now,
     status: "queued",
     stage: "preparing_request",
     message: "Build request accepted. Preparing NDJC pipeline.",
-    artifactUrl: createMockDownloadUrl(runId),
-    downloadUrl: createMockDownloadUrl(runId),
+    artifactUrl: null,
+    downloadUrl: null,
     error: null,
   };
 
@@ -255,8 +303,10 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
       ...saved,
       updatedAt: new Date().toISOString(),
       status: "running",
-      stage: "processing_identity",
+      stage: "preparing_request",
       message: "Build request uploaded. Triggering packaging workflow.",
+      workflowStatus: "queued",
+      workflowConclusion: null,
       error: null,
     };
 
@@ -272,8 +322,10 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
       ...afterUpload,
       updatedAt: new Date().toISOString(),
       status: "running",
-      stage: "matching_module",
-      message: "Packaging workflow dispatched successfully.",
+      stage: "preparing_request",
+      message: "Packaging workflow dispatched successfully. Waiting for backend status sync.",
+      workflowStatus: "queued",
+      workflowConclusion: null,
       error: null,
     };
 
