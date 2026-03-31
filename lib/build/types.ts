@@ -1,8 +1,8 @@
 export type BuildStage =
   | "preparing_request"
   | "processing_identity"
-  | "matching_module"
-  | "applying_ui"
+  | "matching_logic_module"
+  | "applying_ui_pack"
   | "preparing_services"
   | "building_apk"
   | "success"
