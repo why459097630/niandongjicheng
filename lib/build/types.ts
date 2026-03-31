@@ -18,6 +18,7 @@ export type BuildRequest = {
   iconUrl?: string | null;
   adminName?: string;
   adminPassword?: string;
+  storeId?: string;
 };
 
 export type InternalBuildRecord = {
@@ -29,7 +30,7 @@ export type InternalBuildRecord = {
   mode: BuildMode;
   iconUrl?: string | null;
   adminName?: string;
-  adminPassword?: string;
+  storeId?: string;
   createdAt: string;
   updatedAt: string;
   status: "queued" | "running" | "success" | "failed";
@@ -46,6 +47,7 @@ export type StartBuildResponse = {
   stage?: BuildStage;
   message?: string;
   error?: string;
+  storeId?: string;
 };
 
 export type BuildStatusResponse = {
@@ -58,7 +60,7 @@ export type BuildStatusResponse = {
   error?: string;
   appName?: string;
   adminName?: string;
-  adminPassword?: string;
+  storeId?: string;
   moduleName?: string;
   uiPackName?: string;
   plan?: string;
