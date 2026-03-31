@@ -23,13 +23,13 @@ function createMockDownloadUrl(runId: string): string {
   return `/api/build-status?runId=${encodeURIComponent(runId)}&download=1`;
 }
 
-export function startBuild(input: BuildRequest): StartBuildResponse {
+export async function startBuild(input: BuildRequest): Promise<StartBuildResponse> {
   const appName = input.appName?.trim() || "Untitled App";
   const moduleName = input.module?.trim() || "feature-showcase";
   const uiPackName = input.uiPack?.trim() || "ui-pack-showcase-greenpink";
   const plan = normalizePlan(input.plan || "pro");
   const adminName = input.adminName?.trim() || "";
-  const adminPassword = input.adminPassword || "";
+  const storeId = input.storeId?.trim() || "";
   const runId = createRunId();
   const now = new Date().toISOString();
 
@@ -42,7 +42,7 @@ export function startBuild(input: BuildRequest): StartBuildResponse {
     mode: getModeFromPlan(plan),
     iconUrl: input.iconUrl || null,
     adminName,
-    adminPassword,
+    storeId,
     createdAt: now,
     updatedAt: now,
     status: "queued",
@@ -68,5 +68,6 @@ export function startBuild(input: BuildRequest): StartBuildResponse {
     runId,
     stage: saved.stage,
     message: saved.message,
+    storeId: saved.storeId,
   };
 }
