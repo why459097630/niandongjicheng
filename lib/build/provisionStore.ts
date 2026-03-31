@@ -126,6 +126,9 @@ export async function provisionStore(
     planType,
     adminName,
     supabaseUrl,
+    supabaseUrlLength: supabaseUrl.length,
+    serviceRoleKeyPrefix: serviceRoleKey.slice(0, 12),
+    serviceRoleKeyLength: serviceRoleKey.length,
   });
 
   if (!adminName) {
