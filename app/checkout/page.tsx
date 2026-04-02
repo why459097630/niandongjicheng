@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, ShieldCheck, Sparkles } from "lucide-react";
 
+const ICON_DATA_URL_STORAGE_KEY = "ndjc_builder_icon_data_url";
+const ICON_FILE_NAME_STORAGE_KEY = "ndjc_builder_icon_file_name";
+
 export default function CheckoutPage() {
   const [appName, setAppName] = useState("Untitled App");
   const [moduleName, setModuleName] = useState("feature-showcase");
@@ -10,6 +13,8 @@ export default function CheckoutPage() {
   const [plan, setPlan] = useState("pro");
   const [adminName, setAdminName] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
+  const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
+  const [iconFileName, setIconFileName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
@@ -21,6 +26,14 @@ export default function CheckoutPage() {
     setPlan((params.get("plan") || "pro").toLowerCase());
     setAdminName(params.get("adminName") || "");
     setAdminPassword(params.get("adminPassword") || "");
+
+    const storedIconDataUrl = sessionStorage.getItem(ICON_DATA_URL_STORAGE_KEY);
+    const storedIconFileName = sessionStorage.getItem(ICON_FILE_NAME_STORAGE_KEY) || "";
+
+    if (storedIconDataUrl) {
+      setIconDataUrl(storedIconDataUrl);
+      setIconFileName(storedIconFileName);
+    }
   }, []);
 
   const modeLabel = plan === "free" ? "Free Trial" : "Paid Purchase";
@@ -126,6 +139,12 @@ export default function CheckoutPage() {
                   <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">UI Pack</div>
                   <div className="mt-2 text-sm font-semibold text-[#0f172a]">{uiPackName}</div>
                 </div>
+                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)] sm:col-span-2">
+                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">App Icon</div>
+                  <div className="mt-2 text-sm font-semibold text-[#0f172a]">
+                    {iconFileName || "No custom icon selected"}
+                  </div>
+                </div>
               </div>
 
               <div className="my-6 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
@@ -212,6 +231,7 @@ export default function CheckoutPage() {
                             plan,
                             adminName,
                             adminPassword,
+                            iconDataUrl,
                           }),
                         });
 
