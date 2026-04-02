@@ -1,5 +1,10 @@
-import { getBuildRecord, upsertBuildRecord } from "./storage";
-import { BuildRequest, InternalBuildRecord, StartBuildResponse } from "./types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  insertBuildRecord,
+  insertOperationLog,
+  updateBuildRecordByRunId,
+} from "./storage";
+import { BuildRequest, StartBuildResponse } from "./types";
 
 function normalizePlan(plan: string): string {
   const value = plan.trim().toLowerCase();
@@ -7,20 +12,11 @@ function normalizePlan(plan: string): string {
   return value;
 }
 
-function getModeFromPlan(plan: string): "Free Trial" | "Paid Purchase" {
-  const normalized = normalizePlan(plan);
-  return normalized === "free" ? "Free Trial" : "Paid Purchase";
-}
-
 function createRunId(): string {
   const now = new Date();
   const iso = now.toISOString().replace(/[-:.]/g, "").replace(".000Z", "Z");
   const random = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `ndjc-${iso}-${random}`;
-}
-
-function createMockDownloadUrl(runId: string): string {
-  return `/api/build-status?runId=${encodeURIComponent(runId)}&download=1`;
 }
 
 function getRequiredEnv(name: string): string {
@@ -70,17 +66,11 @@ function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): stri
       ? "core-skeleton"
       : "core-skeleton";
 
-  const uiPack =
-    input.uiPack?.trim() || "ui-pack-showcase-greenpink";
+  const uiPack = input.uiPack?.trim() || "ui-pack-showcase-greenpink";
+  const moduleName = input.module?.trim() || "feature-showcase";
+  const appName = input.appName?.trim() || "Untitled App";
 
-  const moduleName =
-    input.module?.trim() || "feature-showcase";
-
-  const appName =
-    input.appName?.trim() || "Untitled App";
-
-  const packageName =
-    `com.ndjc.apps.${runSafeSlug(appName)}.${runSafeSlug(input.storeId).slice(-12) || "a000000"}`;
+  const packageName = `com.ndjc.apps.${runSafeSlug(appName)}.${runSafeSlug(input.storeId).slice(-12) || "a000000"}`;
 
   const assembly = {
     template,
@@ -220,21 +210,12 @@ async function uploadBuildRequestToRepo(
       isBase64Binary: true,
     });
 
-    if (iconUpload.extension !== "png") {
-      files.push({
-        path: `requests/${runId}/icon.png`,
-        content: iconUpload.base64Content,
-        message: `NDJC request ${runId}: add icon.png`,
-        isBase64Binary: true,
-      });
-    } else {
-      files.push({
-        path: `requests/${runId}/icon.png`,
-        content: iconUpload.base64Content,
-        message: `NDJC request ${runId}: add icon.png`,
-        isBase64Binary: true,
-      });
-    }
+    files.push({
+      path: `requests/${runId}/icon.png`,
+      content: iconUpload.base64Content,
+      message: `NDJC request ${runId}: add icon.png`,
+      isBase64Binary: true,
+    });
   }
 
   for (const file of files) {
@@ -287,7 +268,10 @@ async function triggerBuildWorkflow(runId: string): Promise<void> {
   }
 }
 
-export async function startBuild(input: BuildRequest): Promise<StartBuildResponse> {
+export async function startBuild(
+  supabase: SupabaseClient,
+  input: BuildRequest,
+): Promise<StartBuildResponse> {
   const appName = input.appName?.trim() || "Untitled App";
   const moduleName = input.module?.trim() || "feature-showcase";
   const uiPackName = input.uiPack?.trim() || "ui-pack-showcase-greenpink";
@@ -296,7 +280,6 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
   const storeId = input.storeId?.trim() || "";
   const userId = input.userId?.trim() || "";
   const runId = createRunId();
-  const now = new Date().toISOString();
 
   if (!storeId) {
     return {
@@ -312,42 +295,40 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
     };
   }
 
-  const record: InternalBuildRecord = {
+  const saved = await insertBuildRecord(supabase, {
+    userId,
     runId,
     appName,
     moduleName,
     uiPackName,
     plan,
-    mode: getModeFromPlan(plan),
-    iconUrl: input.iconUrl || null,
-    iconDataUrl: input.iconDataUrl || null,
-    adminName,
     storeId,
-    userId,
-    requestPath: `requests/${runId}/status.json`,
-    workflowRunId: null,
-    workflowStatus: "queued",
-    workflowConclusion: null,
-    workflowUrl: null,
-    createdAt: now,
-    updatedAt: now,
     status: "queued",
     stage: "preparing_request",
     message: "Build request accepted. Preparing NDJC pipeline.",
+    workflowRunId: null,
+    workflowUrl: null,
     artifactUrl: null,
     downloadUrl: null,
     error: null,
-  };
+    statusSource: "local_api",
+    lastSyncedAt: null,
+  });
 
-  upsertBuildRecord(record);
-
-  const saved = getBuildRecord(runId);
-  if (!saved) {
-    return {
-      ok: false,
-      error: "Failed to create build record.",
-    };
-  }
+  await insertOperationLog(supabase, {
+    userId,
+    buildId: saved.id,
+    runId,
+    eventName: "build_started",
+    pagePath: "/builder",
+    metadata: {
+      appName,
+      moduleName,
+      uiPackName,
+      plan,
+      storeId,
+    },
+  });
 
   try {
     console.log("NDJC startBuild: uploading request files", {
@@ -373,18 +354,13 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
       runId,
     );
 
-    const afterUpload: InternalBuildRecord = {
-      ...saved,
-      updatedAt: new Date().toISOString(),
+    await updateBuildRecordByRunId(supabase, runId, {
       status: "running",
       stage: "preparing_request",
       message: "Build request uploaded. Triggering packaging workflow.",
-      workflowStatus: "queued",
-      workflowConclusion: null,
       error: null,
-    };
-
-    upsertBuildRecord(afterUpload);
+      statusSource: "local_api",
+    });
 
     console.log("NDJC startBuild: dispatching workflow", {
       runId,
@@ -392,46 +368,44 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
 
     await triggerBuildWorkflow(runId);
 
-    const afterDispatch: InternalBuildRecord = {
-      ...afterUpload,
-      updatedAt: new Date().toISOString(),
+    const afterDispatch = await updateBuildRecordByRunId(supabase, runId, {
       status: "running",
       stage: "preparing_request",
-      message: "Packaging workflow dispatched successfully. Waiting for backend status sync.",
-      workflowStatus: "queued",
-      workflowConclusion: null,
+      message:
+        "Packaging workflow dispatched successfully. Waiting for backend status sync.",
       error: null,
-    };
-
-    upsertBuildRecord(afterDispatch);
+      statusSource: "local_api",
+    });
 
     return {
       ok: true,
       runId,
       stage: afterDispatch.stage,
       message: afterDispatch.message,
-      storeId: afterDispatch.storeId,
+      storeId: afterDispatch.storeId ?? null,
     };
   } catch (error) {
-    const failed: InternalBuildRecord = {
-      ...saved,
-      updatedAt: new Date().toISOString(),
+    const failedMessage =
+      error instanceof Error
+        ? error.message
+        : "Failed to trigger packaging workflow.";
+
+    await updateBuildRecordByRunId(supabase, runId, {
       status: "failed",
       stage: "failed",
       message: "Failed to trigger packaging workflow.",
-      error: error instanceof Error ? error.message : "Failed to trigger packaging workflow.",
-    };
-
-    upsertBuildRecord(failed);
+      error: failedMessage,
+      statusSource: "local_api",
+    }).catch(() => null);
 
     console.error("NDJC startBuild: failed", {
       runId,
-      error: error instanceof Error ? error.message : String(error),
+      error: failedMessage,
     });
 
     return {
       ok: false,
-      error: failed.error || "Failed to trigger packaging workflow.",
+      error: failedMessage,
     };
   }
 }
