@@ -179,6 +179,7 @@ async function uploadBuildRequestToRepo(
     uiPack: input.uiPack,
     plan: input.plan,
     storeId: input.storeId,
+    userId: input.userId || "",
     adminName: input.adminName || "",
     iconUrl: input.iconUrl || null,
     iconDataUrl: input.iconDataUrl || null,
@@ -293,6 +294,7 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
   const plan = normalizePlan(input.plan || "pro");
   const adminName = input.adminName?.trim() || "";
   const storeId = input.storeId?.trim() || "";
+  const userId = input.userId?.trim() || "";
   const runId = createRunId();
   const now = new Date().toISOString();
 
@@ -300,6 +302,13 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
     return {
       ok: false,
       error: "storeId is required.",
+    };
+  }
+
+  if (!userId) {
+    return {
+      ok: false,
+      error: "userId is required.",
     };
   }
 
@@ -314,6 +323,7 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
     iconDataUrl: input.iconDataUrl || null,
     adminName,
     storeId,
+    userId,
     requestPath: `requests/${runId}/status.json`,
     workflowRunId: null,
     workflowStatus: "queued",
@@ -347,6 +357,7 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
       uiPackName,
       plan,
       storeId,
+      userId,
     });
 
     await uploadBuildRequestToRepo(
