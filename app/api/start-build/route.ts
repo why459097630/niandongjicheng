@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       userId: user.id,
     };
 
-    const result = await startBuild(payload);
+    const result = await startBuild(supabase, payload);
 
     if (!result.ok) {
       return NextResponse.json(result, { status: 400 });
