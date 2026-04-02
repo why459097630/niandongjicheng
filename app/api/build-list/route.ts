@@ -21,7 +21,7 @@ export async function GET() {
       );
     }
 
-    const result = getBuildList(user.id);
+    const result = await getBuildList(supabase, user.id);
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     return NextResponse.json(
