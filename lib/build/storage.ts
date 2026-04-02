@@ -39,3 +39,7 @@ export function listBuildRecords(): InternalBuildRecord[] {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 }
+
+export function listBuildRecordsByUser(userId: string): InternalBuildRecord[] {
+  return listBuildRecords().filter((record) => record.userId === userId);
+}
