@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { startBuild } from '@/lib/build/startBuild';
 import { BuildRequest } from '@/lib/build/types';
 import { provisionStore } from '@/lib/build/provisionStore';
+import { createClient } from '@/lib/supabase/server';
 
 type StartBuildRequestBody = Partial<BuildRequest> & {
   adminName?: string;
@@ -17,6 +18,22 @@ async function fileToDataUrl(file: File): Promise<string> {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Please sign in with Google first.',
+        },
+        { status: 401 },
+      );
+    }
+
     const contentType = request.headers.get('content-type') || '';
 
     let appName = '';
@@ -107,6 +124,7 @@ export async function POST(request: NextRequest) {
       adminName?: string;
       storeId: string;
       iconDataUrl?: string | null;
+      userId: string;
     } = {
       appName,
       module: moduleId,
@@ -116,6 +134,7 @@ export async function POST(request: NextRequest) {
       iconDataUrl,
       adminName,
       storeId: provisionResult.storeId,
+      userId: user.id,
     };
 
     const result = await startBuild(payload);
