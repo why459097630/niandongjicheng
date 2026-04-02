@@ -1,5 +1,11 @@
-import { getBuildRecord } from "./storage";
-import { BuildStatusResponse, InternalBuildRecord } from "./types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getBuildRecordByRunId, updateBuildRecordByRunId } from "./storage";
+import {
+  BuildStage,
+  BuildStatusResponse,
+  BuildStatusValue,
+  InternalBuildRecord,
+} from "./types";
 
 function getRequiredEnv(name: string): string {
   const value = (process.env[name] || "").trim();
@@ -31,7 +37,7 @@ function decodeGithubContent(content: string): string {
   return Buffer.from(content.replace(/\n/g, ""), "base64").toString("utf8");
 }
 
-function normalizeRemoteStage(value: unknown): BuildStatusResponse["stage"] | undefined {
+function normalizeRemoteStage(value: unknown): BuildStage | undefined {
   if (typeof value !== "string") return undefined;
 
   const stage = value.trim();
@@ -46,6 +52,28 @@ function normalizeRemoteStage(value: unknown): BuildStatusResponse["stage"] | un
   if (stage === "failed") return "failed";
 
   return undefined;
+}
+
+function normalizeRemoteStatus(
+  value: unknown,
+  stage: BuildStage | undefined,
+): BuildStatusValue | undefined {
+  if (value === "queued") return "queued";
+  if (value === "running") return "running";
+  if (value === "success") return "success";
+  if (value === "failed") return "failed";
+
+  if (stage === "success") return "success";
+  if (stage === "failed") return "failed";
+
+  return undefined;
+}
+
+function stageToStatus(stage: BuildStage | undefined): BuildStatusValue {
+  if (stage === "success") return "success";
+  if (stage === "failed") return "failed";
+  if (stage === "preparing_request") return "queued";
+  return "running";
 }
 
 async function readRemoteStatusFile(runId: string): Promise<Record<string, unknown> | null> {
@@ -82,6 +110,38 @@ async function readRemoteStatusFile(runId: string): Promise<Record<string, unkno
   return JSON.parse(decodeGithubContent(data.content)) as Record<string, unknown>;
 }
 
+function mapRecordToResponse(
+  record: InternalBuildRecord,
+  extra?: {
+    adminName?: string;
+    workflowStatus?: string | null;
+    workflowConclusion?: string | null;
+  },
+): BuildStatusResponse {
+  return {
+    ok: true,
+    runId: record.runId,
+    stage: record.stage,
+    message: record.error || record.message,
+    artifactUrl: record.artifactUrl,
+    downloadUrl: record.downloadUrl,
+    error: record.error,
+    appName: record.appName,
+    adminName: extra?.adminName,
+    storeId: record.storeId ?? null,
+    moduleName: record.moduleName,
+    uiPackName: record.uiPackName,
+    plan: record.plan,
+    mode: record.mode,
+    createdAt: record.createdAt,
+    requestPath: record.requestPath ?? `requests/${record.runId}/status.json`,
+    workflowRunId: record.workflowRunId ?? null,
+    workflowStatus: extra?.workflowStatus ?? record.workflowStatus ?? null,
+    workflowConclusion: extra?.workflowConclusion ?? record.workflowConclusion ?? null,
+    workflowUrl: record.workflowUrl ?? null,
+  };
+}
+
 function mergeStatus(
   runId: string,
   localRecord: InternalBuildRecord | null,
@@ -91,57 +151,109 @@ function mergeStatus(
     ok: true,
     runId,
     stage: normalizeRemoteStage(remote.stage) || localRecord?.stage,
-    message: (remote.message as string) || localRecord?.message,
+    message:
+      (typeof remote.message === "string" ? remote.message : null) ??
+      localRecord?.message ??
+      null,
     artifactUrl:
-      (remote.artifactUrl as string | null | undefined) ??
+      (typeof remote.artifactUrl === "string" ? remote.artifactUrl : null) ??
       localRecord?.artifactUrl ??
       null,
     downloadUrl:
-      (remote.downloadUrl as string | null | undefined) ??
+      (typeof remote.downloadUrl === "string" ? remote.downloadUrl : null) ??
       localRecord?.downloadUrl ??
       null,
     error:
-      (remote.error as string | null | undefined) ??
+      (typeof remote.error === "string" ? remote.error : null) ??
       localRecord?.error ??
-      undefined,
-    appName: (remote.appName as string) || localRecord?.appName,
-    adminName: (remote.adminName as string) || localRecord?.adminName,
-    storeId: (remote.storeId as string) || localRecord?.storeId,
-    moduleName: (remote.moduleName as string) || localRecord?.moduleName,
-    uiPackName: (remote.uiPackName as string) || localRecord?.uiPackName,
-    plan: (remote.plan as string) || localRecord?.plan,
-    mode: (remote.mode as BuildStatusResponse["mode"]) || localRecord?.mode,
-    createdAt: (remote.createdAt as string) || localRecord?.createdAt,
+      null,
+    appName:
+      (typeof remote.appName === "string" ? remote.appName : "") ||
+      localRecord?.appName,
+    adminName:
+      (typeof remote.adminName === "string" ? remote.adminName : "") ||
+      localRecord?.adminName,
+    storeId:
+      (typeof remote.storeId === "string" ? remote.storeId : "") ||
+      localRecord?.storeId,
+    moduleName:
+      (typeof remote.moduleName === "string" ? remote.moduleName : "") ||
+      localRecord?.moduleName,
+    uiPackName:
+      (typeof remote.uiPackName === "string" ? remote.uiPackName : "") ||
+      localRecord?.uiPackName,
+    plan:
+      (typeof remote.plan === "string" ? remote.plan : "") ||
+      localRecord?.plan,
+    mode: localRecord?.mode,
+    createdAt:
+      (typeof remote.createdAt === "string" ? remote.createdAt : "") ||
+      localRecord?.createdAt,
     requestPath:
-      (remote.requestPath as string | null | undefined) ??
+      (typeof remote.requestPath === "string" ? remote.requestPath : null) ??
       localRecord?.requestPath ??
       `requests/${runId}/status.json`,
     workflowRunId:
-      (remote.workflowRunId as number | null | undefined) ??
+      (typeof remote.workflowRunId === "number" ? remote.workflowRunId : null) ??
       localRecord?.workflowRunId ??
       null,
     workflowStatus:
-      (remote.workflowStatus as string | null | undefined) ??
+      (typeof remote.workflowStatus === "string" ? remote.workflowStatus : null) ??
       localRecord?.workflowStatus ??
       null,
     workflowConclusion:
-      (remote.workflowConclusion as string | null | undefined) ??
+      (typeof remote.workflowConclusion === "string"
+        ? remote.workflowConclusion
+        : null) ??
       localRecord?.workflowConclusion ??
       null,
     workflowUrl:
-      (remote.workflowUrl as string | null | undefined) ??
+      (typeof remote.workflowUrl === "string" ? remote.workflowUrl : null) ??
       localRecord?.workflowUrl ??
       null,
   };
 }
 
-export async function getBuildStatus(runId: string): Promise<BuildStatusResponse> {
-  const localRecord = getBuildRecord(runId);
-
+export async function getBuildStatus(
+  supabase: SupabaseClient,
+  runId: string,
+): Promise<BuildStatusResponse> {
+  const localRecord = await getBuildRecordByRunId(supabase, runId);
   const remoteStatus = await readRemoteStatusFile(runId);
 
   if (remoteStatus) {
-    return mergeStatus(runId, localRecord, remoteStatus);
+    const merged = mergeStatus(runId, localRecord, remoteStatus);
+    const stage = merged.stage || localRecord?.stage || "preparing_request";
+    const status =
+      normalizeRemoteStatus(remoteStatus.status, stage) || stageToStatus(stage);
+
+    if (localRecord) {
+      const synced = await updateBuildRecordByRunId(supabase, runId, {
+        appName: merged.appName,
+        moduleName: merged.moduleName,
+        uiPackName: merged.uiPackName,
+        plan: merged.plan,
+        storeId: merged.storeId ?? null,
+        status,
+        stage,
+        message: merged.message ?? null,
+        workflowRunId: merged.workflowRunId ?? null,
+        workflowUrl: merged.workflowUrl ?? null,
+        artifactUrl: merged.artifactUrl ?? null,
+        downloadUrl: merged.downloadUrl ?? null,
+        error: merged.error ?? null,
+        statusSource: "github_status_json",
+        lastSyncedAt: new Date().toISOString(),
+      });
+
+      return mapRecordToResponse(synced, {
+        adminName: merged.adminName,
+        workflowStatus: merged.workflowStatus ?? null,
+        workflowConclusion: merged.workflowConclusion ?? null,
+      });
+    }
+
+    return merged;
   }
 
   if (!localRecord) {
@@ -151,26 +263,5 @@ export async function getBuildStatus(runId: string): Promise<BuildStatusResponse
     };
   }
 
-  return {
-    ok: true,
-    runId: localRecord.runId,
-    stage: localRecord.stage,
-    message: localRecord.error || localRecord.message,
-    artifactUrl: localRecord.artifactUrl,
-    downloadUrl: localRecord.downloadUrl,
-    error: localRecord.error || undefined,
-    appName: localRecord.appName,
-    moduleName: localRecord.moduleName,
-    uiPackName: localRecord.uiPackName,
-    plan: localRecord.plan,
-    mode: localRecord.mode,
-    createdAt: localRecord.createdAt,
-    adminName: localRecord.adminName,
-    storeId: localRecord.storeId,
-    requestPath: localRecord.requestPath ?? `requests/${runId}/status.json`,
-    workflowRunId: localRecord.workflowRunId ?? null,
-    workflowStatus: localRecord.workflowStatus ?? null,
-    workflowConclusion: localRecord.workflowConclusion ?? null,
-    workflowUrl: localRecord.workflowUrl ?? null,
-  };
+  return mapRecordToResponse(localRecord);
 }
