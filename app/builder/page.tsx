@@ -1,7 +1,9 @@
 "use client";
 
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
+import AuthControls from "@/components/auth/AuthControls";
+import { createClient } from "@/lib/supabase/client";
 
 export default function BuilderPage() {
   const [appName, setAppName] = useState("");
@@ -12,8 +14,11 @@ export default function BuilderPage() {
   const [adminPassword, setAdminPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [iconFile, setIconFile] = useState<File | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthed, setIsAuthed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const planRef = useRef("pro");
+  const supabase = useMemo(() => createClient(), []);
 
   const handleChooseIcon = () => {
     fileInputRef.current?.click();
@@ -38,6 +43,28 @@ export default function BuilderPage() {
     setAdminPassword(params.get("adminPassword") || "");
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!mounted) return;
+      setIsAuthed(!error && !!data.user);
+      setAuthLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthed(!!session?.user);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
+
   const selectedModuleClass =
     "rounded-full border border-indigo-400 bg-[linear-gradient(135deg,rgba(224,231,255,0.95),rgba(238,242,255,0.98))] px-4 py-2 text-indigo-700 shadow-[0_0_0_2px_rgba(99,102,241,0.12),0_10px_24px_rgba(99,102,241,0.12)] transition hover:-translate-y-0.5";
   const unselectedModuleClass =
@@ -53,7 +80,12 @@ export default function BuilderPage() {
   };
 
   const handleGenerate = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || authLoading) return;
+
+    if (!isAuthed) {
+      alert("Please sign in with Google first.");
+      return;
+    }
 
     const currentPlan = planRef.current;
 
@@ -117,16 +149,11 @@ export default function BuilderPage() {
           </nav>
 
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="hidden rounded-full border border-slate-200 bg-white/60 px-4 py-2 text-sm font-medium tracking-[0.01em] text-[#475569] backdrop-blur transition hover:bg-white md:inline-flex"
-            >
-              Save Draft
-            </button>
+            <AuthControls nextPath="/builder" />
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={isSubmitting}
+              disabled={isSubmitting || authLoading}
               className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-5 py-2 text-sm font-semibold tracking-[0.01em] text-white shadow-[0_10px_24px_rgba(217,70,239,0.25)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {isSubmitting ? "Starting Build..." : "Continue"}
@@ -160,6 +187,12 @@ export default function BuilderPage() {
             <span>→</span>
             <span>Build</span>
           </div>
+
+          {!authLoading && !isAuthed ? (
+            <div className="mx-auto mt-6 max-w-xl rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Sign in with Google before starting a build.
+            </div>
+          ) : null}
         </div>
 
         <div className="max-w-xl mx-auto">
