@@ -5,6 +5,30 @@ import { ArrowRight } from "lucide-react";
 import AuthControls from "@/components/auth/AuthControls";
 import { createClient } from "@/lib/supabase/client";
 
+const ICON_DATA_URL_STORAGE_KEY = "ndjc_builder_icon_data_url";
+const ICON_FILE_NAME_STORAGE_KEY = "ndjc_builder_icon_file_name";
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        resolve(result);
+        return;
+      }
+      reject(new Error("Failed to read icon file."));
+    };
+
+    reader.onerror = () => {
+      reject(new Error("Failed to read icon file."));
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function BuilderPage() {
   const [appName, setAppName] = useState("");
   const [moduleName, setModuleName] = useState("feature-showcase");
@@ -14,6 +38,8 @@ export default function BuilderPage() {
   const [adminPassword, setAdminPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [iconFile, setIconFile] = useState<File | null>(null);
+  const [iconFileName, setIconFileName] = useState("");
+  const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -24,10 +50,37 @@ export default function BuilderPage() {
     fileInputRef.current?.click();
   };
 
-  const handleIconChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleIconChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0] || null;
-    setIconFile(nextFile);
-    event.target.value = "";
+
+    try {
+      setIconFile(nextFile);
+
+      if (!nextFile) {
+        setIconFileName("");
+        setIconDataUrl(null);
+        sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
+        sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
+        event.target.value = "";
+        return;
+      }
+
+      const nextIconDataUrl = await fileToDataUrl(nextFile);
+
+      setIconFileName(nextFile.name);
+      setIconDataUrl(nextIconDataUrl);
+      sessionStorage.setItem(ICON_DATA_URL_STORAGE_KEY, nextIconDataUrl);
+      sessionStorage.setItem(ICON_FILE_NAME_STORAGE_KEY, nextFile.name);
+    } catch (error) {
+      setIconFile(null);
+      setIconFileName("");
+      setIconDataUrl(null);
+      sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
+      sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
+      alert(error instanceof Error ? error.message : "Failed to read icon file.");
+    } finally {
+      event.target.value = "";
+    }
   };
 
   useEffect(() => {
@@ -41,6 +94,14 @@ export default function BuilderPage() {
     planRef.current = nextPlan;
     setAdminName(params.get("adminName") || "");
     setAdminPassword(params.get("adminPassword") || "");
+
+    const storedIconDataUrl = sessionStorage.getItem(ICON_DATA_URL_STORAGE_KEY);
+    const storedIconFileName = sessionStorage.getItem(ICON_FILE_NAME_STORAGE_KEY) || "";
+
+    if (storedIconDataUrl) {
+      setIconDataUrl(storedIconDataUrl);
+      setIconFileName(storedIconFileName);
+    }
   }, []);
 
   useEffect(() => {
@@ -77,6 +138,7 @@ export default function BuilderPage() {
     plan: planRef.current,
     adminName: adminName.trim(),
     adminPassword,
+    iconDataUrl,
   };
 
   const handleGenerate = async () => {
@@ -116,7 +178,14 @@ export default function BuilderPage() {
       return;
     }
 
-    const params = new URLSearchParams(buildParams);
+    const params = new URLSearchParams({
+      appName: buildParams.appName,
+      module: buildParams.module,
+      uiPack: buildParams.uiPack,
+      plan: buildParams.plan,
+      adminName: buildParams.adminName,
+      adminPassword: buildParams.adminPassword,
+    });
     window.location.href = `/checkout?${params.toString()}`;
   };
 
@@ -228,8 +297,8 @@ export default function BuilderPage() {
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-[#0f172a]">Upload app icon</div>
                     <div className="mt-0.5 text-xs text-slate-400">
-                      {iconFile
-                        ? `Selected: ${iconFile.name}`
+                      {iconFileName
+                        ? `Selected: ${iconFileName}`
                         : "PNG / JPG / SVG · 1024×1024 recommended"}
                     </div>
                   </div>
