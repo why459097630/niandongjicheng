@@ -6,19 +6,55 @@ import { provisionStore } from '@/lib/build/provisionStore';
 type StartBuildRequestBody = Partial<BuildRequest> & {
   adminName?: string;
   adminPassword?: string;
+  iconDataUrl?: string | null;
 };
+
+async function fileToDataUrl(file: File): Promise<string> {
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const mimeType = file.type || 'application/octet-stream';
+  return `data:${mimeType};base64,${bytes.toString('base64')}`;
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as StartBuildRequestBody;
+    const contentType = request.headers.get('content-type') || '';
 
-    const appName = (body.appName || '').trim();
-    const moduleId = (body.module || 'feature-showcase').trim();
-    const uiPackId = (body.uiPack || 'ui-pack-showcase-greenpink').trim();
-    const plan = (body.plan || 'pro').trim();
-    const iconUrl = body.iconUrl || null;
-    const adminName = (body.adminName || '').trim();
-    const adminPassword = body.adminPassword || '';
+    let appName = '';
+    let moduleId = 'feature-showcase';
+    let uiPackId = 'ui-pack-showcase-greenpink';
+    let plan = 'pro';
+    let iconUrl: string | null = null;
+    let iconDataUrl: string | null = null;
+    let adminName = '';
+    let adminPassword = '';
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await request.formData();
+
+      appName = String(formData.get('appName') || '').trim();
+      moduleId = String(formData.get('module') || 'feature-showcase').trim();
+      uiPackId = String(formData.get('uiPack') || 'ui-pack-showcase-greenpink').trim();
+      plan = String(formData.get('plan') || 'pro').trim();
+      iconUrl = String(formData.get('iconUrl') || '').trim() || null;
+      adminName = String(formData.get('adminName') || '').trim();
+      adminPassword = String(formData.get('adminPassword') || '');
+
+      const iconFile = formData.get('iconFile');
+      if (iconFile instanceof File && iconFile.size > 0) {
+        iconDataUrl = await fileToDataUrl(iconFile);
+      }
+    } else {
+      const body = (await request.json()) as StartBuildRequestBody;
+
+      appName = (body.appName || '').trim();
+      moduleId = (body.module || 'feature-showcase').trim();
+      uiPackId = (body.uiPack || 'ui-pack-showcase-greenpink').trim();
+      plan = (body.plan || 'pro').trim();
+      iconUrl = body.iconUrl || null;
+      iconDataUrl = body.iconDataUrl || null;
+      adminName = (body.adminName || '').trim();
+      adminPassword = body.adminPassword || '';
+    }
 
     if (!appName) {
       return NextResponse.json(
@@ -70,12 +106,14 @@ export async function POST(request: NextRequest) {
     const payload: BuildRequest & {
       adminName?: string;
       storeId: string;
+      iconDataUrl?: string | null;
     } = {
       appName,
       module: moduleId,
       uiPack: uiPackId,
       plan,
       iconUrl,
+      iconDataUrl,
       adminName,
       storeId: provisionResult.storeId,
     };
