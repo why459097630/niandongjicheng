@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ArrowRight, Download, Eye, HelpCircle, Sparkles, Wand2 } from "lucide-react";
+import AuthControls from "@/components/auth/AuthControls";
 
 export default function Home() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
@@ -57,11 +58,15 @@ export default function Home() {
     </nav>
 
     <div className="flex items-center gap-3">
-      <button className="rounded-full border border-slate-200 bg-white/60 px-4 py-2 text-sm font-medium tracking-[0.01em] text-[#475569] backdrop-blur transition hover:bg-white">
-        Login
-      </button>
+      <AuthControls nextPath="/builder" />
 
-      <button className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-5 py-2 text-sm font-semibold tracking-[0.01em] text-white shadow-[0_10px_24px_rgba(217,70,239,0.25)] transition hover:opacity-90">
+      <button
+        type="button"
+        onClick={() => {
+          window.location.href = "/builder";
+        }}
+        className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-5 py-2 text-sm font-semibold tracking-[0.01em] text-white shadow-[0_10px_24px_rgba(217,70,239,0.25)] transition hover:opacity-90"
+      >
         Get Started
         <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
       </button>
