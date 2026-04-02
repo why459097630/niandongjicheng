@@ -129,7 +129,7 @@ export default function GeneratingPage() {
         setStage(data.stage);
         setMessage(data.message || "Generating...");
         setError("");
-        setDownloadUrl(data.downloadUrl || data.artifactUrl || "");
+        setDownloadUrl(data.downloadUrl || "");
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to load build status.");
