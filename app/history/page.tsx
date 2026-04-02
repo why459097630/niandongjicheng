@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, Download, History, LoaderCircle, TriangleAlert, ArrowRight } from "lucide-react";
+import AuthControls from "@/components/auth/AuthControls";
+import { createClient } from "@/lib/supabase/client";
 
 type BuildItem = {
   runId: string;
@@ -70,10 +72,42 @@ function getStageMeta(stage: BuildItem["stage"]) {
 
 export default function HistoryPage() {
   const [items, setItems] = useState<BuildItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthed, setIsAuthed] = useState(false);
   const [error, setError] = useState("");
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!mounted) return;
+      setIsAuthed(!error && !!data.user);
+      setAuthLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthed(!!session?.user);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (authLoading || !isAuthed) {
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
     fetch("/api/build-list", { cache: "no-store" })
       .then(async (res) => {
         const data: BuildListResponse = await res.json();
@@ -90,7 +124,7 @@ export default function HistoryPage() {
       .finally(() => {
         setLoading(false);
       });
-  }, []);
+  }, [authLoading, isAuthed]);
 
   return (
     <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
@@ -124,6 +158,8 @@ export default function HistoryPage() {
               </a>
             </nav>
 
+            <AuthControls nextPath="/history" />
+
             <div className="rounded-full border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs font-medium tracking-[0.01em] text-indigo-600 shadow-[0_6px_16px_rgba(15,23,42,0.04)]">
               history
             </div>
@@ -150,7 +186,30 @@ export default function HistoryPage() {
           </div>
         </div>
 
-        {loading ? (
+        {authLoading ? (
+          <div className="rounded-[32px] border border-white/50 bg-white/60 p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+            <div className="text-sm text-slate-500">Checking login status...</div>
+          </div>
+        ) : null}
+
+        {!authLoading && !isAuthed ? (
+          <div className="rounded-[32px] border border-white/50 bg-white/60 p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
+              <History className="h-6 w-6" />
+            </div>
+            <div className="mt-5 text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">
+              Sign in to view your build history
+            </div>
+            <div className="mt-3 text-sm leading-7 text-[#64748b]">
+              Your NDJC build history is only available after Google login.
+            </div>
+            <div className="mt-6 flex justify-center">
+              <AuthControls nextPath="/history" />
+            </div>
+          </div>
+        ) : null}
+
+        {isAuthed && loading ? (
           <div className="rounded-[32px] border border-white/50 bg-white/60 p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
             <div className="text-sm text-slate-500">Loading build history...</div>
           </div>
@@ -162,7 +221,7 @@ export default function HistoryPage() {
           </div>
         ) : null}
 
-        {!loading && items.length === 0 ? (
+        {isAuthed && !loading && items.length === 0 ? (
           <div className="rounded-[32px] border border-white/50 bg-white/60 p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
               <History className="h-6 w-6" />
@@ -174,7 +233,7 @@ export default function HistoryPage() {
           </div>
         ) : null}
 
-        {!loading && items.length > 0 ? (
+        {isAuthed && !loading && items.length > 0 ? (
           <div className="grid gap-5">
             {items.map((item) => {
               const meta = getStageMeta(item.stage);
