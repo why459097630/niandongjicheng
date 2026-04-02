@@ -35,6 +35,35 @@ function base64EncodeUtf8(value: string): string {
   return Buffer.from(value, "utf8").toString("base64");
 }
 
+function parseDataUrl(
+  value: string,
+): { base64Content: string; extension: string } | null {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^data:([^;]+);base64,(.+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const mimeType = match[1].trim().toLowerCase();
+  const base64Content = match[2].trim();
+
+  let extension = "png";
+
+  if (mimeType === "image/png") {
+    extension = "png";
+  } else if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+    extension = "jpg";
+  } else if (mimeType === "image/svg+xml") {
+    extension = "svg";
+  }
+
+  return {
+    base64Content,
+    extension,
+  };
+}
+
 function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): string {
   const template =
     input.module?.trim() === "feature-showcase"
@@ -152,11 +181,19 @@ async function uploadBuildRequestToRepo(
     storeId: input.storeId,
     adminName: input.adminName || "",
     iconUrl: input.iconUrl || null,
+    iconDataUrl: input.iconDataUrl || null,
     createdAt: new Date().toISOString(),
     requestPath: `requests/${runId}/status.json`,
   };
 
-  const files = [
+  const iconUpload = input.iconDataUrl ? parseDataUrl(input.iconDataUrl) : null;
+
+  const files: Array<{
+    path: string;
+    content: string;
+    message: string;
+    isBase64Binary?: boolean;
+  }> = [
     {
       path: `requests/${runId}/assembly.local.json`,
       content: assemblyJson,
@@ -174,6 +211,31 @@ async function uploadBuildRequestToRepo(
     },
   ];
 
+  if (iconUpload) {
+    files.push({
+      path: `requests/${runId}/icon.${iconUpload.extension}`,
+      content: iconUpload.base64Content,
+      message: `NDJC request ${runId}: add icon.${iconUpload.extension}`,
+      isBase64Binary: true,
+    });
+
+    if (iconUpload.extension !== "png") {
+      files.push({
+        path: `requests/${runId}/icon.png`,
+        content: iconUpload.base64Content,
+        message: `NDJC request ${runId}: add icon.png`,
+        isBase64Binary: true,
+      });
+    } else {
+      files.push({
+        path: `requests/${runId}/icon.png`,
+        content: iconUpload.base64Content,
+        message: `NDJC request ${runId}: add icon.png`,
+        isBase64Binary: true,
+      });
+    }
+  }
+
   for (const file of files) {
     const response = await githubRequest(
       `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(file.path).replace(/%2F/g, "/")}`,
@@ -182,7 +244,7 @@ async function uploadBuildRequestToRepo(
         token,
         body: JSON.stringify({
           message: file.message,
-          content: base64EncodeUtf8(file.content),
+          content: file.isBase64Binary ? file.content : base64EncodeUtf8(file.content),
           branch,
         }),
       },
@@ -249,6 +311,7 @@ export async function startBuild(input: BuildRequest): Promise<StartBuildRespons
     plan,
     mode: getModeFromPlan(plan),
     iconUrl: input.iconUrl || null,
+    iconDataUrl: input.iconDataUrl || null,
     adminName,
     storeId,
     requestPath: `requests/${runId}/status.json`,
