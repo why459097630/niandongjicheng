@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 
 export default function BuilderPage() {
@@ -11,7 +11,19 @@ export default function BuilderPage() {
   const [adminName, setAdminName] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [iconFile, setIconFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const planRef = useRef("pro");
+
+  const handleChooseIcon = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleIconChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextFile = event.target.files?.[0] || null;
+    setIconFile(nextFile);
+    event.target.value = "";
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -168,15 +180,30 @@ export default function BuilderPage() {
               <div className="space-y-2">
                 <label className="text-sm font-semibold">App Icon</label>
                 <div className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:border-indigo-300 hover:shadow-[0_14px_30px_rgba(15,23,42,0.06)]">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+                    className="hidden"
+                    onChange={handleIconChange}
+                  />
+
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 text-[11px] font-semibold text-slate-500">
                     Icon
                   </div>
+
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-[#0f172a]">Upload app icon</div>
-                    <div className="mt-0.5 text-xs text-slate-400">PNG / JPG / SVG · 1024×1024 recommended</div>
+                    <div className="mt-0.5 text-xs text-slate-400">
+                      {iconFile
+                        ? `Selected: ${iconFile.name}`
+                        : "PNG / JPG / SVG · 1024×1024 recommended"}
+                    </div>
                   </div>
+
                   <button
                     type="button"
+                    onClick={handleChooseIcon}
                     className="rounded-xl border border-slate-200 bg-slate-100/80 px-3 py-1.5 text-xs font-medium text-[#0f172a] transition group-hover:border-indigo-200 group-hover:bg-indigo-50 group-hover:text-indigo-600"
                   >
                     Choose
