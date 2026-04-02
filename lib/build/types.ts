@@ -20,6 +20,7 @@ export type BuildRequest = {
   adminName?: string;
   adminPassword?: string;
   storeId?: string;
+  userId?: string;
 };
 
 export type InternalBuildRecord = {
@@ -33,6 +34,7 @@ export type InternalBuildRecord = {
   iconDataUrl?: string | null;
   adminName?: string;
   storeId?: string;
+  userId?: string;
   requestPath?: string | null;
   workflowRunId?: number | null;
   workflowStatus?: string | null;
