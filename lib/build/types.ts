@@ -16,6 +16,7 @@ export type BuildRequest = {
   uiPack: string;
   plan: string;
   iconUrl?: string | null;
+  iconDataUrl?: string | null;
   adminName?: string;
   adminPassword?: string;
   storeId?: string;
@@ -29,6 +30,7 @@ export type InternalBuildRecord = {
   plan: string;
   mode: BuildMode;
   iconUrl?: string | null;
+  iconDataUrl?: string | null;
   adminName?: string;
   storeId?: string;
   requestPath?: string | null;
