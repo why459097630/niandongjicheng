@@ -1,18 +1,17 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { listBuildRecordsByUser } from "./storage";
 import { BuildHistoryItem, BuildListResponse } from "./types";
 
-export function getBuildList(userId: string): BuildListResponse {
-  const items: BuildHistoryItem[] = listBuildRecordsByUser(userId).map((record) => ({
+export async function getBuildList(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<BuildListResponse> {
+  const records = await listBuildRecordsByUser(supabase, userId);
+
+  const items: BuildHistoryItem[] = records.map((record) => ({
     runId: record.runId,
     appName: record.appName,
-    stage:
-      record.status === "success"
-        ? "success"
-        : record.status === "failed"
-          ? "failed"
-          : record.status === "running"
-            ? "running"
-            : "queued",
+    stage: record.status,
     createdAt: record.createdAt,
     moduleName: record.moduleName,
     uiPackName: record.uiPackName,
