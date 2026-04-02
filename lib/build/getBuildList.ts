@@ -1,8 +1,8 @@
-import { listBuildRecords } from "./storage";
+import { listBuildRecordsByUser } from "./storage";
 import { BuildHistoryItem, BuildListResponse } from "./types";
 
-export function getBuildList(): BuildListResponse {
-  const items: BuildHistoryItem[] = listBuildRecords().map((record) => ({
+export function getBuildList(userId: string): BuildListResponse {
+  const items: BuildHistoryItem[] = listBuildRecordsByUser(userId).map((record) => ({
     runId: record.runId,
     appName: record.appName,
     stage:
