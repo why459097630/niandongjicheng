@@ -56,7 +56,7 @@ export default function ResultPage() {
         setUiPackName(data.uiPackName || "ui-pack-showcase-greenpink");
         setAdminName(data.adminName || "");
         setAdminPassword(data.adminPassword || "");
-        setDownloadUrl(data.downloadUrl || data.artifactUrl || "");
+        setDownloadUrl(data.downloadUrl || "");
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load build result.");
