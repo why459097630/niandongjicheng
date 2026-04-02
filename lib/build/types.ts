@@ -10,6 +10,24 @@ export type BuildStage =
 
 export type BuildMode = "Free Trial" | "Paid Purchase";
 
+export type BuildStatusValue = "queued" | "running" | "success" | "failed";
+
+export type BuildStatusSource =
+  | "github_status_json"
+  | "local_api"
+  | "manual_fix"
+  | "unknown";
+
+export type UserOperationEventName =
+  | "login_success"
+  | "builder_opened"
+  | "icon_uploaded"
+  | "build_started"
+  | "build_status_polled"
+  | "history_opened"
+  | "result_opened"
+  | "download_clicked";
+
 export type BuildRequest = {
   appName: string;
   module: string;
@@ -24,6 +42,7 @@ export type BuildRequest = {
 };
 
 export type InternalBuildRecord = {
+  id: string;
   runId: string;
   appName: string;
   moduleName: string;
@@ -33,7 +52,7 @@ export type InternalBuildRecord = {
   iconUrl?: string | null;
   iconDataUrl?: string | null;
   adminName?: string;
-  storeId?: string;
+  storeId?: string | null;
   userId?: string;
   requestPath?: string | null;
   workflowRunId?: number | null;
@@ -42,7 +61,9 @@ export type InternalBuildRecord = {
   workflowUrl?: string | null;
   createdAt: string;
   updatedAt: string;
-  status: "queued" | "running" | "success" | "failed";
+  lastSyncedAt?: string | null;
+  statusSource?: BuildStatusSource;
+  status: BuildStatusValue;
   stage: BuildStage;
   message: string;
   artifactUrl: string | null;
@@ -54,22 +75,22 @@ export type StartBuildResponse = {
   ok: boolean;
   runId?: string;
   stage?: BuildStage;
-  message?: string;
-  error?: string;
-  storeId?: string;
+  message?: string | null;
+  error?: string | null;
+  storeId?: string | null;
 };
 
 export type BuildStatusResponse = {
   ok: boolean;
   runId?: string;
   stage?: BuildStage;
-  message?: string;
+  message?: string | null;
   artifactUrl?: string | null;
   downloadUrl?: string | null;
-  error?: string;
+  error?: string | null;
   appName?: string;
   adminName?: string;
-  storeId?: string;
+  storeId?: string | null;
   moduleName?: string;
   uiPackName?: string;
   plan?: string;
@@ -85,7 +106,7 @@ export type BuildStatusResponse = {
 export type BuildHistoryItem = {
   runId: string;
   appName: string;
-  stage: "success" | "failed" | "running" | "queued";
+  stage: BuildStatusValue;
   createdAt: string;
   moduleName: string;
   uiPackName: string;
