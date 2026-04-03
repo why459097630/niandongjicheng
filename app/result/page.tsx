@@ -41,7 +41,16 @@ export default function ResultPage() {
       return;
     }
 
-    fetch(`/api/build-status?runId=${encodeURIComponent(currentRunId)}&event=result_opened`, {
+    const resultOpenKey = `ndjc_result_opened_${currentRunId}`;
+    const shouldLogOpen =
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(resultOpenKey) !== "1";
+
+    const requestUrl = shouldLogOpen
+      ? `/api/build-status?runId=${encodeURIComponent(currentRunId)}&event=result_opened`
+      : `/api/build-status?runId=${encodeURIComponent(currentRunId)}`;
+
+    fetch(requestUrl, {
       cache: "no-store",
     })
       .then(async (res) => {
@@ -57,6 +66,10 @@ export default function ResultPage() {
         setAdminName(data.adminName || "");
         setAdminPassword(data.adminPassword || "");
         setDownloadUrl(data.downloadUrl || "");
+
+        if (shouldLogOpen && typeof window !== "undefined") {
+          window.sessionStorage.setItem(resultOpenKey, "1");
+        }
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load build result.");
