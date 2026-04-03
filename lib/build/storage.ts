@@ -81,10 +81,13 @@ type InsertOperationLogInput = {
   metadata?: Record<string, unknown>;
 };
 
-type UpsertCurrentUserProfileInput = {
-  displayName?: string | null;
-  avatarUrl?: string | null;
-  provider?: string | null;
+type AuthLikeUser = {
+  id: string;
+  email?: string | null;
+  app_metadata?: {
+    provider?: string;
+  } | null;
+  user_metadata?: Record<string, unknown> | null;
 };
 
 function normalizePlan(plan: string): string {
@@ -290,17 +293,90 @@ export async function insertOperationLog(
   }
 }
 
-export async function upsertCurrentUserProfile(
+function pickDisplayNameFromAuthUser(user: AuthLikeUser): string | null {
+  const metadata = user.user_metadata || {};
+
+  if (typeof metadata.full_name === "string" && metadata.full_name.trim()) {
+    return metadata.full_name.trim();
+  }
+
+  if (typeof metadata.name === "string" && metadata.name.trim()) {
+    return metadata.name.trim();
+  }
+
+  if (typeof metadata.user_name === "string" && metadata.user_name.trim()) {
+    return metadata.user_name.trim();
+  }
+
+  if (typeof user.email === "string" && user.email.trim()) {
+    return user.email.trim();
+  }
+
+  return null;
+}
+
+function pickAvatarUrlFromAuthUser(user: AuthLikeUser): string | null {
+  const metadata = user.user_metadata || {};
+
+  if (typeof metadata.avatar_url === "string" && metadata.avatar_url.trim()) {
+    return metadata.avatar_url.trim();
+  }
+
+  return null;
+}
+
+export async function syncAuthUserProfile(
   supabase: SupabaseClient,
-  input: UpsertCurrentUserProfileInput,
+  user: AuthLikeUser,
 ): Promise<void> {
-  const { error } = await supabase.rpc("upsert_profile", {
-    p_display_name: input.displayName ?? null,
-    p_avatar_url: input.avatarUrl ?? null,
-    p_provider: input.provider ?? "google",
+  const displayName = pickDisplayNameFromAuthUser(user);
+  const avatarUrl = pickAvatarUrlFromAuthUser(user);
+  const provider =
+    typeof user.app_metadata?.provider === "string" &&
+    user.app_metadata.provider.trim()
+      ? user.app_metadata.provider.trim()
+      : "google";
+
+  const { data: existing, error: selectError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (selectError) {
+    throw new Error(selectError.message);
+  }
+
+  if (existing) {
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        email: user.email ?? null,
+        display_name: displayName,
+        avatar_url: avatarUrl,
+        provider,
+        last_login_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    return;
+  }
+
+  const { error: insertError } = await supabase.from("profiles").insert({
+    id: user.id,
+    email: user.email ?? null,
+    display_name: displayName,
+    avatar_url: avatarUrl,
+    provider,
+    last_login_at: new Date().toISOString(),
   });
 
-  if (error) {
-    throw new Error(error.message);
+  if (insertError) {
+    throw new Error(insertError.message);
   }
 }
