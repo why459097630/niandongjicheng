@@ -3,6 +3,7 @@ import { startBuild } from '@/lib/build/startBuild';
 import { BuildRequest } from '@/lib/build/types';
 import { provisionStore } from '@/lib/build/provisionStore';
 import { createClient } from '@/lib/supabase/server';
+import { syncAuthUserProfile } from '@/lib/build/storage';
 
 type StartBuildRequestBody = Partial<BuildRequest> & {
   adminName?: string;
@@ -32,6 +33,12 @@ export async function POST(request: NextRequest) {
         },
         { status: 401 },
       );
+    }
+
+    try {
+      await syncAuthUserProfile(supabase, user);
+    } catch (profileError) {
+      console.error('NDJC start-build: failed to sync profile', profileError);
     }
 
     const contentType = request.headers.get('content-type') || '';
