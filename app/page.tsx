@@ -79,12 +79,9 @@ export default function Home() {
               <span className="text-[#0f172a]/88">for your local business — no code needed</span>
             </h1>
 
-            <p className="mb-4 max-w-[560px] text-[15px] font-semibold uppercase tracking-[0.14em] text-[#7c3aed]">
-              Turn your local business into a real mobile app
-            </p>
-
+            
             <p className="mb-10 max-w-[600px] text-lg leading-[1.9] text-[#475569]">
-              Give your customers a dedicated app. Show your services, chat instantly, and bring them back with updates — all in one place. No coding required, just configure and generate your APK.
+              Give your customers a dedicated app — show services, chat instantly, and send updates.
             </p>
 
             <div className="max-w-[560px] rounded-[28px] border border-white/40 bg-white/38 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl">
