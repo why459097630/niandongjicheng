@@ -105,10 +105,21 @@ export default function HistoryPage() {
       return;
     }
 
+    let cancelled = false;
+
     setLoading(true);
     setError("");
 
-    fetch("/api/build-list", { cache: "no-store" })
+    const historyOpenKey = "ndjc_history_opened_logged";
+    const shouldLogOpen =
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(historyOpenKey) !== "1";
+
+    const requestUrl = shouldLogOpen
+      ? "/api/build-list?logOpen=1"
+      : "/api/build-list";
+
+    fetch(requestUrl, { cache: "no-store" })
       .then(async (res) => {
         const data: BuildListResponse = await res.json();
 
@@ -116,14 +127,34 @@ export default function HistoryPage() {
           throw new Error(data.error || "Failed to load build history.");
         }
 
+        if (cancelled) {
+          return;
+        }
+
         setItems(data.items || []);
+
+        if (shouldLogOpen && typeof window !== "undefined") {
+          window.sessionStorage.setItem(historyOpenKey, "1");
+        }
       })
       .catch((err) => {
+        if (cancelled) {
+          return;
+        }
+
         setError(err instanceof Error ? err.message : "Failed to load build history.");
       })
       .finally(() => {
+        if (cancelled) {
+          return;
+        }
+
         setLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [authLoading, isAuthed]);
 
   return (
