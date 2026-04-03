@@ -296,7 +296,7 @@ export default function HistoryPage() {
 
                       {item.stage === "success" && item.downloadUrl ? (
                         <a
-                          href={item.downloadUrl}
+                          href={`/api/build-status?runId=${encodeURIComponent(item.runId)}&download=1&event=history_download`}
                           className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(217,70,239,0.20)] transition hover:-translate-y-0.5 hover:opacity-90"
                         >
                           <Download className="h-4 w-4" />
