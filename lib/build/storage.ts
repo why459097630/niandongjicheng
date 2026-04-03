@@ -293,6 +293,48 @@ export async function insertOperationLog(
   }
 }
 
+export async function insertOperationLogOnce(
+  supabase: SupabaseClient,
+  input: InsertOperationLogInput,
+  options?: {
+    dedupeSeconds?: number;
+  },
+): Promise<boolean> {
+  const dedupeSeconds = options?.dedupeSeconds ?? 30;
+  const since = new Date(Date.now() - dedupeSeconds * 1000).toISOString();
+
+  let query = supabase
+    .from("user_operation_logs")
+    .select("id")
+    .eq("user_id", input.userId)
+    .eq("event_name", input.eventName)
+    .gte("occurred_at", since)
+    .limit(1);
+
+  query =
+    input.runId != null
+      ? query.eq("run_id", input.runId)
+      : query.is("run_id", null);
+
+  query =
+    input.pagePath != null
+      ? query.eq("page_path", input.pagePath)
+      : query.is("page_path", null);
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if ((data || []).length > 0) {
+    return false;
+  }
+
+  await insertOperationLog(supabase, input);
+  return true;
+}
+
 function pickDisplayNameFromAuthUser(user: AuthLikeUser): string | null {
   const metadata = user.user_metadata || {};
 
