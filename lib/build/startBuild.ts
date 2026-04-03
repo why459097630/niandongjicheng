@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   insertBuildRecord,
   insertOperationLog,
+  insertOperationLogOnce,
   updateBuildRecordByRunId,
 } from "./storage";
 import { BuildRequest, StartBuildResponse } from "./types";
@@ -397,6 +398,22 @@ export async function startBuild(
       error: failedMessage,
       statusSource: "local_api",
     }).catch(() => null);
+
+    await insertOperationLogOnce(
+      supabase,
+      {
+        userId,
+        buildId: saved.id,
+        runId,
+        eventName: "build_failed",
+        pagePath: "/builder",
+        metadata: {
+          source: "start_build",
+          reason: failedMessage,
+        },
+      },
+      { dedupeSeconds: 30 },
+    ).catch(() => null);
 
     console.error("NDJC startBuild: failed", {
       runId,
