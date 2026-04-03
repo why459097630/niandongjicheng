@@ -92,7 +92,11 @@ export async function GET(request: NextRequest) {
       }
 
       if (result.downloadUrl) {
-        return NextResponse.redirect(result.downloadUrl, { status: 302 });
+        const redirectUrl = /^https?:\/\//i.test(result.downloadUrl)
+          ? result.downloadUrl
+          : new URL(result.downloadUrl, request.url).toString();
+
+        return NextResponse.redirect(redirectUrl, { status: 302 });
       }
 
       return new NextResponse(
