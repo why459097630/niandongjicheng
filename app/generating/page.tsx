@@ -6,8 +6,8 @@ import { CheckCircle2, Circle, Download, House, LoaderCircle, RotateCcw, Triangl
 type BuildStage =
   | "preparing_request"
   | "processing_identity"
-  | "matching_module"
-  | "applying_ui"
+  | "matching_logic_module"
+  | "applying_ui_pack"
   | "preparing_services"
   | "building_apk"
   | "success"
@@ -26,8 +26,8 @@ type BuildStatusResponse = {
 type StepKey =
   | "preparing_request"
   | "processing_identity"
-  | "matching_module"
-  | "applying_ui"
+  | "matching_logic_module"
+  | "applying_ui_pack"
   | "preparing_services"
   | "building_apk";
 
@@ -36,8 +36,8 @@ type StepStatus = "done" | "active" | "pending" | "failed";
 const STEP_ORDER: { key: StepKey; title: string }[] = [
   { key: "preparing_request", title: "Preparing build request" },
   { key: "processing_identity", title: "Processing app identity" },
-  { key: "matching_module", title: "Matching logic module" },
-  { key: "applying_ui", title: "Applying UI pack" },
+  { key: "matching_logic_module", title: "Matching logic module" },
+  { key: "applying_ui_pack", title: "Applying UI pack" },
   { key: "preparing_services", title: "Preparing app services and signing" },
   { key: "building_apk", title: "Building and packaging APK" },
 ];
@@ -45,8 +45,8 @@ const STEP_ORDER: { key: StepKey; title: string }[] = [
 const ACTIVE_LABEL: Record<StepKey, string> = {
   preparing_request: "Preparing build request",
   processing_identity: "Processing app identity",
-  matching_module: "Matching logic module",
-  applying_ui: "Applying UI pack",
+  matching_logic_module: "Matching logic module",
+  applying_ui_pack: "Applying UI pack",
   preparing_services: "Preparing app services and signing",
   building_apk: "Building and packaging APK",
 };
@@ -55,8 +55,8 @@ function mapStageToSteps(stage: BuildStage | undefined) {
   const currentIndexMap: Record<StepKey, number> = {
     preparing_request: 0,
     processing_identity: 1,
-    matching_module: 2,
-    applying_ui: 3,
+    matching_logic_module: 2,
+    applying_ui_pack: 3,
     preparing_services: 4,
     building_apk: 5,
   };
@@ -98,6 +98,7 @@ export default function GeneratingPage() {
   const [message, setMessage] = useState("Waiting for live build status...");
   const [error, setError] = useState("");
   const [downloadUrl, setDownloadUrl] = useState("");
+  const [hasLoggedPollOpen, setHasLoggedPollOpen] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -112,9 +113,13 @@ export default function GeneratingPage() {
 
     const fetchStatus = async () => {
       try {
-        const response = await fetch(`/api/build-status?runId=${encodeURIComponent(runId)}`, {
-          cache: "no-store",
-        });
+        const pollEvent = hasLoggedPollOpen ? "" : "&event=poll";
+        const response = await fetch(
+          `/api/build-status?runId=${encodeURIComponent(runId)}${pollEvent}`,
+          {
+            cache: "no-store",
+          },
+        );
 
         const data: BuildStatusResponse = await response.json();
 
@@ -130,6 +135,10 @@ export default function GeneratingPage() {
         setMessage(data.message || "Generating...");
         setError("");
         setDownloadUrl(data.downloadUrl || "");
+
+        if (!hasLoggedPollOpen) {
+          setHasLoggedPollOpen(true);
+        }
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to load build status.");
@@ -144,7 +153,7 @@ export default function GeneratingPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [runId]);
+  }, [runId, hasLoggedPollOpen]);
 
   const steps = useMemo(() => mapStageToSteps(stage), [stage]);
   useEffect(() => {
