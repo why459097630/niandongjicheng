@@ -218,18 +218,8 @@ export default function BuilderPage() {
               History
             </a>
           </nav>
-
           <div className="flex items-center gap-3">
             <AuthControls nextPath="/builder" />
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={isSubmitting || authLoading}
-              className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-5 py-2 text-sm font-semibold tracking-[0.01em] text-white shadow-[0_10px_24px_rgba(217,70,239,0.25)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {isSubmitting ? "Starting Build..." : "Continue"}
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-            </button>
           </div>
         </div>
       </header>
