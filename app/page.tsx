@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ArrowRight, Download, Eye, HelpCircle, Sparkles, Wand2 } from "lucide-react";
+import AuthControls from "@/components/auth/AuthControls";
 
 export default function Home() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
@@ -57,12 +58,7 @@ export default function Home() {
     </nav>
 
     <div className="flex items-center gap-3">
-      <button
-        type="button"
-        className="rounded-full border border-white/60 bg-white/80 px-4 py-2 text-sm font-medium text-[#0f172a] shadow-[0_8px_20px_rgba(15,23,42,0.06)] backdrop-blur"
-      >
-        Sign In
-      </button>
+      <AuthControls nextPath="/builder" />
     </div>
   </div>
 </header>
