@@ -1,4 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import {
+  getBuildRecordByRunId,
+  insertOperationLogOnce,
+  syncAuthUserProfile,
+  updateBuildRecordByRunId,
+} from "@/lib/build/storage";
 
 function getRequiredEnv(name: string): string {
   const value = (process.env[name] || "").trim();
@@ -74,6 +81,28 @@ async function readRemoteStatusFile(runId: string) {
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Please sign in with Google first.",
+        },
+        { status: 401 },
+      );
+    }
+
+    try {
+      await syncAuthUserProfile(supabase, user);
+    } catch (profileError) {
+      console.error("NDJC download-artifact: failed to sync profile", profileError);
+    }
+
     const runId = request.nextUrl.searchParams.get("runId")?.trim() || "";
 
     if (!runId) {
@@ -86,6 +115,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const localRecord = await getBuildRecordByRunId(supabase, runId);
     const status = await readRemoteStatusFile(runId);
 
     if (!status) {
@@ -169,6 +199,22 @@ export async function GET(request: NextRequest) {
     );
 
     if (!artifact) {
+      await insertOperationLogOnce(
+        supabase,
+        {
+          userId: user.id,
+          buildId: localRecord?.id ?? null,
+          runId,
+          eventName: "download_failed",
+          pagePath: "/api/download-artifact",
+          metadata: {
+            source: "download_artifact_route",
+            reason: `artifact_not_found:${artifactName}`,
+          },
+        },
+        { dedupeSeconds: 30 },
+      ).catch(() => null);
+
       return NextResponse.json(
         {
           ok: false,
@@ -177,6 +223,12 @@ export async function GET(request: NextRequest) {
         { status: 404 },
       );
     }
+
+    await updateBuildRecordByRunId(supabase, runId, {
+      artifactUrl: artifact.archive_download_url,
+      statusSource: "github_status_json",
+      lastSyncedAt: new Date().toISOString(),
+    }).catch(() => null);
 
     const downloadResponse = await githubRequest(artifact.archive_download_url, {
       method: "GET",
@@ -187,6 +239,22 @@ export async function GET(request: NextRequest) {
 
     if (!redirectLocation) {
       const fallbackBody = await downloadResponse.text();
+
+      await insertOperationLogOnce(
+        supabase,
+        {
+          userId: user.id,
+          buildId: localRecord?.id ?? null,
+          runId,
+          eventName: "download_failed",
+          pagePath: "/api/download-artifact",
+          metadata: {
+            source: "download_artifact_route",
+            reason: "missing_redirect_location",
+          },
+        },
+        { dedupeSeconds: 30 },
+      ).catch(() => null);
 
       return NextResponse.json(
         {
