@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getBuildRecordByRunId, updateBuildRecordByRunId } from "./storage";
+import {
+  getBuildRecordByRunId,
+  insertOperationLogOnce,
+  updateBuildRecordByRunId,
+} from "./storage";
 import {
   BuildStage,
   BuildStatusResponse,
@@ -245,6 +249,24 @@ export async function getBuildStatus(
         statusSource: "github_status_json",
         lastSyncedAt: new Date().toISOString(),
       });
+
+      if (status === "failed" && localRecord.userId) {
+        await insertOperationLogOnce(
+          supabase,
+          {
+            userId: localRecord.userId,
+            buildId: localRecord.id,
+            runId,
+            eventName: "build_failed",
+            pagePath: "/generating",
+            metadata: {
+              source: "status_sync",
+              reason: merged.error ?? merged.message ?? "build_failed",
+            },
+          },
+          { dedupeSeconds: 60 },
+        ).catch(() => null);
+      }
 
       return mapRecordToResponse(synced, {
         adminName: merged.adminName,
