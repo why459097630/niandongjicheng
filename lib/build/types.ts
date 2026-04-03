@@ -26,7 +26,10 @@ export type UserOperationEventName =
   | "build_status_polled"
   | "history_opened"
   | "result_opened"
-  | "download_clicked";
+  | "download_clicked"
+  | "auth_callback_failed"
+  | "build_failed"
+  | "download_failed";
 
 export type BuildRequest = {
   appName: string;
