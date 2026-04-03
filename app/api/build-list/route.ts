@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getBuildList } from "@/lib/build/getBuildList";
 import { createClient } from "@/lib/supabase/server";
-import { insertOperationLog, syncAuthUserProfile } from "@/lib/build/storage";
+import { insertOperationLogOnce, syncAuthUserProfile } from "@/lib/build/storage";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
     const {
@@ -28,15 +28,25 @@ export async function GET() {
       console.error("NDJC build-list: failed to sync profile", profileError);
     }
 
-    try {
-      await insertOperationLog(supabase, {
-        userId: user.id,
-        eventName: "history_opened",
-        pagePath: "/history",
-        metadata: {},
-      });
-    } catch (logError) {
-      console.error("NDJC build-list: failed to write history_opened log", logError);
+    const shouldLogOpen = request.nextUrl.searchParams.get("logOpen") === "1";
+
+    if (shouldLogOpen) {
+      try {
+        await insertOperationLogOnce(
+          supabase,
+          {
+            userId: user.id,
+            eventName: "history_opened",
+            pagePath: "/history",
+            metadata: {
+              source: "history_page",
+            },
+          },
+          { dedupeSeconds: 30 },
+        );
+      } catch (logError) {
+        console.error("NDJC build-list: failed to write history_opened log", logError);
+      }
     }
 
     const result = await getBuildList(supabase, user.id);
