@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBuildStatus } from "@/lib/build/getBuildStatus";
 import { createClient } from "@/lib/supabase/server";
-import { insertOperationLog, syncAuthUserProfile } from "@/lib/build/storage";
+import { insertOperationLogOnce, syncAuthUserProfile } from "@/lib/build/storage";
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,13 +50,19 @@ export async function GET(request: NextRequest) {
 
     if (event === "poll") {
       try {
-        await insertOperationLog(supabase, {
-          userId: user.id,
-          runId,
-          eventName: "build_status_polled",
-          pagePath: "/generating",
-          metadata: {},
-        });
+        await insertOperationLogOnce(
+          supabase,
+          {
+            userId: user.id,
+            runId,
+            eventName: "build_status_polled",
+            pagePath: "/generating",
+            metadata: {
+              source: "generating",
+            },
+          },
+          { dedupeSeconds: 120 },
+        );
       } catch (logError) {
         console.error("NDJC build-status: failed to write build_status_polled log", logError);
       }
@@ -64,29 +70,42 @@ export async function GET(request: NextRequest) {
 
     if (event === "result_opened") {
       try {
-        await insertOperationLog(supabase, {
-          userId: user.id,
-          runId,
-          eventName: "result_opened",
-          pagePath: "/result",
-          metadata: {},
-        });
+        await insertOperationLogOnce(
+          supabase,
+          {
+            userId: user.id,
+            runId,
+            eventName: "result_opened",
+            pagePath: "/result",
+            metadata: {
+              source: "result",
+            },
+          },
+          { dedupeSeconds: 30 },
+        );
       } catch (logError) {
         console.error("NDJC build-status: failed to write result_opened log", logError);
       }
     }
 
     if (wantsDownload) {
+      const source = event === "history_download" ? "history" : "result";
+      const pagePath = event === "history_download" ? "/history" : "/result";
+
       try {
-        await insertOperationLog(supabase, {
-          userId: user.id,
-          runId,
-          eventName: "download_clicked",
-          pagePath: event === "history_download" ? "/history" : "/result",
-          metadata: {
-            source: event === "history_download" ? "history" : "result",
+        await insertOperationLogOnce(
+          supabase,
+          {
+            userId: user.id,
+            runId,
+            eventName: "download_clicked",
+            pagePath,
+            metadata: {
+              source,
+            },
           },
-        });
+          { dedupeSeconds: 5 },
+        );
       } catch (logError) {
         console.error("NDJC build-status: failed to write download_clicked log", logError);
       }
@@ -97,6 +116,25 @@ export async function GET(request: NextRequest) {
           : new URL(result.downloadUrl, request.url).toString();
 
         return NextResponse.redirect(redirectUrl, { status: 302 });
+      }
+
+      try {
+        await insertOperationLogOnce(
+          supabase,
+          {
+            userId: user.id,
+            runId,
+            eventName: "download_failed",
+            pagePath,
+            metadata: {
+              source,
+              reason: "missing_download_url",
+            },
+          },
+          { dedupeSeconds: 30 },
+        );
+      } catch (logError) {
+        console.error("NDJC build-status: failed to write download_failed log", logError);
       }
 
       return new NextResponse(
