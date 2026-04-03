@@ -76,7 +76,7 @@ export default function Home() {
             <h1 className="mb-8 text-5xl font-extrabold tracking-[-0.04em] leading-[0.96] md:text-7xl">
               Build your own real Android app
               <br />
-              <span className="text-[#0f172a]/88">for your local business — no code needed</span>
+              <span className="text-4xl md:text-6xl text-[#0f172a]/60">For your local business — no code needed</span>
             </h1>
 
             
@@ -94,10 +94,7 @@ export default function Home() {
               </h3>
 
               <p className="mt-4 max-w-[460px] text-[13px] font-medium tracking-[0.01em] text-[#64748b]">
-                No coding required · Generate a real APK
-              </p>
-              <p className="mt-2 max-w-[460px] text-[12px] font-medium tracking-[0.01em] text-[#94a3b8]">
-                Build a real, installable Android app
+                No coding required · Generate a native Android APK
               </p>
 
               <div className="mt-8 flex items-center gap-4">
