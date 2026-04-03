@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
-  insertOperationLog,
+  insertOperationLogOnce,
   syncAuthUserProfile,
 } from "@/lib/build/storage";
 
@@ -15,8 +15,9 @@ export async function GET(request: Request) {
     next = "/";
   }
 
+  const supabase = await createClient();
+
   if (code) {
-    const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
@@ -32,19 +33,23 @@ export async function GET(request: Request) {
         }
 
         try {
-          await insertOperationLog(supabase, {
-            userId: user.id,
-            eventName: "login_success",
-            pagePath: "/auth/callback",
-            metadata: {
-              next,
-              provider:
-                typeof user.app_metadata?.provider === "string" &&
-                user.app_metadata.provider.trim()
-                  ? user.app_metadata.provider.trim()
-                  : "google",
+          await insertOperationLogOnce(
+            supabase,
+            {
+              userId: user.id,
+              eventName: "login_success",
+              pagePath: "/auth/callback",
+              metadata: {
+                next,
+                provider:
+                  typeof user.app_metadata?.provider === "string" &&
+                  user.app_metadata.provider.trim()
+                    ? user.app_metadata.provider.trim()
+                    : "google",
+              },
             },
-          });
+            { dedupeSeconds: 20 },
+          );
         } catch (logError) {
           console.error("NDJC callback: failed to write login_success log", logError);
         }
@@ -62,6 +67,24 @@ export async function GET(request: Request) {
       }
 
       return NextResponse.redirect(`${origin}${next}`);
+    }
+
+    try {
+      await insertOperationLogOnce(
+        supabase,
+        {
+          userId: "00000000-0000-0000-0000-000000000000",
+          eventName: "auth_callback_failed",
+          pagePath: "/auth/callback",
+          metadata: {
+            next,
+            reason: error.message,
+          },
+        },
+        { dedupeSeconds: 20 },
+      );
+    } catch (logError) {
+      console.error("NDJC callback: failed to write auth_callback_failed log", logError);
     }
   }
 
