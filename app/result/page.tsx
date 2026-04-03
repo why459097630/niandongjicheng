@@ -41,7 +41,7 @@ export default function ResultPage() {
       return;
     }
 
-    fetch(`/api/build-status?runId=${encodeURIComponent(currentRunId)}`, {
+    fetch(`/api/build-status?runId=${encodeURIComponent(currentRunId)}&event=result_opened`, {
       cache: "no-store",
     })
       .then(async (res) => {
@@ -145,7 +145,7 @@ export default function ResultPage() {
 
           {downloadUrl ? (
             <a
-              href={downloadUrl}
+              href={`/api/build-status?runId=${encodeURIComponent(runId)}&download=1&event=result_download`}
               className="group relative block w-full overflow-hidden rounded-[24px] bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-6 py-5 text-lg font-semibold text-white shadow-[0_25px_60px_rgba(236,72,153,0.25)] transition hover:scale-[1.04] hover:shadow-[0_35px_90px_rgba(236,72,153,0.35)] active:scale-[0.98]"
             >
               <div className="relative flex items-center justify-center gap-2">
