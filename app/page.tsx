@@ -1,16 +1,73 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Download, DollarSign, Eye, HelpCircle, Smartphone, Sparkles, Wand2, Zap } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+
 function AuthControls({ nextPath = "/builder" }: { nextPath?: string }) {
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthed, setIsAuthed] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const supabase = useMemo(() => createClient(), []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!mounted) return;
+      setIsAuthed(!error && !!data.user);
+      setAuthLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthed(!!session?.user);
+      setAuthLoading(false);
+      setIsSigningIn(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
+
+  const handleClick = async () => {
+    if (authLoading || isSigningIn) return;
+
+    if (isAuthed) {
+      window.location.href = nextPath;
+      return;
+    }
+
+    try {
+      setIsSigningIn(true);
+
+      const redirectTo = `${window.location.origin}${nextPath}`;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      setIsSigningIn(false);
+      alert(error instanceof Error ? error.message : "Failed to sign in.");
+    }
+  };
+
   return (
     <button
       type="button"
-      onClick={() => {
-        window.location.href = nextPath;
-      }}
-      className="inline-flex items-center rounded-full border border-white/70 bg-white/92 px-5 py-2.5 text-sm font-semibold text-[#0f172a] shadow-[0_12px_26px_rgba(15,23,42,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_16px_30px_rgba(15,23,42,0.09)]"
+      onClick={handleClick}
+      disabled={authLoading || isSigningIn}
+      className="inline-flex items-center rounded-full border border-white/70 bg-white/92 px-5 py-2.5 text-sm font-semibold text-[#0f172a] shadow-[0_12px_26px_rgba(15,23,42,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_16px_30px_rgba(15,23,42,0.09)] disabled:cursor-not-allowed disabled:opacity-70"
     >
-      Sign in
+      {isSigningIn ? "Signing in..." : isAuthed ? "Sign in" : "Sign in"}
     </button>
   );
 }
