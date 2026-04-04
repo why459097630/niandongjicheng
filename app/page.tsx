@@ -43,12 +43,12 @@ export default function Home() {
         <img
           src="/ndjc-logo.png"
           alt="Think it Done logo"
-          className="h-6 w-6 object-contain"
+          className="h-7 w-7 object-contain scale-110"
         />
       </div>
       <div className="leading-none">
         <div className="text-sm font-semibold tracking-[0.02em] text-[#0f172a]">Think it Done</div>
-        <div className="mt-1 text-[10px] font-medium text-[#94a3b8]">Native App Builder</div>
+        <div className="mt-1 text-[10px] font-medium text-[#94a3b8]">Build native Android apps in minutes</div>
       </div>
     </div>
 
@@ -106,7 +106,7 @@ export default function Home() {
               </h3>
 
               <p className="mt-4 max-w-[460px] text-[13px] font-medium tracking-[0.01em] text-[#64748b]">
-                No coding required · Generate a native Android APK
+                No coding required · Generate a real native Android APK
               </p>
 
               <div className="mt-8 flex items-center gap-4">
@@ -449,7 +449,7 @@ export default function Home() {
         <div className="px-8 py-10 text-center md:px-12 md:py-12">
           <div className="text-sm font-medium tracking-[0.08em] text-indigo-400">Ready to start?</div>
           <h2 className="mt-3 text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a] md:text-4xl">
-            Build your app and download your APK
+            Build your native Android app and download your APK
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-[17px] leading-[1.9] text-[#475569]">
             Set up your app, choose your module and UI pack, and start building in just a few steps.
