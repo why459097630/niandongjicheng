@@ -43,7 +43,7 @@ export default function Home() {
         <img
           src="/ndjc-logo.png"
           alt="Think it Done logo"
-          className="h-8 w-8 object-contain scale-125"
+          className="h-8 w-8 object-contain scale-200"
         />
       </div>
       <div className="leading-none">
