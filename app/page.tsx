@@ -160,11 +160,11 @@ export default function Home() {
                 Cost
               </div>
             </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Much cheaper than hiring developers</h3>
+            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Get your own app without spending thousands</h3>
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Build your own app without expensive development costs.
+              No developers, no complexity — just build it yourself.
             </p>
-            <div className="text-sm text-[#94a3b8]">Save thousands compared to traditional development.</div>
+            <div className="text-sm text-[#94a3b8]">Everything you need to get started, without the usual cost or hassle.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
@@ -178,9 +178,9 @@ export default function Home() {
             </div>
             <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Launch your app in minutes</h3>
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              No coding, no communication — just configure and launch.
+              Set it up in minutes with a simple, guided flow.
             </p>
-            <div className="text-sm text-[#94a3b8]">Go from idea to real app in minutes, not weeks.</div>
+            <div className="text-sm text-[#94a3b8]">From idea to working app, without delays or back-and-forth.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
@@ -194,9 +194,9 @@ export default function Home() {
             </div>
             <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Own your native app & customers</h3>
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              A real Android app with direct customer access — no platform limits.
+              A real Android app, ready to connect directly with your customers.
             </p>
-            <div className="text-sm text-[#94a3b8]">Build your own brand and private customer channel.</div>
+            <div className="text-sm text-[#94a3b8]">Own your brand, your users, and your communication channel.</div>
           </div>
         </div>
       </section>
