@@ -8,7 +8,7 @@ function AuthControls({ nextPath = "/builder" }: { nextPath?: string }) {
       onClick={() => {
         window.location.href = nextPath;
       }}
-      className="inline-flex items-center rounded-full border border-white/60 bg-white px-4 py-2 text-sm font-semibold text-[#0f172a] shadow-[0_10px_24px_rgba(15,23,42,0.06)] transition hover:bg-white/90"
+      className="inline-flex items-center rounded-full border border-white/70 bg-white/92 px-5 py-2.5 text-sm font-semibold text-[#0f172a] shadow-[0_12px_26px_rgba(15,23,42,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_16px_30px_rgba(15,23,42,0.09)]"
     >
       Sign in
     </button>
@@ -18,6 +18,7 @@ function AuthControls({ nextPath = "/builder" }: { nextPath?: string }) {
 export default function Home() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
   const [activePreview, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
+  const [isHeaderCompact, setIsHeaderCompact] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -30,55 +31,74 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsHeaderCompact(window.scrollY > 24);
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
   return (
     <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
-      <div className="relative">
-        <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
+      <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
         
 
-<header className="relative z-20 mx-auto max-w-7xl px-6 pt-6">
-  <div className="flex items-center justify-between rounded-full border border-white/60 bg-white/70 px-6 py-3 shadow-[0_12px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-    <div className="flex items-center gap-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 shadow-[0_8px_18px_rgba(99,102,241,0.22)] overflow-hidden">
+<header className="sticky top-0 z-30 mx-auto max-w-7xl px-6 pt-4 transition-all duration-300">
+  <div
+    className={`grid grid-cols-[1fr_auto_1fr] items-center rounded-full border backdrop-blur-2xl transition-all duration-300 ${
+      isHeaderCompact
+        ? "border-white/45 bg-white/28 px-4 py-2 shadow-[0_14px_34px_rgba(15,23,42,0.10)] ring-1 ring-white/20"
+        : "border-white/35 bg-white/18 px-5 py-2.5 shadow-[0_18px_44px_rgba(15,23,42,0.08)] ring-1 ring-white/16"
+    }`}
+  >
+    <div className={`flex items-center justify-self-start transition-all duration-300 ${isHeaderCompact ? "gap-2.5" : "gap-3"}`}>
+      <div className={`flex items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 shadow-[0_10px_22px_rgba(99,102,241,0.20)] overflow-hidden ring-1 ring-white/30 transition-all duration-300 ${isHeaderCompact ? "h-8 w-8" : "h-9 w-9"}`}>
         <img
           src="/ndjc-logo.png"
           alt="Think it Done logo"
-          className="h-8 w-8 object-contain scale-180"
+          className={`object-contain scale-110 transition-all duration-300 ${isHeaderCompact ? "h-6 w-6" : "h-7 w-7"}`}
         />
       </div>
       <div className="leading-none">
-        <div className="text-sm font-semibold tracking-[0.02em] text-[#0f172a]">Think it Done</div>
-        <div className="mt-1 text-[10px] font-medium text-[#94a3b8]">Build native Android apps in minutes</div>
+        <div className={`font-semibold tracking-[0.01em] text-[#0f172a] transition-all duration-300 ${isHeaderCompact ? "text-[14px]" : "text-[15px]"}`}>Think it Done</div>
+        <div className={`font-medium text-[#8a96b2] transition-all duration-300 ${isHeaderCompact ? "mt-0.5 text-[9px]" : "mt-1 text-[10px]"}`}>Build native Android apps in minutes</div>
       </div>
     </div>
 
-    <nav className="hidden items-center gap-2 rounded-full bg-white/60 px-3 py-1.5 text-sm font-medium text-[#64748b] backdrop-blur md:flex">
+    <nav className={`hidden items-center justify-self-center gap-4 font-medium text-[#64748b] transition-all duration-300 md:flex ${isHeaderCompact ? "text-[13px]" : "text-sm"}`}>
       <a
         href="#features"
-        className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-[#0f172a]"
+        className="px-2 py-1 transition-all duration-300 hover:text-[#0f172a]"
       >
         Features
       </a>
       <a
         href="#how-it-works"
-        className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-[#0f172a]"
+        className="px-2 py-1 transition-all duration-300 hover:text-[#0f172a]"
       >
         How it works
       </a>
       <a
         href="#faq"
-        className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-[#0f172a]"
+        className="px-2 py-1 transition-all duration-300 hover:text-[#0f172a]"
       >
         FAQ
       </a>
     </nav>
 
-    <div className="flex items-center gap-3">
+    <div className="flex items-center justify-self-end gap-3">
       <AuthControls nextPath="/builder" />
     </div>
   </div>
 </header>
 
+      <div className="relative">
         <section className="relative z-10 mx-auto grid min-h-[78vh] max-w-7xl items-center gap-12 px-6 py-16 md:grid-cols-[minmax(0,640px)_1fr]">
           <div className="max-w-[640px]">
             <div className="mb-4 inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium tracking-[0.06em] text-[#64748b]">
@@ -232,11 +252,11 @@ export default function Home() {
         </div>
 
         <div className="mt-10 flex flex-wrap justify-center gap-3">
-          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Restaurants</div>
-          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Salons & Beauty</div>
-          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Local Shops</div>
-          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Fitness & Studios</div>
-          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Services</div>
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-3 py-1.5 text-sm font-medium text-indigo-600">Restaurants</div>
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-3 py-1.5 text-sm font-medium text-indigo-600">Salons & Beauty</div>
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-3 py-1.5 text-sm font-medium text-indigo-600">Local Shops</div>
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-3 py-1.5 text-sm font-medium text-indigo-600">Fitness & Studios</div>
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-3 py-1.5 text-sm font-medium text-indigo-600">Services</div>
         </div>
       </section>
 
