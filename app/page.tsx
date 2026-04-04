@@ -141,76 +141,98 @@ export default function Home() {
         </section>
       </div>
 
-      <section className="mx-auto max-w-7xl px-6 py-20">
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-start">
-          <div className="rounded-[30px] border border-white/40 bg-white/55 p-7 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl md:p-8">
-            <div className="mb-3 text-sm font-medium tracking-[0.08em] text-rose-400">The problem</div>
-            <h2 className="max-w-[520px] text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a] md:text-4xl">
+      <section className="mx-auto max-w-7xl px-6 py-24">
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:items-start">
+          <div className="rounded-[28px] border border-rose-200/50 bg-[linear-gradient(180deg,rgba(255,255,255,0.78)_0%,rgba(249,250,251,0.98)_100%)] p-8 shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_12px_30px_rgba(15,23,42,0.03)] md:p-9">
+            <div className="mb-4 text-sm font-semibold tracking-[0.12em] text-rose-400">The problem</div>
+            <h2 className="max-w-[520px] text-3xl font-extrabold tracking-[-0.04em] leading-[1.06] text-[#0f172a] md:text-[34px]">
               Running your business on platforms alone makes growth harder
             </h2>
-            <p className="mt-5 max-w-[560px] text-[17px] leading-[1.9] text-[#475569]">
+            <p className="mt-5 max-w-[560px] text-[16px] leading-[1.9] text-[#64748b]">
               Many small businesses still rely on social platforms, chat groups, or marketplace pages to present products and talk to customers. That works at first, but it becomes hard to build your own brand, retain customers, and keep communication organized.
             </p>
 
-            <div className="mt-8 grid gap-3">
-              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 px-4 py-3 text-[15px] text-[#475569]">
+            <div className="mt-9 grid gap-3">
+              <div className="rounded-2xl border border-rose-200/60 bg-white px-4 py-3.5 text-[14px] font-medium text-[#475569] shadow-[0_6px_16px_rgba(15,23,42,0.03)]">
                 No dedicated place to showcase products and services professionally
               </div>
-              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 px-4 py-3 text-[15px] text-[#475569]">
+              <div className="rounded-2xl border border-rose-200/55 bg-white px-4 py-3.5 text-[14px] text-[#475569] shadow-[0_6px_16px_rgba(15,23,42,0.025)]">
                 Customer communication is scattered across different channels
               </div>
-              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 px-4 py-3 text-[15px] text-[#475569]">
+              <div className="rounded-2xl border border-rose-200/55 bg-white px-4 py-3.5 text-[14px] text-[#475569] shadow-[0_6px_16px_rgba(15,23,42,0.025)]">
                 Promotions and updates do not reach customers in a direct, branded way
               </div>
-              <div className="rounded-2xl border border-rose-100 bg-rose-50/80 px-4 py-3 text-[15px] text-[#475569]">
+              <div className="rounded-2xl border border-rose-200/55 bg-white px-4 py-3.5 text-[14px] text-[#475569] shadow-[0_6px_16px_rgba(15,23,42,0.025)]">
                 It is difficult to build a stronger brand presence and private customer channel
               </div>
             </div>
           </div>
 
-          <div className="rounded-[30px] border border-white/40 bg-white/60 p-7 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl md:p-8">
-            <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">The solution</div>
-            <h2 className="max-w-[560px] text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a] md:text-4xl">
-              The showcase module gives your business its own customer-facing app
+          <div className="relative overflow-hidden rounded-[32px] border border-indigo-100/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,248,255,0.94)_100%)] p-8 shadow-[0_24px_70px_rgba(99,102,241,0.16)] md:p-10">
+            <div className="absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.16),transparent_68%)]" />
+            <div className="absolute left-1/2 top-3 -translate-x-1/2 text-[20px] text-amber-400">✨</div>
+            <div className="relative z-10 mb-4 text-sm font-semibold tracking-[0.12em] text-indigo-400">The solution</div>
+            <h2 className="relative z-10 max-w-[560px] text-[36px] font-extrabold tracking-[-0.045em] leading-[1.04] text-[#0f172a] md:text-[38px]">
+              Give your business its own app
             </h2>
-            <p className="mt-5 max-w-[560px] text-[17px] leading-[1.9] text-[#475569]">
-              Instead of depending only on third-party platforms, this showcase module helps you create a simple native app for displaying products, talking with customers, publishing promotions, and presenting your business in one place.
+            <p className="relative z-10 mt-5 max-w-[580px] text-[17px] leading-[1.95] text-[#64748b]">
+              Create a simple native app to showcase products, talk with customers, publish updates, and present your business — all in one place.
             </p>
 
-            <div className="mt-8 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-[24px] border border-indigo-100/80 bg-indigo-50/70 p-5">
+            <div className="relative z-10 mt-10 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-[22px] border border-indigo-200/70 bg-white/88 p-5 shadow-[0_10px_24px_rgba(99,102,241,0.08)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_34px_rgba(99,102,241,0.12)] sm:col-span-2">
                 <div className="text-sm font-semibold tracking-[0.06em] text-indigo-500">Products</div>
-                <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em] text-[#0f172a]">Show what you sell clearly</h3>
-                <p className="mt-2 text-[15px] leading-[1.8] text-[#475569]">
-                  Upload products and services into your own dedicated app space.
+                <h3 className="mt-2 text-[21px] font-semibold tracking-[-0.02em] text-[#0f172a]">Show what you sell</h3>
+                <p className="mt-2 max-w-[440px] text-[14px] leading-[1.8] text-[#64748b]">
+                  Display products and services in your own app space.
                 </p>
               </div>
 
-              <div className="rounded-[24px] border border-indigo-100/80 bg-indigo-50/70 p-5">
+              <div className="rounded-[22px] border border-indigo-200/65 bg-white/82 p-5 shadow-[0_8px_20px_rgba(99,102,241,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(99,102,241,0.10)]">
                 <div className="text-sm font-semibold tracking-[0.06em] text-indigo-500">Chat</div>
-                <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em] text-[#0f172a]">Talk with customers directly</h3>
-                <p className="mt-2 text-[15px] leading-[1.8] text-[#475569]">
-                  Keep customer communication inside your own branded channel.
+                <h3 className="mt-2 text-lg font-semibold text-[#0f172a]">Talk with customers</h3>
+                <p className="mt-2 text-[14px] leading-[1.8] text-[#64748b]">
+                  Communicate directly inside your own channel.
                 </p>
               </div>
 
-              <div className="rounded-[24px] border border-indigo-100/80 bg-indigo-50/70 p-5">
-                <div className="text-sm font-semibold tracking-[0.06em] text-indigo-500">Announcements</div>
-                <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em] text-[#0f172a]">Publish offers and updates</h3>
-                <p className="mt-2 text-[15px] leading-[1.8] text-[#475569]">
-                  Share activity news, promotions, and important business updates anytime.
+              <div className="rounded-[22px] border border-indigo-200/65 bg-white/82 p-5 shadow-[0_8px_20px_rgba(99,102,241,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(99,102,241,0.10)]">
+                <div className="text-sm font-semibold tracking-[0.06em] text-indigo-500">Updates</div>
+                <h3 className="mt-2 text-lg font-semibold text-[#0f172a]">Send promotions</h3>
+                <p className="mt-2 text-[14px] leading-[1.8] text-[#64748b]">
+                  Share news and offers directly with customers.
                 </p>
               </div>
 
-              <div className="rounded-[24px] border border-indigo-100/80 bg-indigo-50/70 p-5">
+              <div className="rounded-[22px] border border-indigo-200/65 bg-white/82 p-5 shadow-[0_8px_20px_rgba(99,102,241,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(99,102,241,0.10)] sm:col-span-2">
                 <div className="text-sm font-semibold tracking-[0.06em] text-indigo-500">Brand</div>
-                <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em] text-[#0f172a]">Present your business better</h3>
-                <p className="mt-2 text-[15px] leading-[1.8] text-[#475569]">
-                  Introduce your business and build a stronger branded customer experience.
+                <h3 className="mt-2 text-lg font-semibold text-[#0f172a]">Build your brand</h3>
+                <p className="mt-2 max-w-[460px] text-[14px] leading-[1.8] text-[#64748b]">
+                  Create a more professional, branded experience.
                 </p>
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-5xl px-6 py-14">
+        <div className="text-center">
+          <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">Use cases</div>
+          <h2 className="text-2xl font-extrabold tracking-[-0.03em] md:text-3xl">
+            Built for real-world local businesses
+          </h2>
+          <p className="mt-4 text-[17px] leading-[1.9] text-[#475569]">
+            Perfect for restaurants, salons, local shops, and service-based businesses.
+          </p>
+        </div>
+
+        <div className="mt-10 flex flex-wrap justify-center gap-3">
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Restaurants</div>
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Salons & Beauty</div>
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Local Shops</div>
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Fitness & Studios</div>
+          <div className="rounded-full border border-indigo-200/60 bg-indigo-50/60 px-4 py-2 text-sm font-medium text-indigo-600">Services</div>
         </div>
       </section>
 
