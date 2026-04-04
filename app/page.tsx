@@ -145,7 +145,7 @@ export default function Home() {
         <div className="mb-12">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">Features</div>
           <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">
-            A faster way to launch simple business apps
+            Build your own app — faster, cheaper, and fully in your control
           </h2>
           <div className="mt-6 h-px w-10 bg-gradient-to-r from-indigo-300/22 via-indigo-200/16 to-transparent" />
         </div>
@@ -157,14 +157,14 @@ export default function Home() {
                 <Sparkles className="h-5 w-5" />
               </div>
               <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                Configure
+                Cost
               </div>
             </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Configure your app</h3>
+            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Much cheaper than hiring developers</h3>
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Set app name, upload icon, and create your admin account.
+              Build your own app without expensive development costs.
             </p>
-            <div className="text-sm text-[#94a3b8]">Define your app identity before building.</div>
+            <div className="text-sm text-[#94a3b8]">Save thousands compared to traditional development.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
@@ -173,14 +173,14 @@ export default function Home() {
                 <Eye className="h-5 w-5" />
               </div>
               <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                Preview
+                Speed
               </div>
             </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Select features & UI</h3>
+            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Launch your app in minutes</h3>
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Choose a logic module and match it with a UI pack.
+              No coding, no communication — just configure and launch.
             </p>
-            <div className="text-sm text-[#94a3b8]">Mix functionality and design without coding.</div>
+            <div className="text-sm text-[#94a3b8]">Go from idea to real app in minutes, not weeks.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
@@ -189,14 +189,14 @@ export default function Home() {
                 <Download className="h-5 w-5" />
               </div>
               <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                Build
+                Ownership
               </div>
             </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Build & download APK</h3>
+            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Own your native app & customers</h3>
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Start build, track progress, and download your app.
+              A real Android app with direct customer access — no platform limits.
             </p>
-            <div className="text-sm text-[#94a3b8]">From configuration to installable APK in one flow.</div>
+            <div className="text-sm text-[#94a3b8]">Build your own brand and private customer channel.</div>
           </div>
         </div>
       </section>
