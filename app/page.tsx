@@ -215,11 +215,12 @@ export default function Home() {
             <div className="relative z-10 mb-8 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.13)]">
               <Wand2 className="h-5 w-5" />
             </div>
-            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Describe</div>
-            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Describe your app</h3>
-            <p className="relative z-10 text-[17px] leading-[1.85] text-[#475569]">
-              Enter your idea, business type, or app feature requirements.
+            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Configure</div>
+            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Configure your app</h3>
+            <p className="relative z-10 mb-5 text-[17px] leading-[1.85] text-[#475569]">
+              Set app name, upload icon, and create your admin account.
             </p>
+            <div className="relative z-10 text-sm text-[#94a3b8]">Define your app identity before building.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/50 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.07)]">
@@ -227,11 +228,12 @@ export default function Home() {
             <div className="relative z-10 mb-8 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.13)]">
               <Sparkles className="h-5 w-5" />
             </div>
-            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Generate</div>
-            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Generate the structure</h3>
-            <p className="relative z-10 text-[17px] leading-[1.85] text-[#475569]">
-              NDJC creates the app structure and prepares the packaging flow.
+            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Preview</div>
+            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Select features & UI</h3>
+            <p className="relative z-10 mb-5 text-[17px] leading-[1.85] text-[#475569]">
+              Choose a logic module and match it with a UI pack.
             </p>
+            <div className="relative z-10 text-sm text-[#94a3b8]">Mix functionality and design without coding.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/50 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.07)]">
@@ -239,11 +241,12 @@ export default function Home() {
             <div className="relative z-10 mb-8 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.13)]">
               <Download className="h-5 w-5" />
             </div>
-            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Download</div>
-            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Download the APK</h3>
-            <p className="relative z-10 text-[17px] leading-[1.85] text-[#475569]">
-              Build the APK and get a downloadable result for installation and testing.
+            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Build</div>
+            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Build & download APK</h3>
+            <p className="relative z-10 mb-5 text-[17px] leading-[1.85] text-[#475569]">
+              Start build, track progress, and download your app.
             </p>
+            <div className="relative z-10 text-sm text-[#94a3b8]">From configuration to installable APK in one flow.</div>
           </div>
         </div>
       </section>
