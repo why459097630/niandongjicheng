@@ -17,7 +17,7 @@ function AuthControls({ nextPath = "/builder" }: { nextPath?: string }) {
 
 export default function Home() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
-  const [activeModules, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
+  const [activePreview, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -39,11 +39,15 @@ export default function Home() {
 <header className="relative z-20 mx-auto max-w-7xl px-6 pt-6">
   <div className="flex items-center justify-between rounded-full border border-white/60 bg-white/70 px-6 py-3 shadow-[0_12px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl">
     <div className="flex items-center gap-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-xs font-bold text-white shadow-[0_8px_18px_rgba(99,102,241,0.22)]">
-        N
+      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 shadow-[0_8px_18px_rgba(99,102,241,0.22)] overflow-hidden">
+        <img
+          src="/ndjc-logo.png"
+          alt="Think it Done logo"
+          className="h-6 w-6 object-contain"
+        />
       </div>
       <div className="leading-none">
-        <div className="text-sm font-semibold tracking-[0.06em] text-[#0f172a]">NDJC</div>
+        <div className="text-sm font-semibold tracking-[0.02em] text-[#0f172a]">Think it Done</div>
         <div className="mt-1 text-[10px] font-medium text-[#94a3b8]">Native App Builder</div>
       </div>
     </div>
@@ -92,7 +96,7 @@ export default function Home() {
               Give your customers a dedicated app — show services, chat instantly, and send updates.
             </p>
 
-            <div className="max-w-[560px] rounded-[28px] border border-white/40 bg-white/38 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+            <div className="max-w-[560px]">
               <div className="inline-flex items-center gap-2 rounded-full border border-fuchsia-300 bg-gradient-to-r from-fuchsia-50 to-pink-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-fuchsia-600 shadow-[0_6px_16px_rgba(217,70,239,0.15)]">
                 Builder
               </div>
@@ -134,7 +138,7 @@ export default function Home() {
           <div className="relative hidden md:flex items-center justify-center">
             <img
               src="/ndjc-logo.png"
-              alt="NDJC logo"
+              alt="Think it Done logo"
               className="w-[420px] opacity-80 mix-blend-multiply"
             />
           </div>
@@ -259,7 +263,7 @@ export default function Home() {
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
               No developers, no complexity — just build it yourself.
             </p>
-            <div className="text-sm text-[#94a3b8]">Everything you need to get started, without the usual cost or hassle.</div>
+            <div className="text-sm text-[#94a3b8]">Start building right away without setup or hidden costs.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
@@ -323,7 +327,7 @@ export default function Home() {
             <div className="relative z-10 mb-8 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.13)]">
               <Sparkles className="h-5 w-5" />
             </div>
-            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Preview</div>
+            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Selection</div>
             <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Select features & UI</h3>
             <p className="relative z-10 mb-5 text-[17px] leading-[1.85] text-[#475569]">
               Choose a logic module and match it with a UI pack.
@@ -367,7 +371,7 @@ export default function Home() {
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              Yes. NDJC is designed for non-technical users — just follow a simple setup process.
+              Yes. Think it Done is designed for non-technical users — just follow a simple setup process.
             </p>
           </div>
 
@@ -441,8 +445,35 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="mx-auto max-w-5xl px-6 pb-20 pt-4">
+        <div className="px-8 py-10 text-center md:px-12 md:py-12">
+          <div className="text-sm font-medium tracking-[0.08em] text-indigo-400">Ready to start?</div>
+          <h2 className="mt-3 text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a] md:text-4xl">
+            Build your app and download your APK
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-[17px] leading-[1.9] text-[#475569]">
+            Set up your app, choose your module and UI pack, and start building in just a few steps.
+          </p>
+          <div className="mt-8 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = "/builder";
+              }}
+              className="group relative inline-flex overflow-hidden rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-7 py-3.5 text-sm font-semibold text-white shadow-[0_18px_42px_rgba(236,72,153,0.22)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_52px_rgba(236,72,153,0.30)] active:scale-[0.985]"
+            >
+              <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.16)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <div className="relative flex items-center justify-center gap-2">
+                <span className="text-[15px] font-bold tracking-[-0.01em]">Enter Builder</span>
+                <ArrowRight className="h-[15px] w-[15px] text-white/80 transition-transform duration-300 group-hover:translate-x-0.5" />
+              </div>
+            </button>
+          </div>
+        </div>
+      </section>
+
       <footer className="border-t border-white/10 px-6 py-8 text-center text-sm font-medium tracking-[0.02em] text-[#94a3b8]">
-        © 2026 NDJC. Build faster, launch earlier.
+        © 2026 Think it Done. Build faster, launch earlier.
       </footer>
     </main>
   );
