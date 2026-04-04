@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ArrowRight, Download, Eye, HelpCircle, Sparkles, Wand2 } from "lucide-react";
+import { ArrowRight, Download, DollarSign, Eye, HelpCircle, Smartphone, Sparkles, Wand2, Zap } from "lucide-react";
 function AuthControls({ nextPath = "/builder" }: { nextPath?: string }) {
   return (
     <button
@@ -154,7 +154,7 @@ export default function Home() {
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
             <div className="mb-6 flex items-center justify-between">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
-                <Sparkles className="h-5 w-5" />
+                <DollarSign className="h-5 w-5" />
               </div>
               <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                 Cost
@@ -170,7 +170,7 @@ export default function Home() {
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
             <div className="mb-6 flex items-center justify-between">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
-                <Eye className="h-5 w-5" />
+                <Zap className="h-5 w-5" />
               </div>
               <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                 Speed
@@ -186,7 +186,7 @@ export default function Home() {
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
             <div className="mb-6 flex items-center justify-between">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
-                <Download className="h-5 w-5" />
+                <Smartphone className="h-5 w-5" />
               </div>
               <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                 Ownership
@@ -263,16 +263,16 @@ export default function Home() {
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                  Build Output
+                  No Code
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Can I generate an APK directly?</h3>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Can I build an app without coding?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              Yes. NDJC is designed around prompt input, code generation, packaging, and APK output.
+              Yes. NDJC is designed for non-technical users — just follow a simple setup process.
             </p>
           </div>
 
@@ -280,16 +280,16 @@ export default function Home() {
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                  Product Scope
+                  Speed
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Is this for full custom enterprise apps?</h3>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">How long does it take to get my app?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              No. It is better for MVPs, startup validation, and simple small-business apps.
+              Most apps can be built and ready to download in minutes.
             </p>
           </div>
 
@@ -297,16 +297,50 @@ export default function Home() {
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                  No-code Friendly
+                  Pricing
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Do I need coding skills?</h3>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">How much does it cost?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              No. The product is meant to reduce the technical barrier for early-stage app creation.
+              Much lower than hiring developers, with a free trial available.
+            </p>
+          </div>
+
+          <div className="group rounded-[30px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)] md:p-7">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
+                  App Type
+                </div>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Is this a real app or a web app?</h3>
+              </div>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
+                <HelpCircle className="h-4.5 w-4.5" />
+              </div>
+            </div>
+            <p className="text-[17px] leading-[1.85] text-[#475569]">
+              It’s a real Android app, not a web wrapper.
+            </p>
+          </div>
+
+          <div className="group rounded-[30px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)] md:p-7">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
+                  Use Case
+                </div>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Can I use this for my business?</h3>
+              </div>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
+                <HelpCircle className="h-4.5 w-4.5" />
+              </div>
+            </div>
+            <p className="text-[17px] leading-[1.85] text-[#475569]">
+              Yes. It’s built for small businesses to manage customers and promotions.
             </p>
           </div>
         </div>
