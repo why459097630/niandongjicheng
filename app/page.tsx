@@ -1,11 +1,23 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ArrowRight, Download, Eye, HelpCircle, Sparkles, Wand2 } from "lucide-react";
-import AuthControls from "@/components/auth/AuthControls";
+function AuthControls({ nextPath = "/builder" }: { nextPath?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        window.location.href = nextPath;
+      }}
+      className="inline-flex items-center rounded-full border border-white/60 bg-white px-4 py-2 text-sm font-semibold text-[#0f172a] shadow-[0_10px_24px_rgba(15,23,42,0.06)] transition hover:bg-white/90"
+    >
+      Sign in
+    </button>
+  );
+}
 
 export default function Home() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
-  const [activePreview, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
+  const [activeModules, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -145,14 +157,14 @@ export default function Home() {
                 <Sparkles className="h-5 w-5" />
               </div>
               <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                AI Flow
+                Configure
               </div>
             </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Prompt to app</h3>
+            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Configure your app</h3>
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Describe what you want in plain language and generate the first version fast.
+              Set app name, upload icon, and create your admin account.
             </p>
-            <div className="text-sm text-[#94a3b8]">From idea input to usable app structure in one step.</div>
+            <div className="text-sm text-[#94a3b8]">Define your app identity before building.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
@@ -164,11 +176,11 @@ export default function Home() {
                 Preview
               </div>
             </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Online preview</h3>
+            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Select features & UI</h3>
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Review the generated structure and experience the app before packaging.
+              Choose a logic module and match it with a UI pack.
             </p>
-            <div className="text-sm text-[#94a3b8]">Validate the output before you send it into the build pipeline.</div>
+            <div className="text-sm text-[#94a3b8]">Mix functionality and design without coding.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
@@ -177,14 +189,14 @@ export default function Home() {
                 <Download className="h-5 w-5" />
               </div>
               <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                Delivery
+                Build
               </div>
             </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">APK download</h3>
+            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Build & download APK</h3>
             <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Push to build pipeline, package automatically, and download the APK.
+              Start build, track progress, and download your app.
             </p>
-            <div className="text-sm text-[#94a3b8]">A cleaner handoff from generated app to installable build artifact.</div>
+            <div className="text-sm text-[#94a3b8]">From configuration to installable APK in one flow.</div>
           </div>
         </div>
       </section>
