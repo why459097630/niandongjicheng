@@ -13,6 +13,11 @@ export default function AuthControls({
   const supabase = useMemo(() => createClient(), []);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const buttonClassName =
+    "inline-flex items-center rounded-full border border-white/70 bg-white/92 px-5 py-2.5 text-sm font-semibold text-[#0f172a] shadow-[0_12px_26px_rgba(15,23,42,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_16px_30px_rgba(15,23,42,0.09)] disabled:cursor-not-allowed disabled:opacity-70";
 
   useEffect(() => {
     let mounted = true;
@@ -32,8 +37,11 @@ export default function AuthControls({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
       setEmail(session?.user?.email || "");
       setLoading(false);
+      setIsSigningIn(false);
+      setIsSigningOut(false);
     });
 
     return () => {
@@ -43,66 +51,75 @@ export default function AuthControls({
   }, [supabase]);
 
   const handleGoogleSignIn = async () => {
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+    if (loading || isSigningIn || isSigningOut) return;
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo,
-      },
-    });
+    try {
+      setIsSigningIn(true);
 
-    if (error) {
-      alert(error.message);
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      setIsSigningIn(false);
+      alert(error instanceof Error ? error.message : "Failed to sign in.");
     }
   };
 
   const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
+    if (loading || isSigningIn || isSigningOut) return;
 
-    if (error) {
-      alert(error.message);
-      return;
+    try {
+      setIsSigningOut(true);
+
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        throw error;
+      }
+
+      window.location.href = "/";
+    } catch (error) {
+      setIsSigningOut(false);
+      alert(error instanceof Error ? error.message : "Failed to sign out.");
     }
-
-    window.location.href = "/";
   };
-
-  if (loading) {
-    return (
-      <button
-        type="button"
-        disabled
-        className="rounded-full border border-slate-200 bg-white/60 px-4 py-2 text-sm font-medium tracking-[0.01em] text-[#475569] backdrop-blur opacity-70"
-      >
-        Checking login...
-      </button>
-    );
-  }
 
   if (!email) {
     return (
       <button
         type="button"
         onClick={handleGoogleSignIn}
-        className="rounded-full border border-slate-200 bg-white/60 px-4 py-2 text-sm font-medium tracking-[0.01em] text-[#475569] backdrop-blur transition hover:bg-white"
+        disabled={loading || isSigningIn || isSigningOut}
+        className={buttonClassName}
       >
-        Continue with Google
+        {isSigningIn ? "Signing in..." : loading ? "Checking login..." : "Sign in"}
       </button>
     );
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="hidden max-w-[220px] truncate rounded-full border border-slate-200 bg-white/70 px-4 py-2 text-sm font-medium text-[#475569] backdrop-blur md:block">
+    <div className="flex items-center gap-3">
+      <div
+        className={`hidden max-w-[220px] truncate md:inline-flex ${buttonClassName}`}
+        title={email}
+      >
         {email}
       </div>
       <button
         type="button"
         onClick={handleSignOut}
-        className="rounded-full border border-slate-200 bg-white/60 px-4 py-2 text-sm font-medium tracking-[0.01em] text-[#475569] backdrop-blur transition hover:bg-white"
+        disabled={loading || isSigningIn || isSigningOut}
+        className={buttonClassName}
       >
-        Sign out
+        {isSigningOut ? "Signing out..." : "Sign out"}
       </button>
     </div>
   );
