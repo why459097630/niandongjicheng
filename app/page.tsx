@@ -1,19 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ArrowRight, Download, DollarSign, Eye, HelpCircle, Smartphone, Sparkles, Wand2, Zap } from "lucide-react";
-function AuthControls({ nextPath = "/builder" }: { nextPath?: string }) {
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        window.location.href = nextPath;
-      }}
-      className="inline-flex items-center rounded-full border border-white/70 bg-white/92 px-5 py-2.5 text-sm font-semibold text-[#0f172a] shadow-[0_12px_26px_rgba(15,23,42,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_16px_30px_rgba(15,23,42,0.09)]"
-    >
-      Sign in
-    </button>
-  );
-}
+import AuthControls from "@/components/auth/AuthControls";
 
 export default function Home() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
