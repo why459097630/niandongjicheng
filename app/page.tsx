@@ -156,11 +156,83 @@ export default function Home() {
           </div>
 
           <div className="relative hidden md:flex items-center justify-center">
-            <img
-              src="/ndjc-logo.png"
-              alt="Think it Done logo"
-              className="w-[420px] opacity-80 mix-blend-multiply"
-            />
+            <div className="relative h-[520px] w-full max-w-[470px]">
+              <div className="pointer-events-none absolute inset-0 rounded-[56px] bg-[radial-gradient(circle_at_50%_35%,rgba(236,72,153,0.16),rgba(168,85,247,0.10),transparent_68%)] blur-3xl" />
+
+              <div className="absolute left-6 top-8 w-[220px] rounded-[30px] border border-white/60 bg-white/80 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.10)] backdrop-blur-xl transition-all duration-700">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fuchsia-500">Home</div>
+                    <div className="mt-1 text-sm font-semibold text-[#0f172a]">Store preview</div>
+                  </div>
+                  <div className="rounded-full bg-fuchsia-100 px-2 py-1 text-[10px] font-medium text-fuchsia-600">Live</div>
+                </div>
+                <div className="space-y-3">
+                  <div className="h-24 rounded-[22px] bg-[linear-gradient(135deg,rgba(236,72,153,0.20),rgba(168,85,247,0.14))]" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="h-20 rounded-[18px] bg-slate-100" />
+                    <div className="h-20 rounded-[18px] bg-slate-100" />
+                  </div>
+                  <div className="h-12 rounded-[18px] bg-slate-100" />
+                </div>
+              </div>
+
+              <div className="absolute right-4 top-16 w-[240px] rounded-[30px] border border-white/60 bg-white/82 p-4 shadow-[0_18px_42px_rgba(15,23,42,0.12)] backdrop-blur-xl transition-all duration-700">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-500">Services</div>
+                    <div className="mt-1 text-sm font-semibold text-[#0f172a]">Product list</div>
+                  </div>
+                  <div className="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-medium text-indigo-600">Demo</div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 rounded-[20px] bg-slate-100 p-3">
+                    <div className="h-12 w-12 rounded-[16px] bg-[linear-gradient(135deg,rgba(99,102,241,0.35),rgba(168,85,247,0.28))]" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3 w-24 rounded-full bg-slate-200" />
+                      <div className="h-3 w-16 rounded-full bg-slate-200" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-[20px] bg-slate-100 p-3">
+                    <div className="h-12 w-12 rounded-[16px] bg-[linear-gradient(135deg,rgba(236,72,153,0.28),rgba(249,115,22,0.24))]" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3 w-24 rounded-full bg-slate-200" />
+                      <div className="h-3 w-20 rounded-full bg-slate-200" />
+                    </div>
+                  </div>
+                  <div className="h-10 rounded-[18px] bg-slate-100" />
+                </div>
+              </div>
+
+              <div className="absolute bottom-14 left-12 w-[210px] rounded-[28px] border border-white/60 bg-white/84 p-4 shadow-[0_18px_38px_rgba(15,23,42,0.10)] backdrop-blur-xl transition-all duration-700">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-500">Chat</div>
+                    <div className="mt-1 text-sm font-semibold text-[#0f172a]">Customer messages</div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="ml-auto h-10 w-[72%] rounded-[18px] rounded-br-md bg-[linear-gradient(135deg,rgba(236,72,153,0.85),rgba(168,85,247,0.82))]" />
+                  <div className="h-10 w-[78%] rounded-[18px] rounded-bl-md bg-slate-100" />
+                  <div className="ml-auto h-10 w-[60%] rounded-[18px] rounded-br-md bg-[linear-gradient(135deg,rgba(99,102,241,0.78),rgba(168,85,247,0.72))]" />
+                </div>
+              </div>
+
+              <div className="absolute bottom-6 right-10 w-[230px] rounded-[28px] border border-white/60 bg-white/86 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur-xl transition-all duration-700">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-500">Updates</div>
+                    <div className="mt-1 text-sm font-semibold text-[#0f172a]">Announcement card</div>
+                  </div>
+                  <div className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-medium text-amber-600">Push</div>
+                </div>
+                <div className="space-y-3">
+                  <div className="h-24 rounded-[20px] bg-[linear-gradient(135deg,rgba(251,191,36,0.24),rgba(249,115,22,0.18))]" />
+                  <div className="h-3 w-[88%] rounded-full bg-slate-200" />
+                  <div className="h-3 w-[70%] rounded-full bg-slate-200" />
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </div>
