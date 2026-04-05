@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, Download, History, LoaderCircle, TriangleAlert, ArrowRight } from "lucide-react";
 import AuthControls from "@/components/auth/AuthControls";
+import SiteHeader from "@/components/layout/SiteHeader";
 import { createClient } from "@/lib/supabase/client";
 
 type BuildItem = {
@@ -161,42 +162,13 @@ export default function HistoryPage() {
     <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
       <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
 
-      <header className="relative z-20 mx-auto max-w-7xl px-6 pt-6">
-        <div className="flex items-center justify-between rounded-full border border-white/60 bg-white/70 px-6 py-3 shadow-[0_12px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-xs font-bold text-white shadow-[0_8px_18px_rgba(99,102,241,0.22)]">
-              N
-            </div>
-            <div className="leading-none">
-              <div className="text-sm font-semibold tracking-[0.06em] text-[#0f172a]">NDJC</div>
-              <div className="mt-1 text-[10px] font-medium text-[#94a3b8]">Build history</div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <nav className="hidden items-center gap-2 rounded-full bg-white/60 px-3 py-1.5 text-sm font-medium text-[#64748b] backdrop-blur md:flex">
-              <a
-                href="/"
-                className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-[#0f172a]"
-              >
-                Home
-              </a>
-              <a
-                href="/history"
-                className="rounded-full bg-white px-3 py-1.5 text-[#0f172a] shadow-[0_6px_16px_rgba(15,23,42,0.04)]"
-              >
-                History
-              </a>
-            </nav>
-
-            <AuthControls nextPath="/history" />
-
-            <div className="rounded-full border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs font-medium tracking-[0.01em] text-indigo-600 shadow-[0_6px_16px_rgba(15,23,42,0.04)]">
-              history
-            </div>
-          </div>
-        </div>
-      </header>
+      <SiteHeader
+        nextPath="/history"
+        navItems={[
+          { label: "Home", href: "/" },
+          { label: "History", href: "/history", isActive: true },
+        ]}
+      />
 
       <section className="relative z-10 mx-auto max-w-7xl px-6 py-16">
         <div className="mb-12 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">

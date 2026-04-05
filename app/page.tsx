@@ -1,14 +1,19 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Download, DollarSign, Eye, HelpCircle, Smartphone, Sparkles, Wand2, Zap } from "lucide-react";
-import AuthControls from "@/components/auth/AuthControls";
-
-
+import SiteHeader from "@/components/layout/SiteHeader";
 
 export default function Home() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
+  const navItems = [
+    { id: "features", label: "Features" },
+    { id: "how-it-works", label: "How it works" },
+    { id: "faq", label: "FAQ" },
+  ] as const;
+
   const [activePreview, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
   const [isHeaderCompact, setIsHeaderCompact] = useState(false);
+  const [activeSection, setActiveSection] = useState<(typeof navItems)[number]["id"] | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -23,7 +28,26 @@ export default function Home() {
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsHeaderCompact(window.scrollY > 24);
+      const currentScrollY = window.scrollY;
+      setIsHeaderCompact(currentScrollY > 24);
+
+      const probeY = currentScrollY + 140;
+      let nextActiveSection: (typeof navItems)[number]["id"] | null = null;
+
+      for (const item of navItems) {
+        const element = document.getElementById(item.id);
+        if (!element) continue;
+
+        const sectionTop = element.offsetTop;
+        const sectionBottom = sectionTop + element.offsetHeight;
+
+        if (probeY >= sectionTop && probeY < sectionBottom) {
+          nextActiveSection = item.id;
+          break;
+        }
+      }
+
+      setActiveSection((prev) => (prev === nextActiveSection ? prev : nextActiveSection));
     };
 
     handleScroll();
@@ -32,61 +56,40 @@ export default function Home() {
     return () => {
       window.removeEventListener("scroll", handleScroll);
     };
-  }, []);
+  }, [navItems]);
+
+  const handleNavClick = (sectionId: (typeof navItems)[number]["id"]) => {
+    const element = document.getElementById(sectionId);
+    if (!element) return;
+
+    const headerOffset = 104;
+    const targetTop = element.getBoundingClientRect().top + window.scrollY - headerOffset;
+
+    window.scrollTo({
+      top: targetTop,
+      behavior: "smooth",
+    });
+  };
+
+  const headerNavItems = useMemo(
+    () =>
+      navItems.map((item) => ({
+        label: item.label,
+        isActive: activeSection === item.id,
+        onClick: () => handleNavClick(item.id),
+      })),
+    [activeSection]
+  );
 
   return (
     <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
       <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
-        
 
-<header className="sticky top-0 z-30 mx-auto max-w-7xl px-6 pt-4 transition-all duration-300">
-  <div
-    className={`grid grid-cols-[1fr_auto_1fr] items-center rounded-full border backdrop-blur-2xl transition-all duration-300 ${
-      isHeaderCompact
-        ? "border-white/45 bg-white/28 px-4 py-2 shadow-[0_14px_34px_rgba(15,23,42,0.10)] ring-1 ring-white/20"
-        : "border-white/35 bg-white/18 px-5 py-2.5 shadow-[0_18px_44px_rgba(15,23,42,0.08)] ring-1 ring-white/16"
-    }`}
-  >
-    <div className={`flex items-center justify-self-start transition-all duration-300 ${isHeaderCompact ? "gap-2.5" : "gap-3"}`}>
-      <div className={`flex items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 shadow-[0_10px_22px_rgba(99,102,241,0.20)] overflow-hidden ring-1 ring-white/30 transition-all duration-300 ${isHeaderCompact ? "h-8 w-8" : "h-9 w-9"}`}>
-        <img
-          src="/ndjc-logo.png"
-          alt="Think it Done logo"
-          className={`object-contain scale-110 transition-all duration-300 ${isHeaderCompact ? "h-6 w-6" : "h-7 w-7"}`}
-        />
-      </div>
-      <div className="leading-none">
-        <div className={`font-semibold tracking-[0.01em] text-[#0f172a] transition-all duration-300 ${isHeaderCompact ? "text-[14px]" : "text-[15px]"}`}>Think it Done</div>
-        <div className={`font-medium text-[#8a96b2] transition-all duration-300 ${isHeaderCompact ? "mt-0.5 text-[9px]" : "mt-1 text-[10px]"}`}>Build native Android apps in minutes</div>
-      </div>
-    </div>
-
-    <nav className={`hidden items-center justify-self-center gap-4 font-medium text-[#64748b] transition-all duration-300 md:flex ${isHeaderCompact ? "text-[13px]" : "text-sm"}`}>
-      <a
-        href="#features"
-        className="px-2 py-1 transition-all duration-300 hover:text-[#0f172a]"
-      >
-        Features
-      </a>
-      <a
-        href="#how-it-works"
-        className="px-2 py-1 transition-all duration-300 hover:text-[#0f172a]"
-      >
-        How it works
-      </a>
-      <a
-        href="#faq"
-        className="px-2 py-1 transition-all duration-300 hover:text-[#0f172a]"
-      >
-        FAQ
-      </a>
-    </nav>
-
-    <div className="flex items-center justify-self-end gap-3">
-      <AuthControls />
-    </div>
-  </div>
-</header>
+      <SiteHeader
+        compact={isHeaderCompact}
+        navItems={headerNavItems}
+        nextPath="/"
+      />
 
       <div className="relative">
         <section className="relative z-10 mx-auto grid min-h-[78vh] max-w-7xl items-center gap-12 px-6 py-16 md:grid-cols-[minmax(0,640px)_1fr]">
@@ -322,7 +325,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="features" className="mx-auto max-w-7xl px-6 py-20">
+            <section id="features" className="scroll-mt-28 mx-auto max-w-7xl px-6 py-20">
         <div className="mb-12">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">Features</div>
           <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">
@@ -382,7 +385,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="how-it-works" className="mx-auto max-w-7xl px-6 py-20">
+            <section id="how-it-works" className="scroll-mt-28 mx-auto max-w-7xl px-6 py-20">
         <div className="mb-12">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">How it works</div>
           <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">Simple 3-step flow</h2>
@@ -432,7 +435,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="faq" className="mx-auto max-w-4xl px-6 py-20">
+            <section id="faq" className="scroll-mt-28 mx-auto max-w-4xl px-6 py-20">
         <div className="mb-12 text-center">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">FAQ</div>
           <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">Common questions</h2>

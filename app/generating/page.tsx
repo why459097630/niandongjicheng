@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Circle, Download, House, LoaderCircle, RotateCcw, TriangleAlert } from "lucide-react";
+import SiteHeader from "@/components/layout/SiteHeader";
 
 type BuildStage =
   | "preparing_request"
@@ -179,35 +180,18 @@ export default function GeneratingPage() {
     <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
       <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
 
-      <header className="relative z-20 mx-auto max-w-6xl px-6 pt-6">
-        <div className="flex items-center justify-between rounded-full border border-white/60 bg-white/70 px-6 py-3 shadow-[0_12px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 shadow-[0_8px_18px_rgba(99,102,241,0.22)]" />
-            <div className="text-sm font-semibold">NDJC</div>
+      <SiteHeader
+        showAuthControls={false}
+        navItems={[
+          { label: "Home", href: "/" },
+          { label: "History", href: "/history" },
+        ]}
+        rightSlot={
+          <div className="rounded-full border border-fuchsia-200 bg-fuchsia-50/60 px-3 py-1.5 text-xs font-medium tracking-[0.01em] text-fuchsia-600 shadow-[0_6px_16px_rgba(15,23,42,0.04)]">
+            Generating...
           </div>
-
-          <div className="flex items-center gap-3">
-            <nav className="hidden items-center gap-2 rounded-full bg-white/60 px-3 py-1.5 text-sm font-medium text-[#64748b] backdrop-blur md:flex">
-              <a
-                href="/"
-                className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-[#0f172a]"
-              >
-                Home
-              </a>
-              <a
-                href="/history"
-                className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-[#0f172a]"
-              >
-                History
-              </a>
-            </nav>
-
-            <div className="rounded-full border border-fuchsia-200 bg-fuchsia-50/60 px-3 py-1.5 text-xs font-medium tracking-[0.01em] text-fuchsia-600 shadow-[0_6px_16px_rgba(15,23,42,0.04)]">
-              Generating...
-            </div>
-          </div>
-        </div>
-      </header>
+        }
+      />
 
       <section className="relative z-10 mx-auto max-w-3xl px-6 py-20">
         <div className="text-center">
