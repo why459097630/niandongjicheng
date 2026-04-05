@@ -45,17 +45,12 @@ export default function CheckoutPage() {
       <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
 
       <SiteHeader
-        showAuthControls={false}
+        nextPath="/checkout"
         navItems={[
           { label: "Home", href: "/" },
           { label: "Builder", href: "/builder" },
           { label: "Checkout", href: "/checkout", isActive: true },
         ]}
-        rightSlot={
-          <div className="rounded-full border border-fuchsia-200 bg-fuchsia-50/70 px-3 py-1.5 text-xs font-medium tracking-[0.01em] text-fuchsia-600 shadow-[0_6px_16px_rgba(15,23,42,0.04)]">
-            {planLabel} Build
-          </div>
-        }
       />
 
       <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">
