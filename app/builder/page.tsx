@@ -14,6 +14,26 @@ const CHECKOUT_PLAN_STORAGE_KEY = "ndjc_checkout_plan";
 const CHECKOUT_ADMIN_NAME_STORAGE_KEY = "ndjc_checkout_admin_name";
 const CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY = "ndjc_checkout_admin_password";
 
+type ValidationErrors = {
+  appName: boolean;
+  appIcon: boolean;
+  logicModule: boolean;
+  uiPack: boolean;
+  adminName: boolean;
+  adminPassword: boolean;
+  plan: boolean;
+};
+
+const EMPTY_VALIDATION_ERRORS: ValidationErrors = {
+  appName: false,
+  appIcon: false,
+  logicModule: false,
+  uiPack: false,
+  adminName: false,
+  adminPassword: false,
+  plan: false,
+};
+
 async function fileToDataUrl(file: File): Promise<string> {
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -50,12 +70,66 @@ export default function BuilderPage() {
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>(EMPTY_VALIDATION_ERRORS);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const appNameSectionRef = useRef<HTMLDivElement | null>(null);
+  const appIconSectionRef = useRef<HTMLDivElement | null>(null);
+  const logicModuleSectionRef = useRef<HTMLDivElement | null>(null);
+  const uiPackSectionRef = useRef<HTMLDivElement | null>(null);
+  const adminNameSectionRef = useRef<HTMLDivElement | null>(null);
+  const adminPasswordSectionRef = useRef<HTMLDivElement | null>(null);
+  const planSectionRef = useRef<HTMLDivElement | null>(null);
   const planRef = useRef("pro");
   const supabase = useMemo(() => createClient(), []);
 
   const handleChooseIcon = () => {
     fileInputRef.current?.click();
+  };
+
+  const buildValidationErrors = (): ValidationErrors => ({
+    appName: appName.trim().length === 0,
+    appIcon: !iconDataUrl,
+    logicModule: moduleName.trim().length === 0,
+    uiPack: uiPackName.trim().length === 0,
+    adminName: adminName.trim().length === 0,
+    adminPassword: adminPassword.trim().length === 0,
+    plan: planRef.current.trim().length === 0,
+  });
+
+  const scrollToFirstError = (errors: ValidationErrors) => {
+    const orderedKeys: Array<keyof ValidationErrors> = [
+      "appName",
+      "appIcon",
+      "logicModule",
+      "uiPack",
+      "adminName",
+      "adminPassword",
+      "plan",
+    ];
+
+    for (const key of orderedKeys) {
+      if (!errors[key]) continue;
+
+      const target =
+        key === "appName"
+          ? appNameSectionRef.current
+          : key === "appIcon"
+            ? appIconSectionRef.current
+            : key === "logicModule"
+              ? logicModuleSectionRef.current
+              : key === "uiPack"
+                ? uiPackSectionRef.current
+                : key === "adminName"
+                  ? adminNameSectionRef.current
+                  : key === "adminPassword"
+                    ? adminPasswordSectionRef.current
+                    : planSectionRef.current;
+
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      break;
+    }
   };
 
   const handleIconChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -67,6 +141,7 @@ export default function BuilderPage() {
       if (!nextFile) {
         setIconFileName("");
         setIconDataUrl(null);
+        setValidationErrors((prev) => ({ ...prev, appIcon: true }));
         sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
         sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
         event.target.value = "";
@@ -77,6 +152,7 @@ export default function BuilderPage() {
 
       setIconFileName(nextFile.name);
       setIconDataUrl(nextIconDataUrl);
+      setValidationErrors((prev) => ({ ...prev, appIcon: false }));
       sessionStorage.setItem(ICON_DATA_URL_STORAGE_KEY, nextIconDataUrl);
       sessionStorage.setItem(ICON_FILE_NAME_STORAGE_KEY, nextFile.name);
     } catch (error) {
@@ -151,6 +227,14 @@ export default function BuilderPage() {
 
   const handleGenerate = async () => {
     if (isSubmitting || authLoading) return;
+
+    const nextValidationErrors = buildValidationErrors();
+    setValidationErrors(nextValidationErrors);
+
+    if (Object.values(nextValidationErrors).some(Boolean)) {
+      scrollToFirstError(nextValidationErrors);
+      return;
+    }
 
     if (!isAuthed) {
       alert("Please sign in with Google first.");
@@ -243,22 +327,46 @@ export default function BuilderPage() {
             <div className="mx-auto max-w-xl lg:mx-0">
               <section className="relative p-2 md:p-4">
                 <div className="space-y-7">
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold">App Name</label>
-                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:border-indigo-400 focus-within:ring-4 focus-within:ring-indigo-100/80">
+                  <div ref={appNameSectionRef} className="space-y-2">
+                    <div className="flex justify-between">
+                      <label className="text-sm font-semibold">App Name</label>
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
+                    </div>
+                    <div
+                      className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
+                        validationErrors.appName
+                          ? "border-rose-300 focus-within:border-rose-400 focus-within:ring-rose-100/80"
+                          : "border-slate-200 focus-within:border-indigo-400 focus-within:ring-indigo-100/80"
+                      }`}
+                    >
                       <input
                         value={appName}
-                        onChange={(e) => setAppName(e.target.value)}
+                        onChange={(e) => {
+                          setAppName(e.target.value);
+                          setValidationErrors((prev) => ({ ...prev, appName: false }));
+                        }}
                         placeholder="Enter app name"
                         className="w-full bg-transparent outline-none placeholder:text-slate-400"
                       />
                     </div>
+                    {validationErrors.appName ? (
+                      <p className="text-xs font-medium text-rose-500">App name is required.</p>
+                    ) : null}
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold">App Icon</label>
+                  <div ref={appIconSectionRef} className="space-y-2">
+                    <div className="flex justify-between">
+                      <label className="text-sm font-semibold">App Icon</label>
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
+                    </div>
                     <p className="text-xs text-slate-400">Shown as your app icon on the home screen after installation.</p>
-                    <div className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:border-indigo-300 hover:shadow-[0_14px_30px_rgba(15,23,42,0.06)]">
+                    <div
+                      className={`group flex items-center gap-3 rounded-2xl border bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:shadow-[0_14px_30px_rgba(15,23,42,0.06)] ${
+                        validationErrors.appIcon
+                          ? "border-rose-300 hover:border-rose-300"
+                          : "border-slate-200 hover:border-indigo-300"
+                      }`}
+                    >
                       <input
                         ref={fileInputRef}
                         type="file"
@@ -297,69 +405,120 @@ export default function BuilderPage() {
                         {iconDataUrl ? "Replace" : "Choose"}
                       </button>
                     </div>
+                    {validationErrors.appIcon ? (
+                      <p className="text-xs font-medium text-rose-500">App icon is required.</p>
+                    ) : null}
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold">Logic Module</label>
+                  <div ref={logicModuleSectionRef} className="space-y-2">
+                    <div className="flex justify-between">
+                      <label className="text-sm font-semibold">Logic Module</label>
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
+                    </div>
                     <p className="text-xs text-slate-400">Built for local businesses that serve customers in person—perfect for shops, studios, and services with repeat customers. More modules coming soon.</p>
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => setModuleName("feature-showcase")}
+                        onClick={() => {
+                          setModuleName("feature-showcase");
+                          setValidationErrors((prev) => ({ ...prev, logicModule: false }));
+                        }}
                         className={moduleName === "feature-showcase" ? selectedModuleClass : unselectedModuleClass}
                       >
                         feature-showcase
                       </button>
                     </div>
+                    {validationErrors.logicModule ? (
+                      <p className="text-xs font-medium text-rose-500">Logic module is required.</p>
+                    ) : null}
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold">UI Pack</label>
+                  <div ref={uiPackSectionRef} className="space-y-2">
+                    <div className="flex justify-between">
+                      <label className="text-sm font-semibold">UI Pack</label>
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
+                    </div>
                     <p className="text-xs text-slate-400">Controls the visual style and layout of your app. More UI packs coming soon.</p>
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => setUiPackName("ui-pack-showcase-greenpink")}
+                        onClick={() => {
+                          setUiPackName("ui-pack-showcase-greenpink");
+                          setValidationErrors((prev) => ({ ...prev, uiPack: false }));
+                        }}
                         className={uiPackName === "ui-pack-showcase-greenpink" ? selectedModuleClass : unselectedModuleClass}
                       >
                         ui-pack-showcase-greenpink
                       </button>
                     </div>
+                    {validationErrors.uiPack ? (
+                      <p className="text-xs font-medium text-rose-500">UI pack is required.</p>
+                    ) : null}
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold">Admin Name</label>
+                  <div ref={adminNameSectionRef} className="space-y-2">
+                    <div className="flex justify-between">
+                      <label className="text-sm font-semibold">Admin Name</label>
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
+                    </div>
                     <p className="text-xs text-slate-400">Used as your merchant login email inside the app. It cannot be changed after creation.</p>
-                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:border-indigo-400 focus-within:ring-4 focus-within:ring-indigo-100/80">
+                    <div
+                      className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
+                        validationErrors.adminName
+                          ? "border-rose-300 focus-within:border-rose-400 focus-within:ring-rose-100/80"
+                          : "border-slate-200 focus-within:border-indigo-400 focus-within:ring-indigo-100/80"
+                      }`}
+                    >
                       <input
                         value={adminName}
-                        onChange={(e) => setAdminName(e.target.value)}
+                        onChange={(e) => {
+                          setAdminName(e.target.value);
+                          setValidationErrors((prev) => ({ ...prev, adminName: false }));
+                        }}
                         placeholder="Enter admin email"
                         className="w-full bg-transparent outline-none placeholder:text-slate-400"
                       />
                     </div>
+                    {validationErrors.adminName ? (
+                      <p className="text-xs font-medium text-rose-500">Admin name is required.</p>
+                    ) : null}
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold">Admin Password</label>
+                  <div ref={adminPasswordSectionRef} className="space-y-2">
+                    <div className="flex justify-between">
+                      <label className="text-sm font-semibold">Admin Password</label>
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
+                    </div>
                     <p className="text-xs text-slate-400">Used for merchant login inside the app. You can change this password later inside the app.</p>
-                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:border-indigo-400 focus-within:ring-4 focus-within:ring-indigo-100/80">
+                    <div
+                      className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
+                        validationErrors.adminPassword
+                          ? "border-rose-300 focus-within:border-rose-400 focus-within:ring-rose-100/80"
+                          : "border-slate-200 focus-within:border-indigo-400 focus-within:ring-indigo-100/80"
+                      }`}
+                    >
                       <input
                         type="password"
                         value={adminPassword}
-                        onChange={(e) => setAdminPassword(e.target.value)}
+                        onChange={(e) => {
+                          setAdminPassword(e.target.value);
+                          setValidationErrors((prev) => ({ ...prev, adminPassword: false }));
+                        }}
                         placeholder="Enter admin password"
                         className="w-full bg-transparent outline-none placeholder:text-slate-400"
                       />
                     </div>
+                    {validationErrors.adminPassword ? (
+                      <p className="text-xs font-medium text-rose-500">Admin password is required.</p>
+                    ) : null}
                   </div>
 
                   <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
 
-                  <div>
-                    <div className="mb-3 flex justify-between text-xs text-slate-400">
-                      <span>Choose plan</span>
-                      <span>REQUIRED</span>
+                  <div ref={planSectionRef}>
+                    <div className="mb-3 flex justify-between">
+                      <span className="text-xs text-slate-400">Choose plan</span>
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
                     </div>
 
                     <div className="mb-6 grid grid-cols-2 gap-3">
@@ -368,16 +527,17 @@ export default function BuilderPage() {
                         onClick={() => {
                           planRef.current = "free";
                           setPlan("free");
+                          setValidationErrors((prev) => ({ ...prev, plan: false }));
                         }}
                         className={
                           plan === "free"
-                            ? "flex min-h-[110px] flex-col rounded-xl border border-indigo-400 bg-[linear-gradient(135deg,rgba(224,231,255,0.95),rgba(238,242,255,0.98))] p-4 text-left text-indigo-700 shadow-[0_0_0_2px_rgba(99,102,241,0.12),0_10px_24px_rgba(99,102,241,0.12)] transition hover:-translate-y-0.5"
-                            : "flex min-h-[110px] flex-col rounded-xl border border-slate-200 bg-white/80 p-4 text-left opacity-90 transition hover:border-slate-300 hover:bg-white"
+                            ? "relative flex min-h-[110px] flex-col rounded-xl border border-indigo-300 bg-indigo-50/70 p-4 text-left shadow-[0_0_0_1px_rgba(99,102,241,0.12),0_18px_38px_rgba(99,102,241,0.10)] transition hover:-translate-y-0.5"
+                            : "relative flex min-h-[110px] flex-col rounded-xl border border-slate-200 bg-white/80 p-4 text-left opacity-90 transition hover:border-slate-300 hover:bg-white"
                         }
                       >
-                        <div className="mb-3 h-[22px]" />
                         <div className="font-semibold text-[#0f172a]">Free</div>
-                        <div className="mt-2 text-xs text-slate-400">Full features · 7-day trial</div>
+                        <div className="mt-2 text-xs text-slate-500">Full features · 7-day trial</div>
+                        <div className="mt-2 text-[11px] font-medium text-slate-400">7-day cloud backend included</div>
                       </button>
 
                       <button
@@ -385,6 +545,7 @@ export default function BuilderPage() {
                         onClick={() => {
                           planRef.current = "pro";
                           setPlan("pro");
+                          setValidationErrors((prev) => ({ ...prev, plan: false }));
                         }}
                         className={
                           plan === "pro"
@@ -397,6 +558,7 @@ export default function BuilderPage() {
                         </div>
                         <div className="font-semibold text-fuchsia-700">Pro</div>
                         <div className="mt-2 text-xs text-fuchsia-600">Full features · long-term use</div>
+                        <div className="mt-2 text-[11px] font-medium text-fuchsia-500/90">30-day cloud backend included</div>
                         {plan === "pro" ? (
                           <div className="absolute right-4 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-fuchsia-600 text-xs text-white">
                             ✓
@@ -405,9 +567,33 @@ export default function BuilderPage() {
                       </button>
                     </div>
 
+                    {validationErrors.plan ? (
+                      <p className="-mt-2 mb-3 text-xs font-medium text-rose-500">Plan selection is required.</p>
+                    ) : null}
+
                     <div className="mb-3 text-center text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
                       Ready to build
                     </div>
+
+                    {plan === "free" ? (
+                      <div className="mb-3 text-center px-2 py-2">
+                        <div className="text-[12px] font-medium text-slate-600">
+                          Free trial includes full app generation
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          Cloud backend is included for 7 days. After expiry, the app becomes read-only. Upgrade requires generating a new app.
+                        </div>
+                      </div>
+                    ) : plan === "pro" ? (
+                      <div className="mb-3 text-center px-2 py-2">
+                        <div className="text-[12px] font-medium text-slate-600">
+                          App generation is a one-time payment
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          Cloud backend is included for 30 days. After expiry, the app becomes read-only until renewed.
+                        </div>
+                      </div>
+                    ) : null}
 
                     <button
                       type="button"

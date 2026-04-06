@@ -24,6 +24,7 @@ export default function CheckoutPage() {
   const [iconFileName, setIconFileName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [isPageReady, setIsPageReady] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -75,10 +76,35 @@ export default function CheckoutPage() {
       setIconDataUrl(null);
       setIconFileName("");
     }
+
+    setIsPageReady(true);
   }, []);
 
   const modeLabel = plan === "free" ? "Free Trial" : "Paid Purchase";
   const planLabel = plan === "free" ? "Free" : "Pro";
+
+  if (!isPageReady) {
+    return (
+      <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
+        <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
+
+        <SiteHeader
+          nextPath="/checkout"
+        />
+
+        <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">
+          <div className="mb-10 text-center">
+            <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">
+              Complete your purchase
+            </h1>
+            <p className="mt-4 text-base text-[#64748b]">
+              Loading checkout details...
+            </p>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
@@ -94,7 +120,7 @@ export default function CheckoutPage() {
             Complete your purchase
           </h1>
           <p className="mt-4 text-base text-[#64748b]">
-            Review your selected build package before continuing to payment
+            Review your selected build package and cloud access rules before continuing
           </p>
 
           <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-xs font-semibold text-slate-500 shadow backdrop-blur">
@@ -117,12 +143,14 @@ export default function CheckoutPage() {
                 </div>
                 <h2 className="text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">Your selected build</h2>
                 <p className="mt-2 text-sm leading-7 text-[#64748b]">
-                  This payment unlocks one full NDJC Pro build package for the configuration below.
+                  {plan === "free"
+                    ? "This checkout confirms your Think it Done free trial build package, including cloud backend lifecycle management: active during the included period, paused after expiry, read-only during retention, and permanently deleted on day 60."
+                    : "This payment unlocks one full Think it Done Pro build package for the configuration below, including cloud backend lifecycle management: active during the included period, paused after expiry, write-disabled until renewed, and permanently deleted on day 60 after expiry if not renewed."}
                 </p>
               </div>
-              <div className="hidden h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)] md:flex">
-                <Sparkles className="h-5 w-5" />
-              </div>
+<div className="hidden md:flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
+  <Sparkles className="h-5 w-5 shrink-0" />
+</div>
             </div>
 
             <div className="space-y-4">
@@ -201,7 +229,22 @@ export default function CheckoutPage() {
                     <Check className="h-4 w-4 text-emerald-500" />
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span>Commercial-ready starter package</span>
+                    <span>Includes everything needed to publish your app on Google Play</span>
+                    <Check className="h-4 w-4 text-emerald-500" />
+                  </div>
+<div className="flex items-center justify-between gap-3">
+<div className="flex flex-col gap-0.5">
+  <span>
+    30-day cloud backend included · service pauses after expiry · write access disabled until renewed
+  </span>
+<span className="text-xs text-slate-500">
+  Permanently deleted on day 60 after expiry if not renewed
+</span>
+</div>
+  <Check className="h-4 w-4 text-emerald-500" />
+</div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Cloud status visible inside the app (active / paused / expired)</span>
                     <Check className="h-4 w-4 text-emerald-500" />
                   </div>
                   <div className="flex items-center justify-between gap-3">
@@ -233,18 +276,41 @@ export default function CheckoutPage() {
                   <div className="text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a]">
                     {plan === "free" ? "$0.00" : "$9.90"}
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">One-time payment</div>
-                  <div className="mt-2 text-[11px] text-slate-400">No subscription · No hidden fees</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {plan === "free" ? "Free trial build" : "One-time app generation payment"}
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-400">
+                    {plan === "free"
+                      ? "7-day cloud backend included"
+                      : "30-day cloud backend included · Renewal required for continued full cloud access"}
+                  </div>
                 </div>
 
                 <div className="rounded-[24px] bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(253,242,248,0.98))] p-5 shadow-[0_18px_40px_rgba(217,70,239,0.10)]">
                   <div className="mb-2 inline-flex rounded-full border border-fuchsia-200/80 bg-white/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-fuchsia-600">
                     Most popular
                   </div>
-                  <div className="text-sm font-semibold text-fuchsia-700">One payment, one {planLabel} build</div>
-                  <div className="mt-2 text-sm leading-7 text-fuchsia-700/72">
-                    After payment, the flow continues directly into the NDJC build pipeline.
+                  <div className="text-sm font-semibold text-fuchsia-700">
+                    {plan === "free"
+                      ? "Free trial build with 7-day cloud backend"
+                      : "One payment, one Pro build with 30-day cloud backend"}
                   </div>
+<div className="mt-2 text-sm leading-7 text-fuchsia-700/72">
+  {plan === "free"
+    ? "After build, cloud backend is active for 7 days. After expiry, the app becomes read-only. To move into long-term use, generate a new Pro app."
+    : "After payment, the flow continues directly into the Think it Done build pipeline. Cloud backend is included for 30 days. After expiry, the cloud service pauses and write access is disabled until renewed."}
+</div>
+
+{plan === "free" ? null : (
+  <div className="mt-4 rounded-2xl border border-fuchsia-200 bg-fuchsia-50/60 px-4 py-4">
+    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fuchsia-600">
+      CLOUD RENEWAL
+    </div>
+    <div className="mt-2 text-sm font-medium leading-7 text-fuchsia-700">
+      Sign in → Account → History → Select your build → Renew cloud
+    </div>
+  </div>
+)}
                 </div>
 
                 <div className="space-y-3">
@@ -294,6 +360,10 @@ export default function CheckoutPage() {
                     </div>
                   </button>
 
+                  <p className="text-center text-xs leading-5 text-slate-500">
+                    By continuing, you agree that cloud service will pause after expiry, become read-only or write-disabled depending on plan, and all cloud data will be permanently deleted on day 60 after expiry if not renewed.
+                  </p>
+
                   <button
                     type="button"
                     onClick={() => {
@@ -315,7 +385,7 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="text-center text-[11px] leading-6 text-[#94a3b8]">
-                  🔒 Secure checkout · Instant build after payment
+                  🔒 Secure checkout
                 </div>
               </div>
             </section>
