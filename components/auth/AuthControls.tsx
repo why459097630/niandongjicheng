@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -112,7 +113,8 @@ export default function AuthControls({
 
   return (
     <div className="flex items-center gap-3">
-      <div
+      <Link
+        href="/history"
         className={`group relative hidden max-w-[220px] truncate md:inline-flex ${buttonClassName}`}
         title={email}
       >
@@ -120,7 +122,7 @@ export default function AuthControls({
         <span className="pointer-events-none absolute inset-[1px] rounded-full bg-[linear-gradient(180deg,rgba(255,255,255,0.72)_0%,rgba(255,255,255,0.18)_100%)] opacity-80" />
         <span className="pointer-events-none absolute -left-10 top-0 h-full w-12 rotate-[18deg] bg-white/45 blur-md transition-all duration-500 group-hover:translate-x-[160%]" />
         <span className="relative z-10 truncate">{email}</span>
-      </div>
+      </Link>
 
       <button
         type="button"
