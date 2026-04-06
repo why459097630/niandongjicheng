@@ -156,9 +156,31 @@ export default function CheckoutPage() {
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)] sm:col-span-2">
                   <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">App Icon</div>
-                  <div className="mt-2 text-sm font-semibold text-[#0f172a]">
-                    {iconFileName || "No custom icon selected"}
-                  </div>
+
+                  {iconDataUrl ? (
+                    <div className="mt-3 flex items-center gap-4">
+                      <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
+                        <img
+                          src={iconDataUrl}
+                          alt={iconFileName || "App icon preview"}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold text-[#0f172a]">
+                          {iconFileName || "Custom icon selected"}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          Uploaded from Builder
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-sm font-semibold text-[#0f172a]">
+                      No custom icon selected
+                    </div>
+                  )}
                 </div>
               </div>
 
