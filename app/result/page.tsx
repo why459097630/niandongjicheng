@@ -86,10 +86,6 @@ export default function ResultPage() {
 
       <SiteHeader
         nextPath="/result"
-        navItems={[
-          { label: "Home", href: "/" },
-          { label: "History", href: "/history" },
-        ]}
       />
 
       <section className="relative z-10 mx-auto max-w-3xl px-6 py-20 text-center">

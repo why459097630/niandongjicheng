@@ -6,6 +6,12 @@ import SiteHeader from "@/components/layout/SiteHeader";
 
 const ICON_DATA_URL_STORAGE_KEY = "ndjc_builder_icon_data_url";
 const ICON_FILE_NAME_STORAGE_KEY = "ndjc_builder_icon_file_name";
+const CHECKOUT_APP_NAME_STORAGE_KEY = "ndjc_checkout_app_name";
+const CHECKOUT_MODULE_STORAGE_KEY = "ndjc_checkout_module";
+const CHECKOUT_UI_PACK_STORAGE_KEY = "ndjc_checkout_ui_pack";
+const CHECKOUT_PLAN_STORAGE_KEY = "ndjc_checkout_plan";
+const CHECKOUT_ADMIN_NAME_STORAGE_KEY = "ndjc_checkout_admin_name";
+const CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY = "ndjc_checkout_admin_password";
 
 export default function CheckoutPage() {
   const [appName, setAppName] = useState("Untitled App");
@@ -21,12 +27,43 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setAppName(params.get("appName") || "Untitled App");
-    setModuleName(params.get("module") || "feature-showcase");
-    setUiPackName(params.get("uiPack") || "ui-pack-showcase-greenpink");
-    setPlan((params.get("plan") || "pro").toLowerCase());
-    setAdminName(params.get("adminName") || "");
-    setAdminPassword(params.get("adminPassword") || "");
+
+    const nextAppName =
+      params.get("appName") ||
+      sessionStorage.getItem(CHECKOUT_APP_NAME_STORAGE_KEY) ||
+      "Untitled App";
+
+    const nextModuleName =
+      params.get("module") ||
+      sessionStorage.getItem(CHECKOUT_MODULE_STORAGE_KEY) ||
+      "feature-showcase";
+
+    const nextUiPackName =
+      params.get("uiPack") ||
+      sessionStorage.getItem(CHECKOUT_UI_PACK_STORAGE_KEY) ||
+      "ui-pack-showcase-greenpink";
+
+    const nextPlan =
+      (params.get("plan") ||
+        sessionStorage.getItem(CHECKOUT_PLAN_STORAGE_KEY) ||
+        "pro").toLowerCase();
+
+    const nextAdminName =
+      params.get("adminName") ||
+      sessionStorage.getItem(CHECKOUT_ADMIN_NAME_STORAGE_KEY) ||
+      "";
+
+    const nextAdminPassword =
+      params.get("adminPassword") ||
+      sessionStorage.getItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY) ||
+      "";
+
+    setAppName(nextAppName);
+    setModuleName(nextModuleName);
+    setUiPackName(nextUiPackName);
+    setPlan(nextPlan);
+    setAdminName(nextAdminName);
+    setAdminPassword(nextAdminPassword);
 
     const storedIconDataUrl = sessionStorage.getItem(ICON_DATA_URL_STORAGE_KEY);
     const storedIconFileName = sessionStorage.getItem(ICON_FILE_NAME_STORAGE_KEY) || "";
@@ -34,6 +71,9 @@ export default function CheckoutPage() {
     if (storedIconDataUrl) {
       setIconDataUrl(storedIconDataUrl);
       setIconFileName(storedIconFileName);
+    } else {
+      setIconDataUrl(null);
+      setIconFileName("");
     }
   }, []);
 
@@ -46,11 +86,6 @@ export default function CheckoutPage() {
 
       <SiteHeader
         nextPath="/checkout"
-        navItems={[
-          { label: "Home", href: "/" },
-          { label: "Builder", href: "/builder" },
-          { label: "Checkout", href: "/checkout", isActive: true },
-        ]}
       />
 
       <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">

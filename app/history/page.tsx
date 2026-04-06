@@ -164,10 +164,6 @@ export default function HistoryPage() {
 
       <SiteHeader
         nextPath="/history"
-        navItems={[
-          { label: "Home", href: "/" },
-          { label: "History", href: "/history", isActive: true },
-        ]}
       />
 
       <section className="relative z-10 mx-auto max-w-7xl px-6 py-16">

@@ -182,10 +182,6 @@ export default function GeneratingPage() {
 
       <SiteHeader
         nextPath="/generating"
-        navItems={[
-          { label: "Home", href: "/" },
-          { label: "History", href: "/history" },
-        ]}
       />
 
       <section className="relative z-10 mx-auto max-w-3xl px-6 py-20">

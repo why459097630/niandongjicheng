@@ -7,6 +7,12 @@ import { createClient } from "@/lib/supabase/client";
 
 const ICON_DATA_URL_STORAGE_KEY = "ndjc_builder_icon_data_url";
 const ICON_FILE_NAME_STORAGE_KEY = "ndjc_builder_icon_file_name";
+const CHECKOUT_APP_NAME_STORAGE_KEY = "ndjc_checkout_app_name";
+const CHECKOUT_MODULE_STORAGE_KEY = "ndjc_checkout_module";
+const CHECKOUT_UI_PACK_STORAGE_KEY = "ndjc_checkout_ui_pack";
+const CHECKOUT_PLAN_STORAGE_KEY = "ndjc_checkout_plan";
+const CHECKOUT_ADMIN_NAME_STORAGE_KEY = "ndjc_checkout_admin_name";
+const CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY = "ndjc_checkout_admin_password";
 
 async function fileToDataUrl(file: File): Promise<string> {
   return await new Promise((resolve, reject) => {
@@ -180,6 +186,13 @@ export default function BuilderPage() {
       return;
     }
 
+    sessionStorage.setItem(CHECKOUT_APP_NAME_STORAGE_KEY, buildParams.appName);
+    sessionStorage.setItem(CHECKOUT_MODULE_STORAGE_KEY, buildParams.module);
+    sessionStorage.setItem(CHECKOUT_UI_PACK_STORAGE_KEY, buildParams.uiPack);
+    sessionStorage.setItem(CHECKOUT_PLAN_STORAGE_KEY, buildParams.plan);
+    sessionStorage.setItem(CHECKOUT_ADMIN_NAME_STORAGE_KEY, buildParams.adminName);
+    sessionStorage.setItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY, buildParams.adminPassword);
+
     const params = new URLSearchParams({
       appName: buildParams.appName,
       module: buildParams.module,
@@ -197,11 +210,6 @@ export default function BuilderPage() {
 
       <SiteHeader
         nextPath="/builder"
-        navItems={[
-          { label: "Home", href: "/" },
-          { label: "Builder", href: "/builder", isActive: true },
-          { label: "History", href: "/history" },
-        ]}
       />
 
       <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">
