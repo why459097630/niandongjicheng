@@ -107,9 +107,9 @@ function buildRemoteStatusJson(
     adminName: input.adminName || "",
     createdAt: now,
     updatedAt: now,
-    status: "queued",
-    stage: "queued",
-    message: "Build request accepted. Waiting for an available build slot.",
+    status: "running",
+    stage: "preparing_request",
+    message: "Preparing build request",
     artifactUrl: null,
     downloadUrl: null,
     error: null,
@@ -304,9 +304,9 @@ export async function startBuild(
     uiPackName,
     plan,
     storeId,
-    status: "queued",
-    stage: "queued",
-    message: "Build request accepted. Waiting for an available build slot.",
+    status: "running",
+    stage: "preparing_request",
+    message: "Preparing build request",
     workflowRunId: null,
     workflowUrl: null,
     artifactUrl: null,
@@ -356,9 +356,9 @@ export async function startBuild(
     );
 
     await updateBuildRecordByRunId(supabase, runId, {
-      status: "queued",
-      stage: "queued",
-      message: "Build request uploaded. Waiting for an available build slot.",
+      status: "running",
+      stage: "preparing_request",
+      message: "Build request uploaded. Preparing build request.",
       error: null,
       statusSource: "local_api",
     });
@@ -370,10 +370,10 @@ export async function startBuild(
     await triggerBuildWorkflow(runId);
 
     const afterDispatch = await updateBuildRecordByRunId(supabase, runId, {
-      status: "queued",
-      stage: "queued",
+      status: "running",
+      stage: "preparing_request",
       message:
-        "Packaging workflow dispatched successfully. Waiting for an available build slot.",
+        "Packaging workflow dispatched successfully. Preparing build request.",
       error: null,
       statusSource: "local_api",
     });
