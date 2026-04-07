@@ -114,13 +114,19 @@ function mapStageToSteps(stage: BuildStage | undefined, failedStep?: StepKey) {
 
 export default function GeneratingPage() {
   const previewMode = false;
-  const previewStage: BuildStage = "queued";
-  const previewMessage =
-    previewStage === "success"
-      ? "Your app package has been generated successfully."
-      : previewStage === "failed"
-        ? "Build stopped because one of the packaging steps did not complete."
-        : "Your request has been received and is waiting for an available build slot.";
+  const previewStage = "queued" as BuildStage;
+
+  function getPreviewMessage(stage: BuildStage) {
+    if (stage === "success") {
+      return "Your app package has been generated successfully.";
+    }
+    if (stage === "failed") {
+      return "Build stopped because one of the packaging steps did not complete.";
+    }
+    return "Your request has been received and is waiting for an available build slot.";
+  }
+
+  const previewMessage = getPreviewMessage(previewStage);
   const previewDownloadUrl = "/result?demo=1";
   const previewQueueAheadCount = 3;
   const [runId, setRunId] = useState("");
