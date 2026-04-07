@@ -107,6 +107,7 @@ function normalizeStage(
   status: BuildStatusValue,
   stage: string | null | undefined,
 ): BuildStage {
+  if (stage === "queued") return "queued";
   if (stage === "preparing_request") return "preparing_request";
   if (stage === "processing_identity") return "processing_identity";
   if (stage === "matching_logic_module") return "matching_logic_module";
@@ -116,6 +117,7 @@ function normalizeStage(
   if (stage === "success") return "success";
   if (stage === "failed") return "failed";
 
+  if (status === "queued") return "queued";
   if (status === "success") return "success";
   if (status === "failed") return "failed";
 

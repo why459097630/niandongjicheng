@@ -243,6 +243,13 @@ export default function BuilderPage() {
 
     const currentPlan = planRef.current;
 
+    sessionStorage.setItem(CHECKOUT_APP_NAME_STORAGE_KEY, buildParams.appName);
+    sessionStorage.setItem(CHECKOUT_MODULE_STORAGE_KEY, buildParams.module);
+    sessionStorage.setItem(CHECKOUT_UI_PACK_STORAGE_KEY, buildParams.uiPack);
+    sessionStorage.setItem(CHECKOUT_PLAN_STORAGE_KEY, buildParams.plan);
+    sessionStorage.setItem(CHECKOUT_ADMIN_NAME_STORAGE_KEY, buildParams.adminName);
+    sessionStorage.setItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY, buildParams.adminPassword);
+
     if (currentPlan === "free") {
       try {
         setIsSubmitting(true);
@@ -269,13 +276,6 @@ export default function BuilderPage() {
 
       return;
     }
-
-    sessionStorage.setItem(CHECKOUT_APP_NAME_STORAGE_KEY, buildParams.appName);
-    sessionStorage.setItem(CHECKOUT_MODULE_STORAGE_KEY, buildParams.module);
-    sessionStorage.setItem(CHECKOUT_UI_PACK_STORAGE_KEY, buildParams.uiPack);
-    sessionStorage.setItem(CHECKOUT_PLAN_STORAGE_KEY, buildParams.plan);
-    sessionStorage.setItem(CHECKOUT_ADMIN_NAME_STORAGE_KEY, buildParams.adminName);
-    sessionStorage.setItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY, buildParams.adminPassword);
 
     const params = new URLSearchParams({
       appName: buildParams.appName,

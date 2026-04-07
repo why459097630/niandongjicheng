@@ -9,6 +9,7 @@ import {
   BuildStatusResponse,
   BuildStatusValue,
   InternalBuildRecord,
+  StepKey,
 } from "./types";
 
 function getRequiredEnv(name: string): string {
@@ -46,6 +47,7 @@ function normalizeRemoteStage(value: unknown): BuildStage | undefined {
 
   const stage = value.trim();
 
+  if (stage === "queued") return "queued";
   if (stage === "preparing_request") return "preparing_request";
   if (stage === "processing_identity") return "processing_identity";
   if (stage === "matching_logic_module") return "matching_logic_module";
@@ -67,6 +69,7 @@ function normalizeRemoteStatus(
   if (value === "success") return "success";
   if (value === "failed") return "failed";
 
+  if (stage === "queued") return "queued";
   if (stage === "success") return "success";
   if (stage === "failed") return "failed";
 
@@ -74,10 +77,69 @@ function normalizeRemoteStatus(
 }
 
 function stageToStatus(stage: BuildStage | undefined): BuildStatusValue {
+  if (stage === "queued") return "queued";
   if (stage === "success") return "success";
   if (stage === "failed") return "failed";
-  if (stage === "preparing_request") return "queued";
   return "running";
+}
+
+function normalizeFailedStep(value: unknown): StepKey | undefined {
+  if (value === "preparing_request") return "preparing_request";
+  if (value === "processing_identity") return "processing_identity";
+  if (value === "matching_logic_module") return "matching_logic_module";
+  if (value === "applying_ui_pack") return "applying_ui_pack";
+  if (value === "preparing_services") return "preparing_services";
+  if (value === "building_apk") return "building_apk";
+  return undefined;
+}
+
+async function getBuildQueueMeta(
+  supabase: SupabaseClient,
+  record: InternalBuildRecord | null,
+): Promise<{
+  queueAheadCount?: number;
+  runningCount?: number;
+  concurrencyLimit?: number;
+}> {
+  const rawConcurrencyLimit = (process.env.BUILD_CONCURRENCY_LIMIT || "1").trim();
+  const parsedConcurrencyLimit = Number.parseInt(rawConcurrencyLimit, 10);
+  const concurrencyLimit =
+    Number.isFinite(parsedConcurrencyLimit) && parsedConcurrencyLimit > 0
+      ? parsedConcurrencyLimit
+      : 1;
+
+  let runningCount: number | undefined = undefined;
+  let queueAheadCount: number | undefined = 0;
+
+  const runningResult = await supabase
+    .from("builds")
+    .select("id", { head: true, count: "exact" })
+    .eq("status", "running");
+
+  if (!runningResult.error && typeof runningResult.count === "number") {
+    runningCount = runningResult.count;
+  }
+
+  const isQueuedRecord =
+    record?.status === "queued" || record?.stage === "queued";
+
+  if (isQueuedRecord && record?.createdAt) {
+    const queueAheadResult = await supabase
+      .from("builds")
+      .select("id", { head: true, count: "exact" })
+      .eq("status", "queued")
+      .lt("created_at", record.createdAt);
+
+    if (!queueAheadResult.error && typeof queueAheadResult.count === "number") {
+      queueAheadCount = queueAheadResult.count;
+    }
+  }
+
+  return {
+    queueAheadCount,
+    runningCount,
+    concurrencyLimit,
+  };
 }
 
 async function readRemoteStatusFile(runId: string): Promise<Record<string, unknown> | null> {
@@ -118,8 +180,13 @@ function mapRecordToResponse(
   record: InternalBuildRecord,
   extra?: {
     adminName?: string;
+    adminPassword?: string;
     workflowStatus?: string | null;
     workflowConclusion?: string | null;
+    failedStep?: StepKey;
+    queueAheadCount?: number;
+    runningCount?: number;
+    concurrencyLimit?: number;
   },
 ): BuildStatusResponse {
   return {
@@ -132,6 +199,7 @@ function mapRecordToResponse(
     error: record.error,
     appName: record.appName,
     adminName: extra?.adminName,
+    adminPassword: extra?.adminPassword,
     storeId: record.storeId ?? null,
     moduleName: record.moduleName,
     uiPackName: record.uiPackName,
@@ -143,6 +211,10 @@ function mapRecordToResponse(
     workflowStatus: extra?.workflowStatus ?? record.workflowStatus ?? null,
     workflowConclusion: extra?.workflowConclusion ?? record.workflowConclusion ?? null,
     workflowUrl: record.workflowUrl ?? null,
+    failedStep: extra?.failedStep,
+    queueAheadCount: extra?.queueAheadCount,
+    runningCount: extra?.runningCount,
+    concurrencyLimit: extra?.concurrencyLimit,
   };
 }
 
@@ -177,6 +249,8 @@ function mergeStatus(
     adminName:
       (typeof remote.adminName === "string" ? remote.adminName : "") ||
       localRecord?.adminName,
+    adminPassword:
+      typeof remote.adminPassword === "string" ? remote.adminPassword : undefined,
     storeId:
       (typeof remote.storeId === "string" ? remote.storeId : "") ||
       localRecord?.storeId,
@@ -215,6 +289,7 @@ function mergeStatus(
       (typeof remote.workflowUrl === "string" ? remote.workflowUrl : null) ??
       localRecord?.workflowUrl ??
       null,
+    failedStep: normalizeFailedStep(remote.failedStep),
   };
 }
 
@@ -227,7 +302,7 @@ export async function getBuildStatus(
 
   if (remoteStatus) {
     const merged = mergeStatus(runId, localRecord, remoteStatus);
-    const stage = merged.stage || localRecord?.stage || "preparing_request";
+    const stage = merged.stage || localRecord?.stage || "queued";
     const status =
       normalizeRemoteStatus(remoteStatus.status, stage) || stageToStatus(stage);
 
@@ -268,10 +343,17 @@ export async function getBuildStatus(
         ).catch(() => null);
       }
 
+      const queueMeta = await getBuildQueueMeta(supabase, synced);
+
       return mapRecordToResponse(synced, {
         adminName: merged.adminName,
+        adminPassword: merged.adminPassword,
         workflowStatus: merged.workflowStatus ?? null,
         workflowConclusion: merged.workflowConclusion ?? null,
+        failedStep: merged.failedStep,
+        queueAheadCount: queueMeta.queueAheadCount,
+        runningCount: queueMeta.runningCount,
+        concurrencyLimit: queueMeta.concurrencyLimit,
       });
     }
 
@@ -285,5 +367,11 @@ export async function getBuildStatus(
     };
   }
 
-  return mapRecordToResponse(localRecord);
+  const queueMeta = await getBuildQueueMeta(supabase, localRecord);
+
+  return mapRecordToResponse(localRecord, {
+    queueAheadCount: queueMeta.queueAheadCount,
+    runningCount: queueMeta.runningCount,
+    concurrencyLimit: queueMeta.concurrencyLimit,
+  });
 }

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Circle, Download, House, LoaderCircle, RotateCcw, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Circle, Clock3, House, LoaderCircle, RotateCcw, TriangleAlert } from "lucide-react";
 import SiteHeader from "@/components/layout/SiteHeader";
 
 type BuildStage =
+  | "queued"
   | "preparing_request"
   | "processing_identity"
   | "matching_logic_module"
@@ -18,9 +19,13 @@ type BuildStatusResponse = {
   ok: boolean;
   runId?: string;
   stage?: BuildStage;
+  failedStep?: StepKey;
   message?: string;
   artifactUrl?: string | null;
   downloadUrl?: string | null;
+  queueAheadCount?: number;
+  runningCount?: number;
+  concurrencyLimit?: number;
   error?: string;
 };
 
@@ -52,7 +57,7 @@ const ACTIVE_LABEL: Record<StepKey, string> = {
   building_apk: "Building and packaging APK",
 };
 
-function mapStageToSteps(stage: BuildStage | undefined) {
+function mapStageToSteps(stage: BuildStage | undefined, failedStep?: StepKey) {
   const currentIndexMap: Record<StepKey, number> = {
     preparing_request: 0,
     processing_identity: 1,
@@ -62,17 +67,31 @@ function mapStageToSteps(stage: BuildStage | undefined) {
     building_apk: 5,
   };
 
-  if (!stage) {
-    return STEP_ORDER.map((step, index) => ({
+  if (!stage || stage === "queued") {
+    return STEP_ORDER.map((step) => ({
       ...step,
-      status: index === 0 ? ("active" as StepStatus) : ("pending" as StepStatus),
+      status: "pending" as StepStatus,
     }));
   }
 
   if (stage === "failed") {
+    const failedIndex = typeof failedStep === "string" ? currentIndexMap[failedStep] : undefined;
+
+    if (typeof failedIndex === "number") {
+      return STEP_ORDER.map((step, index) => ({
+        ...step,
+        status:
+          index < failedIndex
+            ? ("done" as StepStatus)
+            : index === failedIndex
+              ? ("failed" as StepStatus)
+              : ("pending" as StepStatus),
+      }));
+    }
+
     return STEP_ORDER.map((step, index) => ({
       ...step,
-      status: index < 2 ? ("done" as StepStatus) : index === 2 ? ("failed" as StepStatus) : ("pending" as StepStatus),
+      status: index === 0 ? ("failed" as StepStatus) : ("pending" as StepStatus),
     }));
   }
 
@@ -94,11 +113,23 @@ function mapStageToSteps(stage: BuildStage | undefined) {
 }
 
 export default function GeneratingPage() {
+  const previewMode = false;
+  const previewStage: BuildStage = "queued";
+  const previewMessage =
+    previewStage === "success"
+      ? "Your app package has been generated successfully."
+      : previewStage === "failed"
+        ? "Build stopped because one of the packaging steps did not complete."
+        : "Your request has been received and is waiting for an available build slot.";
+  const previewDownloadUrl = "/result?demo=1";
+  const previewQueueAheadCount = 3;
   const [runId, setRunId] = useState("");
   const [stage, setStage] = useState<BuildStage | undefined>(undefined);
   const [message, setMessage] = useState("Waiting for live build status...");
   const [error, setError] = useState("");
   const [downloadUrl, setDownloadUrl] = useState("");
+  const [queueAheadCount, setQueueAheadCount] = useState<number | null>(null);
+  const [failedStep, setFailedStep] = useState<StepKey | undefined>(undefined);
   const [hasLoggedPollOpen, setHasLoggedPollOpen] = useState(false);
 
   useEffect(() => {
@@ -129,6 +160,8 @@ export default function GeneratingPage() {
         if (!response.ok || !data.ok) {
           setError(data.error || "Failed to load build status.");
           setDownloadUrl("");
+          setQueueAheadCount(null);
+          setFailedStep(undefined);
           return;
         }
 
@@ -136,6 +169,8 @@ export default function GeneratingPage() {
         setMessage(data.message || "Generating...");
         setError("");
         setDownloadUrl(data.downloadUrl || "");
+        setQueueAheadCount(typeof data.queueAheadCount === "number" ? data.queueAheadCount : null);
+        setFailedStep(data.failedStep);
 
         if (!hasLoggedPollOpen) {
           setHasLoggedPollOpen(true);
@@ -144,6 +179,8 @@ export default function GeneratingPage() {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to load build status.");
         setDownloadUrl("");
+        setQueueAheadCount(null);
+        setFailedStep(undefined);
       }
     };
 
@@ -156,8 +193,16 @@ export default function GeneratingPage() {
     };
   }, [runId, hasLoggedPollOpen]);
 
-  const steps = useMemo(() => mapStageToSteps(stage), [stage]);
+  const effectiveStage = previewMode ? previewStage : stage;
+  const effectiveMessage = previewMode ? previewMessage : message;
+  const effectiveError = previewMode && previewStage === "failed" ? previewMessage : error;
+  const effectiveDownloadUrl = previewMode ? previewDownloadUrl : downloadUrl;
+  const effectiveQueueAheadCount = previewMode ? previewQueueAheadCount : queueAheadCount;
+  const effectiveFailedStep = previewMode ? undefined : failedStep;
+
+  const steps = useMemo(() => mapStageToSteps(effectiveStage, effectiveFailedStep), [effectiveStage, effectiveFailedStep]);
   useEffect(() => {
+    if (previewMode) return;
     if (stage !== "success" || !runId) return;
 
     const redirectTimer = window.setTimeout(() => {
@@ -170,11 +215,14 @@ export default function GeneratingPage() {
   }, [stage, runId]);
 
   const currentActivity = useMemo(() => {
-    if (stage === "success") return "Build completed";
-    if (stage === "failed") return "Build failed";
-    if (!stage) return "Preparing build request";
-    return ACTIVE_LABEL[stage as StepKey] || "Generating";
-  }, [stage]);
+    if (effectiveStage === "queued") return "Waiting in build queue";
+    if (effectiveStage === "success") return "Build completed";
+    if (effectiveStage === "failed") {
+      return effectiveFailedStep ? `${ACTIVE_LABEL[effectiveFailedStep]} failed` : "Build failed";
+    }
+    if (!effectiveStage) return "Preparing build request";
+    return ACTIVE_LABEL[effectiveStage as StepKey] || "Generating";
+  }, [effectiveStage, effectiveFailedStep]);
 
   return (
     <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
@@ -184,42 +232,85 @@ export default function GeneratingPage() {
         nextPath="/generating"
       />
 
-      <section className="relative z-10 mx-auto max-w-3xl px-6 py-20">
+      <section className="relative z-10 mx-auto max-w-3xl px-6 py-14">
         <div className="text-center">
-          <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-7xl">Generating your app</h1>
-          <p className="mt-3 text-lg text-[#64748b]">This usually takes about 30 seconds</p>
-          {runId ? (
-            <div className="mt-4 inline-flex items-center rounded-full border border-slate-200/80 bg-white/75 px-3 py-1.5 text-[11px] font-medium tracking-[0.08em] text-slate-400 shadow-[0_6px_16px_rgba(15,23,42,0.04)] backdrop-blur">
+          <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">Generating your app</h1>
+          <p className="mt-2 text-lg text-[#64748b]">The full build process may take up to 10 minutes</p>
+          {previewMode ? (
+            <div className="mt-2 inline-flex items-center rounded-full border border-amber-200/80 bg-amber-50/80 px-3 py-1.5 text-[11px] font-medium tracking-[0.08em] text-amber-700 shadow-[0_6px_16px_rgba(15,23,42,0.04)] backdrop-blur">
+              PREVIEW MODE · {previewStage === "success" ? "SUCCESS STATE" : previewStage === "failed" ? "FAILED STATE" : "QUEUE STATE"}
+            </div>
+          ) : runId ? (
+            <div className="mt-2 inline-flex items-center rounded-full border border-slate-200/80 bg-white/75 px-3 py-1.5 text-[11px] font-medium tracking-[0.08em] text-slate-400 shadow-[0_6px_16px_rgba(15,23,42,0.04)] backdrop-blur">
               RUN ID · {runId}
             </div>
           ) : null}
         </div>
 
         <>
-          {stage !== "success" ? (
-            <div className="mt-10 overflow-hidden rounded-[28px] border border-white/60 bg-white/75 p-6 text-center shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl md:p-7">
-              <div className="mx-auto mb-5 h-px w-28 bg-gradient-to-r from-transparent via-fuchsia-300/80 to-transparent" />
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Current activity</div>
-              <div className="mt-3 flex items-center justify-center gap-3">
-                <LoaderCircle className="h-5 w-5 animate-spin text-fuchsia-500" />
-                <div className="text-2xl font-bold tracking-[-0.03em]">{currentActivity}</div>
+          {effectiveStage !== "success" ? (
+            effectiveStage === "queued" ? (
+              <div className="mt-6 overflow-hidden rounded-[28px] border border-white/60 bg-white/75 p-5 text-center shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl md:p-6">
+                <div className="mx-auto mb-4 h-px w-24 bg-gradient-to-r from-transparent via-sky-300/80 to-transparent" />
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Build queue</div>
+                <div className="mt-3 flex items-center justify-center gap-3">
+                  <Clock3 className="h-5 w-5 text-sky-500" />
+                  <div className="text-2xl font-bold tracking-[-0.03em]">{currentActivity}</div>
+                </div>
+                <div className="mt-2 text-xs text-slate-400">Your build has been accepted and will start automatically.</div>
+
+                <div className="mx-auto mt-5 flex max-w-[420px] items-center justify-center gap-3">
+                  <div className="min-w-0 text-left">
+                    <div className="flex items-end gap-2">
+                      <span className="text-4xl font-extrabold tracking-[-0.06em] text-slate-950">
+                        {typeof effectiveQueueAheadCount === "number" ? effectiveQueueAheadCount : "--"}
+                      </span>
+                      <span className="pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-500/80">
+                        {typeof effectiveQueueAheadCount === "number" && effectiveQueueAheadCount === 1 ? "person ahead" : "people ahead"}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-sm leading-6 text-slate-500">
+                      {typeof effectiveQueueAheadCount === "number"
+                        ? effectiveQueueAheadCount === 0
+                          ? "No one is ahead of you. Your build should start very soon."
+                          : `There ${effectiveQueueAheadCount > 1 ? "are" : "is"} ${effectiveQueueAheadCount} ${effectiveQueueAheadCount > 1 ? "people" : "person"} ahead of you in queue.`
+                        : "Queue position is updating..."}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-slate-600">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400" />
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-sky-300 [animation-delay:180ms]" />
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-indigo-300 [animation-delay:360ms]" />
+                  <span className="ml-1">We’ll start your build automatically.</span>
+                </div>
               </div>
-              <div className="mt-2 text-xs text-slate-400">
-                Step {Math.max(1, steps.findIndex((step) => step.status === "active") + 1)} of 6
+            ) : (
+              <div className="mt-6 overflow-hidden rounded-[28px] border border-white/60 bg-white/75 p-5 text-center shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl md:p-6">
+                <div className="mx-auto mb-5 h-px w-28 bg-gradient-to-r from-transparent via-fuchsia-300/80 to-transparent" />
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Current activity</div>
+                <div className="mt-3 flex items-center justify-center gap-3">
+                  <LoaderCircle className="h-5 w-5 animate-spin text-fuchsia-500" />
+                  <div className="text-2xl font-bold tracking-[-0.03em]">{currentActivity}</div>
+                </div>
+                <div className="mt-2 text-xs text-slate-400">
+                  Step {Math.max(1, steps.findIndex((step) => step.status === "active") + 1)} of 6
+                </div>
+                <div className="mx-auto mt-2 h-1.5 w-full max-w-[360px] overflow-hidden rounded-full bg-slate-200/60">
+                  <div
+                    className="h-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 transition-all duration-500"
+                    style={{
+                      width: `${(Math.max(1, steps.findIndex((step) => step.status === "active") + 1) / 6) * 100}%`,
+                    }}
+                  />
+                </div>
+                <div className="mt-3 text-sm leading-7 text-slate-500">{effectiveError || effectiveMessage}</div>
               </div>
-              <div className="mx-auto mt-2 h-1.5 w-full max-w-[360px] overflow-hidden rounded-full bg-slate-200/60">
-                <div
-                  className="h-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 transition-all duration-500"
-                  style={{
-                    width: `${(Math.max(1, steps.findIndex((step) => step.status === "active") + 1) / 6) * 100}%`,
-                  }}
-                />
-              </div>
-              <div className="mt-3 text-sm leading-7 text-slate-500">{error || message}</div>
-            </div>
+            )
           ) : null}
 
-          {stage === "failed" || error ? (
+          {effectiveStage === "failed" || effectiveError ? (
             <div className="mt-6 rounded-[24px] border border-red-200 bg-red-50/80 p-5 shadow-[0_8px_18px_rgba(15,23,42,0.03)]">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5">
@@ -228,10 +319,10 @@ export default function GeneratingPage() {
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-semibold text-red-700">Build failed</div>
                   <div className="mt-2 text-sm leading-7 text-red-600/90">
-                    {error || message || "Something went wrong during the build process."}
+                    {effectiveError || effectiveMessage || "Something went wrong during the build process."}
                   </div>
                   <div className="mt-2 text-xs font-medium uppercase tracking-[0.12em] text-red-500/80">
-                    Failed at: {steps.find((step) => step.status === "failed")?.title || currentActivity}
+                    Failed at: {steps.find((step) => step.status === "failed")?.title || (effectiveFailedStep ? ACTIVE_LABEL[effectiveFailedStep] : currentActivity)}
                   </div>
                 </div>
               </div>
@@ -260,7 +351,7 @@ export default function GeneratingPage() {
             </div>
           ) : null}
 
-          {stage === "success" && downloadUrl ? (
+          {effectiveStage === "success" && effectiveDownloadUrl ? (
             <div className="mt-8 overflow-hidden rounded-[28px] border border-emerald-200/80 bg-[linear-gradient(135deg,rgba(240,253,244,0.96),rgba(255,255,255,0.96))] p-5 shadow-[0_16px_40px_rgba(16,185,129,0.10)] md:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -281,7 +372,7 @@ export default function GeneratingPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    window.location.href = `/result?runId=${encodeURIComponent(runId)}`;
+                    window.location.href = previewMode ? effectiveDownloadUrl : `/result?runId=${encodeURIComponent(runId)}`;
                   }}
                   className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white/90 px-4 py-2.5 text-sm font-medium text-slate-600 shadow-[0_6px_16px_rgba(15,23,42,0.04)] transition hover:bg-white"
                 >
@@ -310,7 +401,7 @@ export default function GeneratingPage() {
                 {step.status === "done" && <CheckCircle2 className="h-5 w-5 text-green-500" />}
                 {step.status === "active" && <LoaderCircle className="h-5 w-5 animate-spin text-purple-500" />}
                 {step.status === "pending" && <Circle className="h-5 w-5 text-slate-300" />}
-                {step.status === "failed" && <Circle className="h-5 w-5 text-red-400" />}
+                {step.status === "failed" && <TriangleAlert className="h-5 w-5 text-red-400" />}
               </div>
 
               <div className="flex-1">

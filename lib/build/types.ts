@@ -1,4 +1,5 @@
 export type BuildStage =
+  | "queued"
   | "preparing_request"
   | "processing_identity"
   | "matching_logic_module"
@@ -11,6 +12,14 @@ export type BuildStage =
 export type BuildMode = "Free Trial" | "Paid Purchase";
 
 export type BuildStatusValue = "queued" | "running" | "success" | "failed";
+
+export type StepKey =
+  | "preparing_request"
+  | "processing_identity"
+  | "matching_logic_module"
+  | "applying_ui_pack"
+  | "preparing_services"
+  | "building_apk";
 
 export type BuildStatusSource =
   | "github_status_json"
@@ -93,6 +102,7 @@ export type BuildStatusResponse = {
   error?: string | null;
   appName?: string;
   adminName?: string;
+  adminPassword?: string;
   storeId?: string | null;
   moduleName?: string;
   uiPackName?: string;
@@ -104,6 +114,10 @@ export type BuildStatusResponse = {
   workflowStatus?: string | null;
   workflowConclusion?: string | null;
   workflowUrl?: string | null;
+  failedStep?: StepKey;
+  queueAheadCount?: number;
+  runningCount?: number;
+  concurrencyLimit?: number;
 };
 
 export type BuildHistoryItem = {

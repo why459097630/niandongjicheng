@@ -19,6 +19,13 @@ type BuildStatusResponse = {
   error?: string;
 };
 
+const CHECKOUT_APP_NAME_STORAGE_KEY = "ndjc_checkout_app_name";
+const CHECKOUT_MODULE_STORAGE_KEY = "ndjc_checkout_module";
+const CHECKOUT_UI_PACK_STORAGE_KEY = "ndjc_checkout_ui_pack";
+const CHECKOUT_PLAN_STORAGE_KEY = "ndjc_checkout_plan";
+const CHECKOUT_ADMIN_NAME_STORAGE_KEY = "ndjc_checkout_admin_name";
+const CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY = "ndjc_checkout_admin_password";
+
 export default function ResultPage() {
   const [runId, setRunId] = useState("");
   const [appName, setAppName] = useState("Untitled App");
@@ -42,6 +49,13 @@ export default function ResultPage() {
       return;
     }
 
+    const storedAppName = window.sessionStorage.getItem(CHECKOUT_APP_NAME_STORAGE_KEY) || "";
+    const storedModuleName = window.sessionStorage.getItem(CHECKOUT_MODULE_STORAGE_KEY) || "";
+    const storedUiPackName = window.sessionStorage.getItem(CHECKOUT_UI_PACK_STORAGE_KEY) || "";
+    const storedAdminName = window.sessionStorage.getItem(CHECKOUT_ADMIN_NAME_STORAGE_KEY) || "";
+    const storedAdminPassword =
+      window.sessionStorage.getItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY) || "";
+
     const resultOpenKey = `ndjc_result_opened_${currentRunId}`;
     const shouldLogOpen =
       typeof window !== "undefined" &&
@@ -61,11 +75,11 @@ export default function ResultPage() {
           throw new Error(data.error || "Failed to load build result.");
         }
 
-        setAppName(data.appName || "Untitled App");
-        setModuleName(data.moduleName || "feature-showcase");
-        setUiPackName(data.uiPackName || "ui-pack-showcase-greenpink");
-        setAdminName(data.adminName || "");
-        setAdminPassword(data.adminPassword || "");
+        setAppName(data.appName || storedAppName || "Untitled App");
+        setModuleName(data.moduleName || storedModuleName || "feature-showcase");
+        setUiPackName(data.uiPackName || storedUiPackName || "ui-pack-showcase-greenpink");
+        setAdminName(data.adminName || storedAdminName || "");
+        setAdminPassword(data.adminPassword || storedAdminPassword || "");
         setDownloadUrl(data.downloadUrl || "");
 
         if (shouldLogOpen && typeof window !== "undefined") {
@@ -102,7 +116,7 @@ export default function ResultPage() {
         </h1>
 
         <p className="mt-3 text-lg text-[#64748b]">
-          You just built a real Android app in seconds. Ready to install and use.
+          Generated automatically — just a few minutes to build, now ready to install.
         </p>
 
         {runId ? (
