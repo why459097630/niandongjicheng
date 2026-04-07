@@ -4,6 +4,7 @@ import {
   insertOperationLogOnce,
   updateBuildRecordByRunId,
 } from "./storage";
+import { releaseNextQueuedBuild } from "./releaseNextQueuedBuild";
 import {
   BuildStage,
   BuildStatusResponse,
@@ -101,12 +102,12 @@ async function getBuildQueueMeta(
   runningCount?: number;
   concurrencyLimit?: number;
 }> {
-  const rawConcurrencyLimit = (process.env.BUILD_CONCURRENCY_LIMIT || "1").trim();
+  const rawConcurrencyLimit = (process.env.BUILD_CONCURRENCY_LIMIT || "20").trim();
   const parsedConcurrencyLimit = Number.parseInt(rawConcurrencyLimit, 10);
   const concurrencyLimit =
     Number.isFinite(parsedConcurrencyLimit) && parsedConcurrencyLimit > 0
       ? parsedConcurrencyLimit
-      : 1;
+      : 20;
 
   let runningCount: number | undefined = undefined;
   let queueAheadCount: number | undefined = 0;
@@ -297,14 +298,36 @@ export async function getBuildStatus(
   supabase: SupabaseClient,
   runId: string,
 ): Promise<BuildStatusResponse> {
+  await releaseNextQueuedBuild(supabase).catch((error) => {
+    console.error("NDJC getBuildStatus: failed to release queued build", error);
+  });
+
   const localRecord = await getBuildRecordByRunId(supabase, runId);
   const remoteStatus = await readRemoteStatusFile(runId);
 
   if (remoteStatus) {
     const merged = mergeStatus(runId, localRecord, remoteStatus);
-    const stage = merged.stage || localRecord?.stage || "queued";
-    const status =
-      normalizeRemoteStatus(remoteStatus.status, stage) || stageToStatus(stage);
+    const remoteStage = normalizeRemoteStage(remoteStatus.stage);
+    const remoteNormalizedStatus =
+      normalizeRemoteStatus(remoteStatus.status, remoteStage);
+
+    const shouldKeepLocalRunning =
+      localRecord?.status === "running" &&
+      localRecord.stage !== "success" &&
+      localRecord.stage !== "failed" &&
+      remoteNormalizedStatus === "queued";
+
+    const stage = shouldKeepLocalRunning
+      ? localRecord.stage
+      : merged.stage || localRecord?.stage || "queued";
+
+    const status = shouldKeepLocalRunning
+      ? "running"
+      : remoteNormalizedStatus || stageToStatus(stage);
+
+    const message = shouldKeepLocalRunning
+      ? localRecord?.message ?? merged.message ?? null
+      : merged.message ?? null;
 
     if (localRecord) {
       const synced = await updateBuildRecordByRunId(supabase, runId, {
@@ -315,7 +338,7 @@ export async function getBuildStatus(
         storeId: merged.storeId ?? null,
         status,
         stage,
-        message: merged.message ?? null,
+        message,
         workflowRunId: merged.workflowRunId ?? null,
         workflowUrl: merged.workflowUrl ?? null,
         artifactUrl: merged.artifactUrl ?? null,

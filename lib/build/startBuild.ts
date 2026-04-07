@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { releaseNextQueuedBuild } from "./releaseNextQueuedBuild";
 import {
   insertBuildRecord,
   insertOperationLog,
@@ -90,6 +91,11 @@ function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): stri
 function buildRemoteStatusJson(
   input: BuildRequest & { storeId: string },
   runId: string,
+  initial: {
+    status: "queued" | "running";
+    stage: "queued" | "preparing_request";
+    message: string;
+  },
 ): string {
   const appName = input.appName?.trim() || "Untitled App";
   const moduleName = input.module?.trim() || "feature-showcase";
@@ -107,9 +113,9 @@ function buildRemoteStatusJson(
     adminName: input.adminName || "",
     createdAt: now,
     updatedAt: now,
-    status: "running",
-    stage: "preparing_request",
-    message: "Preparing build request",
+    status: initial.status,
+    stage: initial.stage,
+    message: initial.message,
     artifactUrl: null,
     downloadUrl: null,
     error: null,
@@ -155,6 +161,11 @@ async function githubRequest(
 async function uploadBuildRequestToRepo(
   input: BuildRequest & { storeId: string },
   runId: string,
+  initial: {
+    status: "queued" | "running";
+    stage: "queued" | "preparing_request";
+    message: string;
+  },
 ): Promise<void> {
   const token = getRequiredEnv("GH_TOKEN");
   const owner = getRequiredEnv("GH_OWNER");
@@ -162,7 +173,7 @@ async function uploadBuildRequestToRepo(
   const branch = getRequiredEnv("GH_BRANCH");
 
   const assemblyJson = buildAssemblyLocalJson(input);
-  const statusJson = buildRemoteStatusJson(input, runId);
+  const statusJson = buildRemoteStatusJson(input, runId, initial);
   const requestMeta = {
     runId,
     appName: input.appName,
@@ -241,33 +252,7 @@ async function uploadBuildRequestToRepo(
   }
 }
 
-async function triggerBuildWorkflow(runId: string): Promise<void> {
-  const token = getRequiredEnv("GH_TOKEN");
-  const owner = getRequiredEnv("GH_OWNER");
-  const repo = getRequiredEnv("GH_REPO");
-  const branch = getRequiredEnv("GH_BRANCH");
-  const workflowId = getRequiredEnv("WORKFLOW_ID");
 
-  const response = await githubRequest(
-    `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`,
-    {
-      method: "POST",
-      token,
-      body: JSON.stringify({
-        ref: branch,
-        inputs: {
-          run_id: runId,
-        },
-      }),
-    },
-  );
-
-  const data = await response.text();
-
-  if (!response.ok) {
-    throw new Error(`Failed to dispatch workflow: ${data}`);
-  }
-}
 
 export async function startBuild(
   supabase: SupabaseClient,
@@ -304,9 +289,9 @@ export async function startBuild(
     uiPackName,
     plan,
     storeId,
-    status: "running",
-    stage: "preparing_request",
-    message: "Preparing build request",
+    status: "queued",
+    stage: "queued",
+    message: "Your request has been received and is waiting for an available build slot.",
     workflowRunId: null,
     workflowUrl: null,
     artifactUrl: null,
@@ -328,6 +313,7 @@ export async function startBuild(
       uiPackName,
       plan,
       storeId,
+      queued: true,
     },
   });
 
@@ -340,6 +326,7 @@ export async function startBuild(
       plan,
       storeId,
       userId,
+      queued: true,
     });
 
     await uploadBuildRequestToRepo(
@@ -353,37 +340,24 @@ export async function startBuild(
         storeId,
       },
       runId,
+      {
+        status: "queued",
+        stage: "queued",
+        message: "Your request has been received and is waiting for an available build slot.",
+      },
     );
 
-    await updateBuildRecordByRunId(supabase, runId, {
-      status: "running",
-      stage: "preparing_request",
-      message: "Build request uploaded. Preparing build request.",
-      error: null,
-      statusSource: "local_api",
-    });
-
-    console.log("NDJC startBuild: dispatching workflow", {
-      runId,
-    });
-
-    await triggerBuildWorkflow(runId);
-
-    const afterDispatch = await updateBuildRecordByRunId(supabase, runId, {
-      status: "running",
-      stage: "preparing_request",
-      message:
-        "Packaging workflow dispatched successfully. Preparing build request.",
-      error: null,
+    await releaseNextQueuedBuild(supabase, runId);
+    const currentRecord = await updateBuildRecordByRunId(supabase, runId, {
       statusSource: "local_api",
     });
 
     return {
       ok: true,
       runId,
-      stage: afterDispatch.stage,
-      message: afterDispatch.message,
-      storeId: afterDispatch.storeId ?? null,
+      stage: currentRecord.stage,
+      message: currentRecord.message,
+      storeId: currentRecord.storeId ?? null,
     };
   } catch (error) {
     const failedMessage =
@@ -418,6 +392,12 @@ export async function startBuild(
     console.error("NDJC startBuild: failed", {
       runId,
       error: failedMessage,
+      appName,
+      moduleName,
+      uiPackName,
+      plan,
+      storeId,
+      userId,
     });
 
     return {
