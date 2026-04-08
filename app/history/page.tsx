@@ -13,13 +13,13 @@ type BuildItem = {
   stage: "success" | "failed" | "running" | "queued";
   createdAt: string;
   completedAt?: string;
-  failedStep?:
-    | "preparing_request"
-    | "processing_identity"
-    | "matching_logic_module"
-    | "applying_ui_pack"
-    | "preparing_services_and_signing"
-    | "building_and_packaging_apk";
+failedStep?:
+  | "preparing_request"
+  | "processing_identity"
+  | "matching_logic_module"
+  | "applying_ui_pack"
+  | "preparing_services"
+  | "building_apk";
   cloudStatus?: "active" | "read_only" | "deleted";
   cloudExpiresAt?: string;
   cloudDeletesAt?: string;
@@ -41,8 +41,8 @@ const FAILED_STEP_LABELS: Record<NonNullable<BuildItem["failedStep"]>, string> =
   processing_identity: "Processing app identity failed",
   matching_logic_module: "Matching logic module failed",
   applying_ui_pack: "Applying UI pack failed",
-  preparing_services_and_signing: "Preparing app services and signing failed",
-  building_and_packaging_apk: "Building and packaging APK failed",
+  preparing_services: "Preparing app services and signing failed",
+  building_apk: "Building and packaging APK failed",
 };
 
 function formatTime(value: string) {

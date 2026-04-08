@@ -212,7 +212,7 @@ function mapRecordToResponse(
     workflowStatus: extra?.workflowStatus ?? record.workflowStatus ?? null,
     workflowConclusion: extra?.workflowConclusion ?? record.workflowConclusion ?? null,
     workflowUrl: record.workflowUrl ?? null,
-    failedStep: extra?.failedStep,
+    failedStep: extra?.failedStep ?? record.failedStep ?? undefined,
     queueAheadCount: extra?.queueAheadCount,
     runningCount: extra?.runningCount,
     concurrencyLimit: extra?.concurrencyLimit,
@@ -330,23 +330,25 @@ export async function getBuildStatus(
       : merged.message ?? null;
 
     if (localRecord) {
-      const synced = await updateBuildRecordByRunId(supabase, runId, {
-        appName: merged.appName,
-        moduleName: merged.moduleName,
-        uiPackName: merged.uiPackName,
-        plan: merged.plan,
-        storeId: merged.storeId ?? null,
-        status,
-        stage,
-        message,
-        workflowRunId: merged.workflowRunId ?? null,
-        workflowUrl: merged.workflowUrl ?? null,
-        artifactUrl: merged.artifactUrl ?? null,
-        downloadUrl: merged.downloadUrl ?? null,
-        error: merged.error ?? null,
-        statusSource: "github_status_json",
-        lastSyncedAt: new Date().toISOString(),
-      });
+const synced = await updateBuildRecordByRunId(supabase, runId, {
+  appName: merged.appName,
+  moduleName: merged.moduleName,
+  uiPackName: merged.uiPackName,
+  plan: merged.plan,
+  storeId: merged.storeId ?? null,
+  status,
+  stage,
+  message,
+  workflowRunId: merged.workflowRunId ?? null,
+  workflowUrl: merged.workflowUrl ?? null,
+  artifactUrl: merged.artifactUrl ?? null,
+  downloadUrl: merged.downloadUrl ?? null,
+  error: merged.error ?? null,
+  failedStep: merged.failedStep ?? null,
+  completedAt: status === "success" ? (localRecord.completedAt ?? new Date().toISOString()) : undefined,
+  statusSource: "github_status_json",
+  lastSyncedAt: new Date().toISOString(),
+});
 
       if (status === "failed" && localRecord.userId) {
         await insertOperationLogOnce(

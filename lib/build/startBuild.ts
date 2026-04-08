@@ -365,13 +365,14 @@ export async function startBuild(
         ? error.message
         : "Failed to trigger packaging workflow.";
 
-    await updateBuildRecordByRunId(supabase, runId, {
-      status: "failed",
-      stage: "failed",
-      message: "Failed to trigger packaging workflow.",
-      error: failedMessage,
-      statusSource: "local_api",
-    }).catch(() => null);
+await updateBuildRecordByRunId(supabase, runId, {
+  status: "failed",
+  stage: "failed",
+  message: "Failed to trigger packaging workflow.",
+  error: failedMessage,
+  failedStep: "preparing_request",
+  statusSource: "local_api",
+}).catch(() => null);
 
     await insertOperationLogOnce(
       supabase,

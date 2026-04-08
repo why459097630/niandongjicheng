@@ -53,6 +53,8 @@ export type BuildRequest = {
   userId?: string;
 };
 
+export type CloudServiceStatus = "active" | "read_only" | "deleted";
+
 export type InternalBuildRecord = {
   id: string;
   runId: string;
@@ -73,6 +75,8 @@ export type InternalBuildRecord = {
   workflowUrl?: string | null;
   createdAt: string;
   updatedAt: string;
+  completedAt?: string | null;
+  failedStep?: StepKey | null;
   lastSyncedAt?: string | null;
   statusSource?: BuildStatusSource;
   status: BuildStatusValue;
@@ -125,10 +129,17 @@ export type BuildHistoryItem = {
   appName: string;
   stage: BuildStatusValue;
   createdAt: string;
+  completedAt?: string | null;
+  failedStep?: StepKey | null;
+  storeId?: string | null;
   moduleName: string;
   uiPackName: string;
   mode: BuildMode;
   downloadUrl?: string | null;
+  cloudStatus?: CloudServiceStatus;
+  cloudExpiresAt?: string | null;
+  cloudDeletesAt?: string | null;
+  isWriteAllowed?: boolean;
 };
 
 export type BuildListResponse = {

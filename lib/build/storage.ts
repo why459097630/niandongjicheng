@@ -25,6 +25,8 @@ type BuildRow = {
   artifact_url: string | null;
   download_url: string | null;
   error: string | null;
+  failed_step: string | null;
+  completed_at: string | null;
   status_source: BuildStatusSource;
   last_synced_at: string | null;
   created_at: string;
@@ -47,6 +49,8 @@ type NewBuildRecordInput = {
   artifactUrl?: string | null;
   downloadUrl?: string | null;
   error?: string | null;
+  failedStep?: StepKey | null;
+  completedAt?: string | null;
   statusSource?: BuildStatusSource;
   lastSyncedAt?: string | null;
   createdAt?: string;
@@ -67,6 +71,8 @@ type UpdateBuildRecordInput = {
   artifactUrl?: string | null;
   downloadUrl?: string | null;
   error?: string | null;
+  failedStep?: StepKey | null;
+  completedAt?: string | null;
   statusSource?: BuildStatusSource;
   lastSyncedAt?: string | null;
   updatedAt?: string;
@@ -123,7 +129,17 @@ function normalizeStage(
 
   return "preparing_request";
 }
-
+function normalizeFailedStep(
+  step: string | null | undefined,
+): StepKey | null {
+  if (step === "preparing_request") return "preparing_request";
+  if (step === "processing_identity") return "processing_identity";
+  if (step === "matching_logic_module") return "matching_logic_module";
+  if (step === "applying_ui_pack") return "applying_ui_pack";
+  if (step === "preparing_services") return "preparing_services";
+  if (step === "building_apk") return "building_apk";
+  return null;
+}
 function mapBuildRow(row: BuildRow): InternalBuildRecord {
   return {
     id: row.id,
@@ -142,6 +158,8 @@ function mapBuildRow(row: BuildRow): InternalBuildRecord {
     workflowUrl: row.workflow_url,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    completedAt: row.completed_at,
+    failedStep: normalizeFailedStep(row.failed_step),
     lastSyncedAt: row.last_synced_at,
     statusSource: row.status_source,
     status: row.status,
@@ -172,6 +190,8 @@ function buildInsertPayload(input: NewBuildRecordInput) {
     artifact_url: input.artifactUrl ?? null,
     download_url: input.downloadUrl ?? null,
     error: input.error ?? null,
+    failed_step: input.failedStep ?? null,
+    completed_at: input.completedAt ?? null,
     status_source: input.statusSource ?? "local_api",
     last_synced_at: input.lastSyncedAt ?? null,
     created_at: input.createdAt ?? now,
@@ -197,6 +217,8 @@ function buildUpdatePayload(input: UpdateBuildRecordInput) {
   if (input.artifactUrl !== undefined) payload.artifact_url = input.artifactUrl;
   if (input.downloadUrl !== undefined) payload.download_url = input.downloadUrl;
   if (input.error !== undefined) payload.error = input.error;
+  if (input.failedStep !== undefined) payload.failed_step = input.failedStep;
+  if (input.completedAt !== undefined) payload.completed_at = input.completedAt;
   if (input.statusSource !== undefined) payload.status_source = input.statusSource;
   if (input.lastSyncedAt !== undefined) payload.last_synced_at = input.lastSyncedAt;
 
