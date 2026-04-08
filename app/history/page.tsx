@@ -298,7 +298,7 @@ export default function HistoryPage() {
         ) : null}
 
         {isAuthed && !loading && items.length > 0 ? (
-          <div className="grid gap-5">
+          <div className="mx-auto w-full max-w-7xl grid gap-5">
             {items.map((item) => {
               const meta = getStageMeta(item.stage);
               const cloudMeta = item.stage === "success" ? getCloudStatusMeta(item) : null;
@@ -309,7 +309,7 @@ export default function HistoryPage() {
               return (
                 <div
                   key={item.runId}
-                  className={`rounded-[28px] border p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_46px_rgba(15,23,42,0.07)] ${meta.cardClass}`}
+                  className={`mx-auto w-full max-w-7xl rounded-[28px] border p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_46px_rgba(15,23,42,0.07)] ${meta.cardClass}`}
                 >
                   <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
@@ -374,7 +374,7 @@ export default function HistoryPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-3 lg:w-[280px] lg:justify-end">
+                    <div className="flex flex-wrap gap-3 lg:justify-end">
                       {item.stage === "running" ? (
                         <button
                           type="button"
