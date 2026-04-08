@@ -5,6 +5,7 @@ import {
   BuildStatusSource,
   BuildStatusValue,
   InternalBuildRecord,
+  StepKey,
   UserOperationEventName,
 } from "./types";
 
