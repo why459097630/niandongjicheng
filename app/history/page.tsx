@@ -313,36 +313,38 @@ export default function HistoryPage() {
                 >
                   <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <div className="text-xl font-bold tracking-[-0.03em] text-[#0f172a]">{item.appName}</div>
-                        <div className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${meta.chipClass}`}>
-                          {meta.icon}
-                          {meta.label}
+                      <div className="overflow-x-auto overflow-y-hidden">
+                        <div className="flex min-w-max flex-nowrap items-center gap-3">
+                          <div className="shrink-0 text-xl font-bold tracking-[-0.03em] text-[#0f172a]">{item.appName}</div>
+                          <div className={`inline-flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${meta.chipClass}`}>
+                            {meta.icon}
+                            {meta.label}
+                          </div>
+                          {showInlineCompletedTime ? (
+                            <div className="inline-flex shrink-0 items-center rounded-full border border-emerald-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-600 shadow-[0_6px_18px_rgba(16,185,129,0.06)] whitespace-nowrap">
+                              Completed · {formatTime(item.completedAt!)}
+                            </div>
+                          ) : null}
+                          {showInlineFailedReason ? (
+                            <div className="inline-flex shrink-0 items-center rounded-full border border-red-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-red-600 shadow-[0_6px_18px_rgba(239,68,68,0.06)] whitespace-nowrap">
+                              {FAILED_STEP_LABELS[item.failedStep!]}
+                            </div>
+                          ) : null}
+                          {cloudMeta || (item.stage === "success" && item.storeId) ? (
+                            <div className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap">
+                              {cloudMeta ? (
+                                <div className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-[11px] font-semibold whitespace-nowrap ${cloudMeta.className}`}>
+                                  {cloudMeta.label}
+                                </div>
+                              ) : null}
+                              {item.stage === "success" && item.storeId ? (
+                                <div className="inline-flex shrink-0 items-center rounded-full border border-sky-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold text-sky-600/80 shadow-[0_6px_18px_rgba(14,165,233,0.04)] whitespace-nowrap">
+                                  Store ID · {item.storeId}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
-                        {showInlineCompletedTime ? (
-                          <div className="inline-flex min-w-0 items-center rounded-full border border-emerald-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-600 shadow-[0_6px_18px_rgba(16,185,129,0.06)] whitespace-nowrap">
-                            Completed · {formatTime(item.completedAt!)}
-                          </div>
-                        ) : null}
-                        {showInlineFailedReason ? (
-                          <div className="inline-flex min-w-0 items-center rounded-full border border-red-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-red-600 shadow-[0_6px_18px_rgba(239,68,68,0.06)] whitespace-nowrap">
-                            {FAILED_STEP_LABELS[item.failedStep!]}
-                          </div>
-                        ) : null}
-                        {cloudMeta || (item.stage === "success" && item.storeId) ? (
-                          <div className="inline-flex min-w-0 items-center gap-2 whitespace-nowrap">
-                            {cloudMeta ? (
-                              <div className={`inline-flex min-w-0 items-center rounded-full border px-3 py-1 text-[11px] font-semibold whitespace-nowrap ${cloudMeta.className}`}>
-                                {cloudMeta.label}
-                              </div>
-                            ) : null}
-                            {item.stage === "success" && item.storeId ? (
-                              <div className="inline-flex min-w-0 items-center rounded-full border border-sky-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold text-sky-600/80 shadow-[0_6px_18px_rgba(14,165,233,0.04)] whitespace-nowrap">
-                                Store ID · {item.storeId}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
                       </div>
 
                       <div className="mt-3 text-xs uppercase tracking-[0.12em] text-slate-400">
