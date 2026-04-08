@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, RotateCcw, History, Share2, CheckCircle2 } from "lucide-react";
+import { Download, RotateCcw, History, CheckCircle2 } from "lucide-react";
 import SiteHeader from "@/components/layout/SiteHeader";
 
 type BuildStatusResponse = {
@@ -188,13 +188,6 @@ export default function ResultPage() {
             </button>
           </div>
 
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-white/60 px-4 py-3 text-sm text-slate-400 hover:border-indigo-300 hover:text-indigo-600"
-          >
-            <Share2 className="h-4 w-4" />
-            Show what you just built
-          </button>
         </div>
 
         <div className="mt-12 text-center">
