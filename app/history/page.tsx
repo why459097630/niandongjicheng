@@ -321,7 +321,7 @@ export default function HistoryPage() {
                         </div>
                         {showInlineCompletedTime ? (
                           <div className="inline-flex min-w-0 items-center rounded-full border border-emerald-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-600 shadow-[0_6px_18px_rgba(16,185,129,0.06)]">
-                            Completed · {formatTime(item.completedAt)}
+                            Completed · {formatTime(item.completedAt!)}
                           </div>
                         ) : null}
                         {showInlineFailedReason ? (
