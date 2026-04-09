@@ -142,7 +142,7 @@ function SimpleTable({
 
 function EmptyState({ lines }: { lines: string[] }) {
   return (
-    <SectionCard title="当前未接入的数据" description="这部分不是页面没做好，而是项目里目前还没有可直接读取的正式数据表。">
+    <SectionCard title="当前说明" description="这里只显示当前 Tab 的补充说明。除订单 / 支付 / 续费统计外，其余已尽量接入真实数据。">
       <div className="flex flex-wrap gap-3">
         {lines.map((line) => (
           <Pill key={line}>{line}</Pill>
@@ -214,9 +214,9 @@ export default function AdminPage() {
                 NDJC 后台控制台
               </div>
               <h1 className="mt-4 text-4xl font-extrabold tracking-[-0.05em] text-slate-950 md:text-5xl">运营数据总后台</h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500 md:text-base">
-                单页面 + 顶部切换 Tab。当前已把项目里现阶段能直接读到的真实数据全部接上，读不到正式表的数据会明确显示未接入。
-              </p>
+<p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500 md:text-base">
+  单页面 + 顶部切换 Tab。除订单 / 支付 / 续费统计外，当前项目里能直接读取到的前端云端与 App 云端真实数据，已统一接入这个后台页。
+</p>
               <div className="mt-3 text-xs uppercase tracking-[0.16em] text-slate-400">
                 {data?.generatedAt ? `Last sync · ${new Date(data.generatedAt).toLocaleString()}` : "Waiting for first load"}
               </div>
@@ -262,9 +262,9 @@ export default function AdminPage() {
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">{activeTab?.label}</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              真实接口模式。当前页面显示的是现有项目表里已经能直接接上的数据。
-            </p>
+<p className="mt-1 text-sm text-slate-500">
+  真实接口模式。当前页面显示的是前端 Supabase + App 云端 Supabase 已接入的真实统计数据。
+</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Pill>单页面控制台</Pill>
