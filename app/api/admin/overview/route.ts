@@ -187,18 +187,36 @@ export async function GET() {
       );
     }
 
-    const frontendUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const frontendServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const frontendUrl =
+      process.env.SUPABASE_URL?.trim() ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
+      "";
+    const frontendServiceRole =
+      process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || "";
 
     if (!frontendUrl || !frontendServiceRole) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.",
+          error: "Missing SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.",
         },
         { status: 500 },
       );
     }
+
+    console.log("NDJC admin overview frontend env", {
+      frontendUrl,
+      frontendUrlHost: (() => {
+        try {
+          return new URL(frontendUrl).host;
+        } catch {
+          return frontendUrl;
+        }
+      })(),
+      frontendServiceRoleLength: frontendServiceRole.length,
+      hasSupabaseUrl: Boolean(process.env.SUPABASE_URL),
+      hasNextPublicSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
+    });
 
     const frontendAdmin = createSupabaseClient(frontendUrl, frontendServiceRole, {
       auth: {
@@ -226,13 +244,16 @@ export async function GET() {
     ]);
 
     if (profilesResult.error) {
-      throw new Error(profilesResult.error.message);
+      console.error("NDJC admin overview profiles error", profilesResult.error);
+      throw new Error(`profiles query failed: ${profilesResult.error.message}`);
     }
     if (buildsResult.error) {
-      throw new Error(buildsResult.error.message);
+      console.error("NDJC admin overview builds error", buildsResult.error);
+      throw new Error(`builds query failed: ${buildsResult.error.message}`);
     }
     if (logsResult.error) {
-      throw new Error(logsResult.error.message);
+      console.error("NDJC admin overview user_operation_logs error", logsResult.error);
+      throw new Error(`user_operation_logs query failed: ${logsResult.error.message}`);
     }
 
     const profiles = (profilesResult.data || []) as FrontendProfileRow[];
