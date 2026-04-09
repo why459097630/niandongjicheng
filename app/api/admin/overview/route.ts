@@ -659,7 +659,7 @@ export async function GET() {
                   "云端状态异常",
                   store.store_id,
                   "高",
-                  formatDateTime(store.updated_at || store.service_end_at),
+                  formatDateTime(store.service_end_at || store.created_at),
                   "待处理",
                 ]),
             ],
