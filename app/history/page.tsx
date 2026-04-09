@@ -403,6 +403,23 @@ export default function HistoryPage() {
                         <div className="flex flex-col items-end gap-1">
                           <button
                             type="button"
+                            onClick={() => {
+                              if (typeof window !== "undefined") {
+                                window.sessionStorage.setItem("ndjc_renew_app_name", item.appName || "");
+                                window.sessionStorage.setItem("ndjc_renew_store_id", item.storeId || "");
+                                window.sessionStorage.setItem("ndjc_renew_cloud_status", item.cloudStatus || "");
+                                window.sessionStorage.setItem("ndjc_renew_cloud_expires_at", item.cloudExpiresAt || "");
+                              }
+
+                              const params = new URLSearchParams({
+                                appName: item.appName || "",
+                                storeId: item.storeId || "",
+                                cloudStatus: item.cloudStatus || "",
+                                cloudExpiresAt: item.cloudExpiresAt || "",
+                              });
+
+                              window.location.href = `/renew-cloud?${params.toString()}`;
+                            }}
                             className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-sky-200 bg-gradient-to-r from-sky-100 to-sky-50 px-5 text-sm font-semibold text-sky-700 shadow-[0_8px_18px_rgba(14,165,233,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(14,165,233,0.14)]"
                           >
                             <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
