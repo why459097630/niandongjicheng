@@ -61,7 +61,6 @@ type AppCloudStoreRow = {
   service_end_at: string | null;
   delete_at: string | null;
   created_at?: string | null;
-  updated_at?: string | null;
 };
 
 type StoreUsageStatsRow = {
