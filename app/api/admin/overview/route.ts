@@ -266,7 +266,7 @@ export async function GET() {
         appCloudAdmin
           .from("stores")
           .select(
-            "store_id, module_type, plan_type, service_status, is_write_allowed, service_start_at, service_end_at, delete_at, created_at, updated_at",
+            "store_id, module_type, plan_type, service_status, is_write_allowed, service_start_at, service_end_at, delete_at, created_at",
           )
           .order("service_end_at", { ascending: true }),
         appCloudAdmin
