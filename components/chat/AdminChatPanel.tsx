@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CheckCircle2, Clock3, MessageSquare, Search, Send } from "lucide-react";
 
 type ConversationItem = {
   id: string;
@@ -37,11 +37,17 @@ type MessagesResponse = {
   error?: string;
 };
 
+type StatusResponse = {
+  ok: boolean;
+  conversation?: ConversationItem;
+  error?: string;
+};
+
 function formatTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("zh-CN", {
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -49,16 +55,40 @@ function formatTime(value: string) {
   }).format(date);
 }
 
+function MetricPill({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-3">
+      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+        {icon}
+        {label}
+      </div>
+      <div className="mt-2 text-xl font-bold tracking-[-0.03em] text-slate-900">{value}</div>
+    </div>
+  );
+}
+
 export default function AdminChatPanel() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const listPollingRef = useRef(false);
+  const messagePollingRef = useRef(false);
 
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [reply, setReply] = useState("");
+  const [search, setSearch] = useState("");
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [statusChanging, setStatusChanging] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [messageError, setMessageError] = useState<string | null>(null);
 
@@ -67,8 +97,38 @@ export default function AdminChatPanel() {
     [conversations, selectedConversationId]
   );
 
+  const filteredConversations = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+
+    if (!keyword) {
+      return conversations;
+    }
+
+    return conversations.filter((conversation) => {
+      const haystack = [
+        conversation.userEmail || "",
+        conversation.userName || "",
+        conversation.sourcePath || "",
+        conversation.lastMessagePreview || "",
+        conversation.status || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(keyword);
+    });
+  }, [conversations, search]);
+
+  const openCount = conversations.filter((item) => item.status === "open").length;
+  const unreadCount = conversations.reduce((sum, item) => sum + item.adminUnreadCount, 0);
+  const closedCount = conversations.filter((item) => item.status === "closed").length;
+
   const loadConversations = async (keepSelection = true) => {
+    if (listPollingRef.current) return;
+
     try {
+      listPollingRef.current = true;
+
       if (!keepSelection) {
         setLoadingList(true);
       }
@@ -105,14 +165,16 @@ export default function AdminChatPanel() {
     } catch (error) {
       setListError(error instanceof Error ? error.message : "Failed to load conversations.");
     } finally {
+      listPollingRef.current = false;
       setLoadingList(false);
     }
   };
 
   const loadMessages = async (conversationId: string) => {
-    if (!conversationId) return;
+    if (!conversationId || messagePollingRef.current) return;
 
     try {
+      messagePollingRef.current = true;
       setLoadingMessages(true);
 
       const response = await fetch(
@@ -130,10 +192,21 @@ export default function AdminChatPanel() {
       }
 
       setMessages(json.messages || []);
+      setConversations((prev) =>
+        prev.map((item) =>
+          item.id === conversationId
+            ? {
+                ...item,
+                adminUnreadCount: 0,
+              }
+            : item
+        )
+      );
       setMessageError(null);
     } catch (error) {
       setMessageError(error instanceof Error ? error.message : "Failed to load chat messages.");
     } finally {
+      messagePollingRef.current = false;
       setLoadingMessages(false);
     }
   };
@@ -155,7 +228,7 @@ export default function AdminChatPanel() {
     const listPoll = window.setInterval(() => {
       if (document.hidden) return;
       void loadConversations(true);
-    }, 3000);
+    }, 4000);
 
     return () => {
       window.clearInterval(listPoll);
@@ -168,7 +241,7 @@ export default function AdminChatPanel() {
     const messagePoll = window.setInterval(() => {
       if (document.hidden) return;
       void loadMessages(selectedConversationId);
-    }, 2000);
+    }, 1500);
 
     return () => {
       window.clearInterval(messagePoll);
@@ -186,6 +259,7 @@ export default function AdminChatPanel() {
 
     try {
       setSending(true);
+      setMessageError(null);
 
       const response = await fetch("/api/chat/admin/reply", {
         method: "POST",
@@ -205,10 +279,7 @@ export default function AdminChatPanel() {
       }
 
       setReply("");
-      await Promise.all([
-        loadConversations(true),
-        loadMessages(selectedConversationId),
-      ]);
+      await Promise.all([loadConversations(true), loadMessages(selectedConversationId)]);
     } catch (error) {
       setMessageError(error instanceof Error ? error.message : "Failed to send reply.");
     } finally {
@@ -216,189 +287,295 @@ export default function AdminChatPanel() {
     }
   };
 
+  const handleToggleStatus = async () => {
+    if (!selectedConversation || statusChanging) return;
+
+    const nextStatus = selectedConversation.status === "open" ? "closed" : "open";
+
+    try {
+      setStatusChanging(true);
+      setMessageError(null);
+
+      const response = await fetch("/api/chat/admin/status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          conversationId: selectedConversation.id,
+          status: nextStatus,
+        }),
+      });
+
+      const json = (await response.json()) as StatusResponse;
+
+      if (!response.ok || !json.ok || !json.conversation) {
+        throw new Error(json.error || "Failed to update conversation status.");
+      }
+
+      setConversations((prev) =>
+        prev.map((item) => (item.id === json.conversation?.id ? json.conversation : item))
+      );
+    } catch (error) {
+      setMessageError(
+        error instanceof Error ? error.message : "Failed to update conversation status."
+      );
+    } finally {
+      setStatusChanging(false);
+    }
+  };
+
   return (
-    <section className="grid min-h-[680px] gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <div className="rounded-[28px] border border-white/70 bg-white/82 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl">
-        <div className="mb-4">
-          <h3 className="text-lg font-bold tracking-[-0.03em] text-slate-900">聊天列表</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            前台所有页面右下角聊天浮窗发来的消息都在这里处理。
-          </p>
-        </div>
-
-        {loadingList ? (
-          <div className="text-sm text-slate-500">Loading conversations...</div>
-        ) : listError ? (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {listError}
-          </div>
-        ) : conversations.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-            No active conversations yet.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {conversations.map((conversation) => {
-              const isActive = conversation.id === selectedConversationId;
-
-              return (
-                <button
-                  key={conversation.id}
-                  type="button"
-                  onClick={() => setSelectedConversationId(conversation.id)}
-                  className={`w-full rounded-[22px] border px-4 py-4 text-left transition-all ${
-                    isActive
-                      ? "border-slate-900 bg-slate-950 text-white shadow-[0_14px_40px_rgba(15,23,42,0.18)]"
-                      : "border-slate-200 bg-white text-slate-900 hover:border-slate-300"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">
-                        {conversation.userEmail || conversation.userName || "Guest visitor"}
-                      </div>
-                      <div
-                        className={`mt-1 truncate text-xs ${
-                          isActive ? "text-white/70" : "text-slate-500"
-                        }`}
-                      >
-                        {conversation.sourcePath || "Unknown page"}
-                      </div>
-                    </div>
-
-                    {conversation.adminUnreadCount > 0 ? (
-                      <span
-                        className={`inline-flex min-w-[24px] items-center justify-center rounded-full px-2 py-1 text-[11px] font-bold ${
-                          isActive
-                            ? "bg-white/15 text-white"
-                            : "bg-rose-100 text-rose-600"
-                        }`}
-                      >
-                        {conversation.adminUnreadCount}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div
-                    className={`mt-3 line-clamp-2 text-sm ${
-                      isActive ? "text-white/85" : "text-slate-600"
-                    }`}
-                  >
-                    {conversation.lastMessagePreview || "No messages yet"}
-                  </div>
-
-                  <div
-                    className={`mt-3 text-[11px] ${
-                      isActive ? "text-white/60" : "text-slate-400"
-                    }`}
-                  >
-                    {formatTime(conversation.lastMessageAt)}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
+    <section className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricPill icon={<MessageSquare className="h-4 w-4" />} label="总会话" value={conversations.length} />
+        <MetricPill icon={<Clock3 className="h-4 w-4" />} label="待回复未读" value={unreadCount} />
+        <MetricPill icon={<CheckCircle2 className="h-4 w-4" />} label="已关闭" value={closedCount} />
       </div>
 
-      <div className="rounded-[28px] border border-white/70 bg-white/82 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl">
-        <div className="border-b border-slate-200/80 px-6 py-5">
-          {selectedConversation ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-bold tracking-[-0.03em] text-slate-900">
-                  {selectedConversation.userEmail || selectedConversation.userName || "Guest visitor"}
-                </h3>
-                <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
-                  {selectedConversation.status}
-                </span>
-              </div>
-
-              <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
-                <span>Source: {selectedConversation.sourcePath || "Unknown"}</span>
-                <span>Created: {formatTime(selectedConversation.createdAt)}</span>
-                <span>Last active: {formatTime(selectedConversation.lastMessageAt)}</span>
-              </div>
-            </>
-          ) : (
-            <h3 className="text-lg font-bold tracking-[-0.03em] text-slate-900">
-              选择左侧会话开始回复
-            </h3>
-          )}
-        </div>
-
-        <div className="max-h-[480px] overflow-y-auto px-6 py-5">
-          {!selectedConversationId ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              Select a conversation from the left list.
+      <section className="grid min-h-[720px] gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
+        <div className="rounded-[28px] border border-white/70 bg-white/82 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-bold tracking-[-0.03em] text-slate-900">聊天列表</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                未读优先排序。前台所有页面右下角聊天浮窗发来的消息都在这里处理。
+              </p>
             </div>
-          ) : loadingMessages ? (
-            <div className="text-sm text-slate-500">Loading messages...</div>
-          ) : messages.length === 0 ? (
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+              Open {openCount}
+            </span>
+          </div>
+
+          <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <div className="flex items-center gap-3">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="搜索邮箱、页面、最后一条消息..."
+                className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+              />
+            </div>
+          </div>
+
+          {loadingList ? (
+            <div className="text-sm text-slate-500">Loading conversations...</div>
+          ) : listError ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {listError}
+            </div>
+          ) : filteredConversations.length === 0 ? (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              This conversation has no messages yet.
+              No matching conversations.
             </div>
           ) : (
             <div className="space-y-3">
-              {messages.map((message) => {
-                const isAdmin = message.senderRole === "admin";
+              {filteredConversations.map((conversation) => {
+                const isActive = conversation.id === selectedConversationId;
 
                 return (
-                  <div
-                    key={message.id}
-                    className={`flex ${isAdmin ? "justify-end" : "justify-start"}`}
+                  <button
+                    key={conversation.id}
+                    type="button"
+                    onClick={() => setSelectedConversationId(conversation.id)}
+                    className={`w-full rounded-[22px] border px-4 py-4 text-left transition-all ${
+                      isActive
+                        ? "border-slate-900 bg-slate-950 text-white shadow-[0_14px_40px_rgba(15,23,42,0.18)]"
+                        : "border-slate-200 bg-white text-slate-900 hover:border-slate-300"
+                    }`}
                   >
-                    <div
-                      className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                        isAdmin
-                          ? "bg-slate-950 text-white"
-                          : "border border-slate-200 bg-white text-slate-800"
-                      }`}
-                    >
-                      <div className="whitespace-pre-wrap break-words">{message.body}</div>
-                      <div
-                        className={`mt-2 text-[11px] ${
-                          isAdmin ? "text-white/60" : "text-slate-400"
-                        }`}
-                      >
-                        {formatTime(message.createdAt)}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">
+                          {conversation.userEmail || conversation.userName || "Guest visitor"}
+                        </div>
+                        <div
+                          className={`mt-1 truncate text-xs ${
+                            isActive ? "text-white/70" : "text-slate-500"
+                          }`}
+                        >
+                          {conversation.sourcePath || "Unknown page"}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-2">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                            conversation.status === "open"
+                              ? isActive
+                                ? "bg-white/15 text-white"
+                                : "bg-emerald-100 text-emerald-700"
+                              : isActive
+                                ? "bg-white/15 text-white"
+                                : "bg-slate-200 text-slate-600"
+                          }`}
+                        >
+                          {conversation.status}
+                        </span>
+
+                        {conversation.adminUnreadCount > 0 ? (
+                          <span
+                            className={`inline-flex min-w-[24px] items-center justify-center rounded-full px-2 py-1 text-[11px] font-bold ${
+                              isActive
+                                ? "bg-white/15 text-white"
+                                : "bg-rose-100 text-rose-600"
+                            }`}
+                          >
+                            {conversation.adminUnreadCount}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
-                  </div>
+
+                    <div
+                      className={`mt-3 line-clamp-2 text-sm ${
+                        isActive ? "text-white/85" : "text-slate-600"
+                      }`}
+                    >
+                      {conversation.lastMessagePreview || "No messages yet"}
+                    </div>
+
+                    <div
+                      className={`mt-3 text-[11px] ${
+                        isActive ? "text-white/60" : "text-slate-400"
+                      }`}
+                    >
+                      {formatTime(conversation.lastMessageAt)}
+                    </div>
+                  </button>
                 );
               })}
-              <div ref={bottomRef} />
             </div>
           )}
-
-          {messageError ? (
-            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {messageError}
-            </div>
-          ) : null}
         </div>
 
-        <div className="border-t border-slate-200/80 px-6 py-5">
-          <div className="flex items-end gap-3">
-            <textarea
-              value={reply}
-              onChange={(event) => setReply(event.target.value)}
-              placeholder="Reply to this visitor..."
-              rows={4}
-              className="min-h-[110px] flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
-            />
+        <div className="rounded-[28px] border border-white/70 bg-white/82 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl">
+          <div className="border-b border-slate-200/80 px-6 py-5">
+            {selectedConversation ? (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-bold tracking-[-0.03em] text-slate-900">
+                        {selectedConversation.userEmail || selectedConversation.userName || "Guest visitor"}
+                      </h3>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${
+                          selectedConversation.status === "open"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-slate-200 bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {selectedConversation.status === "open" ? "进行中" : "已关闭"}
+                      </span>
+                    </div>
 
-            <button
-              type="button"
-              onClick={handleReply}
-              disabled={!selectedConversationId || !reply.trim() || sending}
-              className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Send className="h-4 w-4" />
-            </button>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                      <span>来源：{selectedConversation.sourcePath || "Unknown"}</span>
+                      <span>创建时间：{formatTime(selectedConversation.createdAt)}</span>
+                      <span>最后活跃：{formatTime(selectedConversation.lastMessageAt)}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleStatus}
+                    disabled={statusChanging}
+                    className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {selectedConversation.status === "open" ? "关闭会话" : "重新打开"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <h3 className="text-lg font-bold tracking-[-0.03em] text-slate-900">
+                选择左侧会话开始回复
+              </h3>
+            )}
+          </div>
+
+          <div className="max-h-[500px] overflow-y-auto px-6 py-5">
+            {!selectedConversationId ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                Select a conversation from the left list.
+              </div>
+            ) : loadingMessages ? (
+              <div className="text-sm text-slate-500">Loading messages...</div>
+            ) : messages.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                This conversation has no messages yet.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {messages.map((message) => {
+                  const isAdmin = message.senderRole === "admin";
+
+                  return (
+                    <div
+                      key={message.id}
+                      className={`flex ${isAdmin ? "justify-end" : "justify-start"}`}
+                    >
+                      <div className={`max-w-[78%] ${isAdmin ? "items-end" : "items-start"}`}>
+                        <div
+                          className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                            isAdmin
+                              ? "bg-slate-950 text-white"
+                              : "border border-slate-200 bg-white text-slate-800"
+                          }`}
+                        >
+                          <div className="whitespace-pre-wrap break-words">{message.body}</div>
+                        </div>
+                        <div className={`mt-2 text-[11px] text-slate-400 ${isAdmin ? "text-right" : "text-left"}`}>
+                          {formatTime(message.createdAt)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={bottomRef} />
+              </div>
+            )}
+
+            {messageError ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {messageError}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="border-t border-slate-200/80 px-6 py-5">
+            <div className="flex items-end gap-3">
+              <textarea
+                value={reply}
+                onChange={(event) => setReply(event.target.value)}
+                placeholder={
+                  selectedConversation?.status === "closed"
+                    ? "该会话已关闭，重新打开后才能继续回复..."
+                    : "回复这位访客……"
+                }
+                rows={4}
+                disabled={!selectedConversationId || selectedConversation?.status === "closed"}
+                className="min-h-[110px] flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+              />
+
+              <button
+                type="button"
+                onClick={handleReply}
+                disabled={
+                  !selectedConversationId ||
+                  !reply.trim() ||
+                  sending ||
+                  selectedConversation?.status === "closed"
+                }
+                className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
     </section>
   );
 }

@@ -191,15 +191,17 @@ export async function POST(request: Request) {
       throw insertError;
     }
 
-    const { error: updateConversationError } = await supabase
-      .from("support_conversations")
-      .update({
-        last_message_preview: messageBody.slice(0, 160),
-        last_message_at: now,
-        admin_unread_count: (currentConversation.admin_unread_count || 0) + 1,
-        updated_at: now,
-      })
-      .eq("id", conversationId);
+const { error: updateConversationError } = await supabase
+  .from("support_conversations")
+  .update({
+    status: "open",
+    last_message_preview: messageBody.slice(0, 160),
+    last_message_at: now,
+    admin_unread_count: (currentConversation.admin_unread_count || 0) + 1,
+    user_unread_count: 0,
+    updated_at: now,
+  })
+  .eq("id", conversationId);
 
     if (updateConversationError) {
       throw updateConversationError;

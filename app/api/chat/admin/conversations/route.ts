@@ -26,6 +26,7 @@ export async function GET() {
       .select(
         "id, guest_session_id, user_email, user_name, source_path, status, last_message_preview, last_message_at, admin_unread_count, user_unread_count, created_at, updated_at"
       )
+      .order("admin_unread_count", { ascending: false })
       .order("last_message_at", { ascending: false });
 
     if (error) {

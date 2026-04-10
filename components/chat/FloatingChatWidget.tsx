@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, Send, X } from "lucide-react";
+import { ChevronDown, MessageCircle, Send, UserRound, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 const GUEST_SESSION_STORAGE_KEY = "ndjc_support_guest_session_id";
@@ -11,6 +11,21 @@ type ChatMessage = {
   senderRole: "user" | "admin";
   body: string;
   createdAt: string;
+};
+
+type ConversationSummary = {
+  id: string;
+  guestSessionId: string;
+  userEmail: string | null;
+  userName: string | null;
+  sourcePath: string | null;
+  status: "open" | "closed";
+  lastMessagePreview: string | null;
+  lastMessageAt: string;
+  adminUnreadCount: number;
+  userUnreadCount: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type ChatSupabaseClient = ReturnType<typeof createClient>;
@@ -30,6 +45,12 @@ type BootstrapResponse = {
 type MessagesResponse = {
   ok: boolean;
   messages?: ChatMessage[];
+  error?: string;
+};
+
+type ConversationResponse = {
+  ok: boolean;
+  conversation?: ConversationSummary | null;
   error?: string;
 };
 
@@ -68,8 +89,11 @@ export default function FloatingChatWidget() {
   }, []);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const messagePollingRef = useRef(false);
+  const summaryPollingRef = useRef(false);
 
   const [isOpen, setIsOpen] = useState(false);
+  const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [guestSessionId, setGuestSessionId] = useState("");
   const [conversationId, setConversationId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -79,6 +103,7 @@ export default function FloatingChatWidget() {
   const [authChecked, setAuthChecked] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(false);
   const [sending, setSending] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -143,8 +168,51 @@ export default function FloatingChatWidget() {
     };
   }, [supabase, userName]);
 
-  const loadMessages = async (targetConversationId: string, targetGuestSessionId: string) => {
+  const refreshConversationSummary = async () => {
+    if (!guestSessionId || summaryPollingRef.current) return;
+
     try {
+      summaryPollingRef.current = true;
+
+      const response = await fetch(
+        `/api/chat/conversation?guestSessionId=${encodeURIComponent(guestSessionId)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      const json = (await response.json()) as ConversationResponse;
+
+      if (!response.ok || !json.ok) {
+        throw new Error(json.error || "Failed to load conversation summary.");
+      }
+
+      if (!json.conversation) return;
+
+      setConversationId(json.conversation.id);
+      setUnreadCount(json.conversation.userUnreadCount || 0);
+
+      if (!userEmail && json.conversation.userEmail) {
+        setUserEmail(json.conversation.userEmail);
+      }
+
+      if (!userName && json.conversation.userName) {
+        setUserName(json.conversation.userName);
+      }
+    } catch {
+      // 挂件按钮不要因为摘要请求失败而报一大片红字
+    } finally {
+      summaryPollingRef.current = false;
+    }
+  };
+
+  const loadMessages = async (targetConversationId: string, targetGuestSessionId: string) => {
+    if (messagePollingRef.current) return;
+
+    try {
+      messagePollingRef.current = true;
+
       const response = await fetch(
         `/api/chat/messages?conversationId=${encodeURIComponent(targetConversationId)}&guestSessionId=${encodeURIComponent(targetGuestSessionId)}`,
         {
@@ -160,9 +228,12 @@ export default function FloatingChatWidget() {
       }
 
       setMessages(json.messages || []);
+      setUnreadCount(0);
       setLoadError(null);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Failed to load messages.");
+    } finally {
+      messagePollingRef.current = false;
     }
   };
 
@@ -203,12 +274,18 @@ export default function FloatingChatWidget() {
       }
 
       await loadMessages(json.conversation.id, guestSessionId);
+      await refreshConversationSummary();
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Failed to start support chat.");
     } finally {
       setBootstrapping(false);
     }
   };
+
+  useEffect(() => {
+    if (!guestSessionId) return;
+    void refreshConversationSummary();
+  }, [guestSessionId]);
 
   useEffect(() => {
     if (!isOpen || !guestSessionId) return;
@@ -227,6 +304,19 @@ export default function FloatingChatWidget() {
       window.clearInterval(poll);
     };
   }, [isOpen, conversationId, guestSessionId]);
+
+  useEffect(() => {
+    if (isOpen || !guestSessionId) return;
+
+    const poll = window.setInterval(() => {
+      if (document.hidden) return;
+      void refreshConversationSummary();
+    }, 6000);
+
+    return () => {
+      window.clearInterval(poll);
+    };
+  }, [isOpen, guestSessionId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -261,12 +351,16 @@ export default function FloatingChatWidget() {
 
       setDraft("");
       await loadMessages(conversationId, guestSessionId);
+      await refreshConversationSummary();
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Failed to send message.");
     } finally {
       setSending(false);
     }
   };
+
+  const shouldShowContactToggle = !userEmail;
+  const shouldShowContactPanel = contactInfoOpen && !userEmail;
 
   return (
     <>
@@ -275,7 +369,14 @@ export default function FloatingChatWidget() {
         onClick={() => setIsOpen((prev) => !prev)}
         className="fixed bottom-6 right-6 z-[80] inline-flex h-14 items-center justify-center rounded-full border border-white/80 bg-white/90 px-5 text-sm font-semibold text-slate-900 shadow-[0_20px_50px_rgba(15,23,42,0.18)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:bg-white"
       >
-        <MessageCircle className="mr-2 h-5 w-5 text-fuchsia-500" />
+        <div className="relative mr-2">
+          <MessageCircle className="h-5 w-5 text-fuchsia-500" />
+          {!isOpen && unreadCount > 0 ? (
+            <span className="absolute -right-2 -top-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          ) : null}
+        </div>
         Chat
       </button>
 
@@ -302,12 +403,33 @@ export default function FloatingChatWidget() {
             <div className="px-5 py-6 text-sm text-slate-500">Checking chat identity...</div>
           ) : (
             <>
-              {!userEmail ? (
-                <div className="space-y-3 border-b border-slate-200/80 px-5 py-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                    Optional contact info
-                  </div>
+              {shouldShowContactToggle ? (
+                <div className="border-b border-slate-200/80 px-5 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setContactInfoOpen((prev) => !prev)}
+                    className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <UserRound className="h-4 w-4 text-slate-400" />
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">Add contact info</div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          Optional. Helps us follow up later.
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronDown
+                      className={`h-4 w-4 text-slate-400 transition-transform ${
+                        contactInfoOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
+              ) : null}
 
+              {shouldShowContactPanel ? (
+                <div className="space-y-3 border-b border-slate-200/80 px-5 py-4">
                   <input
                     value={userName}
                     onChange={(event) => setUserName(event.target.value)}

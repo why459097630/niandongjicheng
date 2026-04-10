@@ -69,6 +69,7 @@ export async function POST(request: Request) {
     const { error: updateConversationError } = await supabase
       .from("support_conversations")
       .update({
+        status: "open",
         last_message_preview: messageBody.slice(0, 160),
         last_message_at: now,
         user_unread_count: (currentConversation.user_unread_count || 0) + 1,
