@@ -65,7 +65,7 @@ function MetricPill({
   value: string | number;
 }) {
   return (
-    <div className="rounded-[18px] border border-slate-200/80 bg-slate-50/90 px-4 py-3">
+      <div className="rounded-[16px] border border-slate-200/80 bg-slate-50/90 px-4 py-2.5">
       <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
         {icon}
         {label}
@@ -88,6 +88,7 @@ export default function AdminChatPanel() {
   const [search, setSearch] = useState("");
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [messagesInitialized, setMessagesInitialized] = useState(false);
   const [sending, setSending] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -174,64 +175,74 @@ export default function AdminChatPanel() {
     }
   };
 
-  const loadMessages = async (conversationId: string) => {
-    if (!conversationId || messagePollingRef.current) return;
+const loadMessages = async (conversationId: string, showLoading = false) => {
+  if (!conversationId || messagePollingRef.current) return;
 
-    try {
-      messagePollingRef.current = true;
+  try {
+    messagePollingRef.current = true;
+
+    if (showLoading) {
       setLoadingMessages(true);
+    }
 
-      const response = await fetch(
-        `/api/chat/admin/messages?conversationId=${encodeURIComponent(conversationId)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        }
-      );
-
-      const json = (await response.json()) as MessagesResponse;
-
-      if (!response.ok || !json.ok) {
-        throw new Error(json.error || "Failed to load chat messages.");
+    const response = await fetch(
+      `/api/chat/admin/messages?conversationId=${encodeURIComponent(conversationId)}`,
+      {
+        method: "GET",
+        cache: "no-store",
       }
+    );
 
-      const nextMessages = json.messages || [];
-      setMessages(nextMessages);
+    const json = (await response.json()) as MessagesResponse;
 
-      setConversations((prev) =>
-        prev.map((item) =>
-          item.id === conversationId
-            ? {
-                ...item,
-                adminUnreadCount: 0,
-              }
-            : item
-        )
-      );
+    if (!response.ok || !json.ok) {
+      throw new Error(json.error || "Failed to load chat messages.");
+    }
 
-      setMessageError(null);
-    } catch (error) {
-      setMessageError(error instanceof Error ? error.message : "Failed to load chat messages.");
-    } finally {
-      messagePollingRef.current = false;
+    const nextMessages = json.messages || [];
+    setMessages(nextMessages);
+
+    setConversations((prev) =>
+      prev.map((item) =>
+        item.id === conversationId
+          ? {
+              ...item,
+              adminUnreadCount: 0,
+            }
+          : item
+      )
+    );
+
+    setMessageError(null);
+    setMessagesInitialized(true);
+  } catch (error) {
+    setMessageError(error instanceof Error ? error.message : "Failed to load chat messages.");
+  } finally {
+    messagePollingRef.current = false;
+
+    if (showLoading) {
       setLoadingMessages(false);
     }
-  };
+  }
+};
 
   useEffect(() => {
     void loadConversations(false);
   }, []);
 
-  useEffect(() => {
-    if (!selectedConversationId) {
-      setMessages([]);
-      previousMessageCountRef.current = 0;
-      return;
-    }
-
+useEffect(() => {
+  if (!selectedConversationId) {
+    setMessages([]);
+    setMessagesInitialized(false);
     previousMessageCountRef.current = 0;
-    void loadMessages(selectedConversationId);
-  }, [selectedConversationId]);
+    return;
+  }
+
+  setMessages([]);
+  setMessagesInitialized(false);
+  previousMessageCountRef.current = 0;
+  void loadMessages(selectedConversationId, true);
+}, [selectedConversationId]);
 
   useEffect(() => {
     const listPoll = window.setInterval(() => {
@@ -244,18 +255,18 @@ export default function AdminChatPanel() {
     };
   }, [selectedConversationId]);
 
-  useEffect(() => {
-    if (!selectedConversationId) return;
+useEffect(() => {
+  if (!selectedConversationId) return;
 
-    const messagePoll = window.setInterval(() => {
-      if (document.hidden) return;
-      void loadMessages(selectedConversationId);
-    }, 2500);
+  const messagePoll = window.setInterval(() => {
+    if (document.hidden) return;
+    void loadMessages(selectedConversationId, false);
+  }, 2500);
 
-    return () => {
-      window.clearInterval(messagePoll);
-    };
-  }, [selectedConversationId]);
+  return () => {
+    window.clearInterval(messagePoll);
+  };
+}, [selectedConversationId]);
 
   useEffect(() => {
     if (!selectedConversationId) return;
@@ -348,8 +359,8 @@ export default function AdminChatPanel() {
         <MetricPill icon={<CheckCircle2 className="h-4 w-4" />} label="已关闭" value={closedCount} />
       </div>
 
-      <section className="grid min-h-[720px] gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="rounded-[24px] border border-white/70 bg-white/82 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl">
+      <section className="grid min-h-[720px] gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="rounded-[22px] border border-white/70 bg-white/82 p-4 shadow-[0_16px_42px_rgba(15,23,42,0.05)] backdrop-blur-xl">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold tracking-[-0.03em] text-slate-900">聊天列表</h3>
@@ -362,7 +373,7 @@ export default function AdminChatPanel() {
             </span>
           </div>
 
-          <div className="mb-4 rounded-[18px] border border-slate-200 bg-white px-4 py-3">
+          <div className="mb-4 rounded-[16px] border border-slate-200 bg-white px-4 py-2.5">
             <div className="flex items-center gap-3">
               <Search className="h-4 w-4 text-slate-400" />
               <input
@@ -385,7 +396,7 @@ export default function AdminChatPanel() {
               No matching conversations.
             </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               {filteredConversations.map((conversation) => {
                 const isActive = conversation.id === selectedConversationId;
 
@@ -394,7 +405,7 @@ export default function AdminChatPanel() {
                     key={conversation.id}
                     type="button"
                     onClick={() => setSelectedConversationId(conversation.id)}
-                    className={`w-full rounded-[18px] border px-4 py-3 text-left transition-all ${
+                    className={`w-full rounded-[16px] border px-4 py-2.5 text-left transition-all ${
                       isActive
                         ? "border-slate-900 bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.16)]"
                         : "border-slate-200 bg-white text-slate-900 hover:border-slate-300"
@@ -511,14 +522,14 @@ export default function AdminChatPanel() {
               <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
                 Select a conversation from the left list.
               </div>
-            ) : loadingMessages ? (
+            ) : !messagesInitialized && loadingMessages ? (
               <div className="text-sm text-slate-500">Loading messages...</div>
             ) : messages.length === 0 ? (
               <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
                 This conversation has no messages yet.
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {messages.map((message) => {
                   const isAdmin = message.senderRole === "admin";
 
@@ -529,7 +540,7 @@ export default function AdminChatPanel() {
                     >
                       <div className="max-w-[76%]">
                         <div
-                          className={`rounded-[18px] px-4 py-2.5 text-sm shadow-sm ${
+                          className={`rounded-[16px] px-3.5 py-2 text-sm shadow-sm ${
                             isAdmin
                               ? "bg-slate-950 text-white"
                               : "border border-slate-200 bg-white text-slate-800"
@@ -555,7 +566,7 @@ export default function AdminChatPanel() {
             ) : null}
           </div>
 
-          <div className="border-t border-slate-200/80 px-6 py-5">
+          <div className="border-t border-slate-200/80 px-6 py-4">
             <div className="flex items-end gap-3">
               <textarea
                 value={reply}
@@ -567,7 +578,7 @@ export default function AdminChatPanel() {
                 }
                 rows={4}
                 disabled={!selectedConversationId || selectedConversation?.status === "closed"}
-                className="min-h-[100px] flex-1 resize-none rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                className="min-h-[88px] flex-1 resize-none rounded-[16px] border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
               />
 
               <button
@@ -579,7 +590,7 @@ export default function AdminChatPanel() {
                   sending ||
                   selectedConversation?.status === "closed"
                 }
-                className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] bg-slate-950 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-12 w-12 items-center justify-center rounded-[16px] bg-slate-950 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Send className="h-4 w-4" />
               </button>

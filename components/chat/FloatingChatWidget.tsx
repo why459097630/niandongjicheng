@@ -438,7 +438,7 @@ export default function FloatingChatWidget() {
       </button>
 
       {isOpen ? (
-        <div className="fixed bottom-24 right-6 z-[80] w-[360px] overflow-hidden rounded-[28px] border border-white/80 bg-white/92 shadow-[0_28px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl">
+        <div className="fixed bottom-24 right-6 z-[80] w-[360px] overflow-hidden rounded-[24px] border border-white/80 bg-white/92 shadow-[0_24px_64px_rgba(15,23,42,0.18)] backdrop-blur-2xl">
           <div className="flex items-center justify-between border-b border-slate-200/80 px-5 py-4">
             <div>
               <div className="text-sm font-bold tracking-[-0.02em] text-slate-950">与NDJC的聊天</div>
@@ -465,7 +465,7 @@ export default function FloatingChatWidget() {
                   <button
                     type="button"
                     onClick={() => setContactInfoOpen((prev) => !prev)}
-                    className="flex w-full items-center justify-between rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-left"
+                    className="flex w-full items-center justify-between rounded-[16px] border border-slate-200 bg-white px-4 py-2.5 text-left"
                   >
                     <div className="flex items-center gap-3">
                       <UserRound className="h-4 w-4 text-slate-400" />
@@ -486,19 +486,19 @@ export default function FloatingChatWidget() {
               ) : null}
 
               {shouldShowContactPanel ? (
-                <div className="space-y-3 border-b border-slate-200/80 px-5 py-4">
+                <div className="space-y-2.5 border-b border-slate-200/80 px-5 py-4">
                   <input
                     value={userName}
                     onChange={(event) => setUserName(event.target.value)}
                     placeholder="Your name"
-                    className="w-full rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
+                    className="w-full rounded-[16px] border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
                   />
 
                   <input
                     value={userEmail}
                     onChange={(event) => setUserEmail(event.target.value)}
                     placeholder="Your email"
-                    className="w-full rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
+                    className="w-full rounded-[16px] border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
                   />
                 </div>
               ) : null}
@@ -507,11 +507,11 @@ export default function FloatingChatWidget() {
                 {bootstrapping ? (
                   <div className="text-sm text-slate-500">Opening support chat...</div>
                 ) : messages.length === 0 ? (
-                  <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-500">
                     发送你的第一条留言，回复会显示在这里。
                   </div>
                 ) : (
-                  <div className="space-y-2.5">
+                  <div className="space-y-2">
                     {messages.map((message) => {
                       const isUser = message.senderRole === "user";
 
@@ -521,7 +521,7 @@ export default function FloatingChatWidget() {
                           className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                         >
                           <div
-                            className={`max-w-[80%] rounded-[18px] px-4 py-2.5 text-sm shadow-sm ${
+                            className={`max-w-[80%] rounded-[16px] px-3.5 py-2 text-sm shadow-sm ${
                               isUser
                                 ? "bg-slate-950 text-white"
                                 : "border border-slate-200 bg-white text-slate-800"
@@ -555,14 +555,14 @@ export default function FloatingChatWidget() {
                     onChange={(event) => setDraft(event.target.value)}
                     placeholder="输入你的留言……"
                     rows={3}
-                    className="min-h-[88px] flex-1 resize-none rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
+                    className="min-h-[80px] flex-1 resize-none rounded-[16px] border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
                   />
 
                   <button
                     type="button"
                     onClick={handleSend}
                     disabled={sending || bootstrapping || !conversationId || !draft.trim()}
-                    className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] bg-slate-950 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-12 w-12 items-center justify-center rounded-[16px] bg-slate-950 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Send className="h-4 w-4" />
                   </button>
