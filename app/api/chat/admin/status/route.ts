@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertAdminAccess } from "@/lib/chat/assertAdminAccess";
 
 type StatusBody = {
   conversationId?: string;
@@ -9,18 +9,15 @@ type StatusBody = {
 
 export async function POST(request: Request) {
   try {
-    const authClient = await createServerClient();
-    const {
-      data: { user },
-    } = await authClient.auth.getUser();
+    const adminCheck = await assertAdminAccess();
 
-    if (!user) {
+    if (!adminCheck.ok) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Unauthorized.",
+          error: adminCheck.error,
         },
-        { status: 401 }
+        { status: adminCheck.status }
       );
     }
 
@@ -49,7 +46,7 @@ export async function POST(request: Request) {
       })
       .eq("id", conversationId)
       .select(
-        "id, guest_session_id, user_email, user_name, source_path, status, last_message_preview, last_message_at, admin_unread_count, user_unread_count, created_at, updated_at"
+        "id, guest_session_id, user_email, user_name, source_path, latest_source_path, status, last_message_preview, last_message_at, admin_unread_count, user_unread_count, created_at, updated_at"
       )
       .single();
 
@@ -64,7 +61,7 @@ export async function POST(request: Request) {
         guestSessionId: data.guest_session_id,
         userEmail: data.user_email,
         userName: data.user_name,
-        sourcePath: data.source_path,
+        sourcePath: data.latest_source_path || data.source_path,
         status: data.status,
         lastMessagePreview: data.last_message_preview,
         lastMessageAt: data.last_message_at,

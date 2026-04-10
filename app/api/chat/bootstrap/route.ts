@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
     const { data: existingConversation, error: selectError } = await supabase
       .from("support_conversations")
-      .select("id, guest_session_id, user_email, user_name, source_path")
+      .select("id, guest_session_id, user_email, user_name, source_path, latest_source_path")
       .eq("guest_session_id", guestSessionId)
       .maybeSingle();
 
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
           user_id: user?.id || null,
           user_email: userEmail,
           user_name: userName,
-          source_path: sourcePath,
+          latest_source_path: sourcePath,
           updated_at: now,
         })
         .eq("id", existingConversation.id);
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
           guestSessionId,
           userEmail,
           userName,
-          sourcePath,
+          sourcePath: sourcePath || existingConversation.latest_source_path || existingConversation.source_path,
         },
       });
     }
@@ -85,6 +85,7 @@ export async function POST(request: Request) {
         user_email: userEmail,
         user_name: userName,
         source_path: sourcePath,
+        latest_source_path: sourcePath,
         status: "open",
         last_message_preview: null,
         last_message_at: now,

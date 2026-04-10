@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     const { data: conversation, error } = await supabase
       .from("support_conversations")
       .select(
-        "id, guest_session_id, user_id, user_email, user_name, source_path, status, last_message_preview, last_message_at, admin_unread_count, user_unread_count, created_at, updated_at"
+        "id, guest_session_id, user_id, user_email, user_name, source_path, latest_source_path, status, last_message_preview, last_message_at, admin_unread_count, user_unread_count, created_at, updated_at"
       )
       .eq("guest_session_id", guestSessionId)
       .maybeSingle();
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
         guestSessionId: conversation.guest_session_id,
         userEmail: conversation.user_email,
         userName: conversation.user_name,
-        sourcePath: conversation.source_path,
+        sourcePath: conversation.latest_source_path || conversation.source_path,
         status: conversation.status,
         lastMessagePreview: conversation.last_message_preview,
         lastMessageAt: conversation.last_message_at,

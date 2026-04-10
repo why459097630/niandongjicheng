@@ -1,21 +1,18 @@
 import { NextResponse } from "next/server";
-import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertAdminAccess } from "@/lib/chat/assertAdminAccess";
 
 export async function GET() {
   try {
-    const authClient = await createServerClient();
-    const {
-      data: { user },
-    } = await authClient.auth.getUser();
+    const adminCheck = await assertAdminAccess();
 
-    if (!user) {
+    if (!adminCheck.ok) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Unauthorized.",
+          error: adminCheck.error,
         },
-        { status: 401 }
+        { status: adminCheck.status }
       );
     }
 
@@ -24,7 +21,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("support_conversations")
       .select(
-        "id, guest_session_id, user_email, user_name, source_path, status, last_message_preview, last_message_at, admin_unread_count, user_unread_count, created_at, updated_at"
+        "id, guest_session_id, user_email, user_name, source_path, latest_source_path, status, last_message_preview, last_message_at, admin_unread_count, user_unread_count, created_at, updated_at"
       )
       .order("admin_unread_count", { ascending: false })
       .order("last_message_at", { ascending: false });
@@ -40,7 +37,7 @@ export async function GET() {
         guestSessionId: item.guest_session_id,
         userEmail: item.user_email,
         userName: item.user_name,
-        sourcePath: item.source_path,
+        sourcePath: item.latest_source_path || item.source_path,
         status: item.status,
         lastMessagePreview: item.last_message_preview,
         lastMessageAt: item.last_message_at,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertAdminAccess } from "@/lib/chat/assertAdminAccess";
 
 type ReplyBody = {
   conversationId?: string;
@@ -9,18 +9,15 @@ type ReplyBody = {
 
 export async function POST(request: Request) {
   try {
-    const authClient = await createServerClient();
-    const {
-      data: { user },
-    } = await authClient.auth.getUser();
+    const adminCheck = await assertAdminAccess();
 
-    if (!user) {
+    if (!adminCheck.ok || !adminCheck.user) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Unauthorized.",
+          error: adminCheck.error,
         },
-        { status: 401 }
+        { status: adminCheck.status }
       );
     }
 
@@ -58,7 +55,7 @@ export async function POST(request: Request) {
         conversation_id: conversationId,
         sender_role: "admin",
         body: messageBody,
-        admin_user_id: user.id,
+        admin_user_id: adminCheck.user.id,
         created_at: now,
       });
 

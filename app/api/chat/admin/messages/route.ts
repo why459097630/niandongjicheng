@@ -1,21 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertAdminAccess } from "@/lib/chat/assertAdminAccess";
 
 export async function GET(request: NextRequest) {
   try {
-    const authClient = await createServerClient();
-    const {
-      data: { user },
-    } = await authClient.auth.getUser();
+    const adminCheck = await assertAdminAccess();
 
-    if (!user) {
+    if (!adminCheck.ok) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Unauthorized.",
+          error: adminCheck.error,
         },
-        { status: 401 }
+        { status: adminCheck.status }
       );
     }
 

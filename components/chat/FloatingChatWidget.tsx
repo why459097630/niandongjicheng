@@ -58,7 +58,7 @@ function formatMessageTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("zh-CN", {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
@@ -91,6 +91,8 @@ export default function FloatingChatWidget() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagePollingRef = useRef(false);
   const summaryPollingRef = useRef(false);
+  const contactSaveTimerRef = useRef<number | null>(null);
+  const previousMessageCountRef = useRef(0);
 
   const [isOpen, setIsOpen] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
@@ -168,6 +170,29 @@ export default function FloatingChatWidget() {
     };
   }, [supabase, userName]);
 
+  const saveContactInfo = async () => {
+    if ((!conversationId && !guestSessionId) || (!userEmail.trim() && !userName.trim())) {
+      return;
+    }
+
+    try {
+      await fetch("/api/chat/contact", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          conversationId: conversationId || null,
+          guestSessionId: guestSessionId || null,
+          userEmail: userEmail.trim() || null,
+          userName: userName.trim() || null,
+        }),
+      });
+    } catch {
+      // 联系方式保存失败不阻断聊天主流程
+    }
+  };
+
   const refreshConversationSummary = async () => {
     if (!guestSessionId || summaryPollingRef.current) return;
 
@@ -201,7 +226,7 @@ export default function FloatingChatWidget() {
         setUserName(json.conversation.userName);
       }
     } catch {
-      // 挂件按钮不要因为摘要请求失败而报一大片红字
+      // 挂件按钮不要因为摘要请求失败而报整块错误
     } finally {
       summaryPollingRef.current = false;
     }
@@ -214,7 +239,9 @@ export default function FloatingChatWidget() {
       messagePollingRef.current = true;
 
       const response = await fetch(
-        `/api/chat/messages?conversationId=${encodeURIComponent(targetConversationId)}&guestSessionId=${encodeURIComponent(targetGuestSessionId)}`,
+        `/api/chat/messages?conversationId=${encodeURIComponent(
+          targetConversationId
+        )}&guestSessionId=${encodeURIComponent(targetGuestSessionId)}`,
         {
           method: "GET",
           cache: "no-store",
@@ -227,7 +254,8 @@ export default function FloatingChatWidget() {
         throw new Error(json.error || "Failed to load messages.");
       }
 
-      setMessages(json.messages || []);
+      const nextMessages = json.messages || [];
+      setMessages(nextMessages);
       setUnreadCount(0);
       setLoadError(null);
     } catch (error) {
@@ -319,8 +347,35 @@ export default function FloatingChatWidget() {
   }, [isOpen, guestSessionId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!isOpen) {
+      previousMessageCountRef.current = messages.length;
+      return;
+    }
+
+    if (messages.length > previousMessageCountRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+    }
+
+    previousMessageCountRef.current = messages.length;
   }, [messages, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !conversationId) return;
+
+    if (contactSaveTimerRef.current) {
+      window.clearTimeout(contactSaveTimerRef.current);
+    }
+
+    contactSaveTimerRef.current = window.setTimeout(() => {
+      void saveContactInfo();
+    }, 600);
+
+    return () => {
+      if (contactSaveTimerRef.current) {
+        window.clearTimeout(contactSaveTimerRef.current);
+      }
+    };
+  }, [conversationId, guestSessionId, userEmail, userName, isOpen]);
 
   const handleSend = async () => {
     const nextBody = draft.trim();
@@ -330,6 +385,8 @@ export default function FloatingChatWidget() {
     try {
       setSending(true);
       setLoadError(null);
+
+      await saveContactInfo();
 
       const response = await fetch("/api/chat/messages", {
         method: "POST",
@@ -384,9 +441,9 @@ export default function FloatingChatWidget() {
         <div className="fixed bottom-24 right-6 z-[80] w-[360px] overflow-hidden rounded-[28px] border border-white/80 bg-white/92 shadow-[0_28px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl">
           <div className="flex items-center justify-between border-b border-slate-200/80 px-5 py-4">
             <div>
-              <div className="text-sm font-bold tracking-[-0.02em] text-slate-950">Chat with NDJC</div>
+              <div className="text-sm font-bold tracking-[-0.02em] text-slate-950">与NDJC的聊天</div>
               <div className="mt-1 text-xs text-slate-500">
-                Ask about pricing, builds, history, or cloud renewal.
+                询问价格、构建情况、历史或云更新情况。
               </div>
             </div>
 
@@ -408,14 +465,14 @@ export default function FloatingChatWidget() {
                   <button
                     type="button"
                     onClick={() => setContactInfoOpen((prev) => !prev)}
-                    className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left"
+                    className="flex w-full items-center justify-between rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-left"
                   >
                     <div className="flex items-center gap-3">
                       <UserRound className="h-4 w-4 text-slate-400" />
                       <div>
-                        <div className="text-sm font-semibold text-slate-900">Add contact info</div>
+                        <div className="text-sm font-semibold text-slate-900">添加联系方式</div>
                         <div className="mt-0.5 text-xs text-slate-500">
-                          Optional. Helps us follow up later.
+                          可选。这有助于我们后续跟进。
                         </div>
                       </div>
                     </div>
@@ -434,14 +491,14 @@ export default function FloatingChatWidget() {
                     value={userName}
                     onChange={(event) => setUserName(event.target.value)}
                     placeholder="Your name"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
+                    className="w-full rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
                   />
 
                   <input
                     value={userEmail}
                     onChange={(event) => setUserEmail(event.target.value)}
                     placeholder="Your email"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
+                    className="w-full rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
                   />
                 </div>
               ) : null}
@@ -450,11 +507,11 @@ export default function FloatingChatWidget() {
                 {bootstrapping ? (
                   <div className="text-sm text-slate-500">Opening support chat...</div>
                 ) : messages.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                    Send your first message. Replies will appear here in this chat window.
+                  <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                    发送你的第一条留言，回复会显示在这里。
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {messages.map((message) => {
                       const isUser = message.senderRole === "user";
 
@@ -464,7 +521,7 @@ export default function FloatingChatWidget() {
                           className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                         >
                           <div
-                            className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                            className={`max-w-[80%] rounded-[18px] px-4 py-2.5 text-sm shadow-sm ${
                               isUser
                                 ? "bg-slate-950 text-white"
                                 : "border border-slate-200 bg-white text-slate-800"
@@ -472,7 +529,7 @@ export default function FloatingChatWidget() {
                           >
                             <div className="whitespace-pre-wrap break-words">{message.body}</div>
                             <div
-                              className={`mt-2 text-[11px] ${
+                              className={`mt-1.5 text-[11px] ${
                                 isUser ? "text-white/60" : "text-slate-400"
                               }`}
                             >
@@ -496,16 +553,16 @@ export default function FloatingChatWidget() {
                   <textarea
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
-                    placeholder="Type your message..."
+                    placeholder="输入你的留言……"
                     rows={3}
-                    className="min-h-[92px] flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
+                    className="min-h-[88px] flex-1 resize-none rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
                   />
 
                   <button
                     type="button"
                     onClick={handleSend}
                     disabled={sending || bootstrapping || !conversationId || !draft.trim()}
-                    className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] bg-slate-950 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Send className="h-4 w-4" />
                   </button>
