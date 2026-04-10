@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import AdminChatPanel from "@/components/chat/AdminChatPanel";
 
 const tabs = [
   { key: "dashboard", label: "总览看板" },
@@ -16,6 +17,7 @@ const tabs = [
   { key: "conversion", label: "转化漏斗" },
   { key: "channels", label: "渠道来源" },
   { key: "retention", label: "用户留存" },
+  { key: "chat", label: "站内聊天" },
 ] as const;
 
 type TabKey = (typeof tabs)[number]["key"];
@@ -273,7 +275,9 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {loading ? (
+        {tab === "chat" ? (
+          <AdminChatPanel />
+        ) : loading ? (
           <SectionCard title="正在加载后台数据" description="正在从前端 Supabase、App 云端 Supabase 读取可接数据。">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard title="读取 profiles" value="..." />
