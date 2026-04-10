@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
 const SESSION_KEY = "ndjc_page_view_session_id";
@@ -25,10 +25,13 @@ export default function PageViewTracker() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const queryString = useMemo(() => {
+    return searchParams?.toString() || "";
+  }, [searchParams]);
+
   useEffect(() => {
     if (!pathname) return;
 
-    const queryString = searchParams?.toString() || "";
     const dedupeKey = `${pathname}?${queryString}`;
     const lastKey = window.sessionStorage.getItem(LAST_VIEW_KEY);
 
@@ -53,7 +56,7 @@ export default function PageViewTracker() {
       }),
       keepalive: true,
     }).catch(() => null);
-  }, [pathname, searchParams]);
+  }, [pathname, queryString]);
 
   return null;
 }
