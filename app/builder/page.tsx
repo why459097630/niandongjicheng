@@ -13,6 +13,8 @@ const CHECKOUT_UI_PACK_STORAGE_KEY = "ndjc_checkout_ui_pack";
 const CHECKOUT_PLAN_STORAGE_KEY = "ndjc_checkout_plan";
 const CHECKOUT_ADMIN_NAME_STORAGE_KEY = "ndjc_checkout_admin_name";
 const CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY = "ndjc_checkout_admin_password";
+const BUILDER_OPENED_LOG_KEY = "ndjc_builder_opened_logged";
+const ICON_UPLOADED_LOG_PREFIX = "ndjc_icon_uploaded_";
 
 type ValidationErrors = {
   appName: boolean;
@@ -81,6 +83,73 @@ export default function BuilderPage() {
   const planSectionRef = useRef<HTMLDivElement | null>(null);
   const planRef = useRef("pro");
   const supabase = useMemo(() => createClient(), []);
+
+  const logBuilderOpened = async () => {
+    try {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser();
+
+      if (error || !user) return;
+
+      const alreadyLogged = sessionStorage.getItem(BUILDER_OPENED_LOG_KEY);
+      if (alreadyLogged === "1") return;
+
+      const { error: insertError } = await supabase.from("user_operation_logs").insert({
+        user_id: user.id,
+        build_id: null,
+        run_id: null,
+        event_name: "builder_opened",
+        page_path: "/builder",
+        metadata: {
+          source: "builder_page",
+        },
+      });
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      sessionStorage.setItem(BUILDER_OPENED_LOG_KEY, "1");
+    } catch (error) {
+      console.error("NDJC builder: failed to write builder_opened log", error);
+    }
+  };
+
+  const logIconUploaded = async (fileName: string) => {
+    try {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser();
+
+      if (error || !user) return;
+
+      const dedupeKey = `${ICON_UPLOADED_LOG_PREFIX}${fileName}`;
+      const alreadyLogged = sessionStorage.getItem(dedupeKey);
+      if (alreadyLogged === "1") return;
+
+      const { error: insertError } = await supabase.from("user_operation_logs").insert({
+        user_id: user.id,
+        build_id: null,
+        run_id: null,
+        event_name: "icon_uploaded",
+        page_path: "/builder",
+        metadata: {
+          fileName,
+        },
+      });
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      sessionStorage.setItem(dedupeKey, "1");
+    } catch (error) {
+      console.error("NDJC builder: failed to write icon_uploaded log", error);
+    }
+  };
 
   const handleChooseIcon = () => {
     fileInputRef.current?.click();
@@ -155,6 +224,7 @@ export default function BuilderPage() {
       setValidationErrors((prev) => ({ ...prev, appIcon: false }));
       sessionStorage.setItem(ICON_DATA_URL_STORAGE_KEY, nextIconDataUrl);
       sessionStorage.setItem(ICON_FILE_NAME_STORAGE_KEY, nextFile.name);
+      void logIconUploaded(nextFile.name);
     } catch (error) {
       setIconFile(null);
       setIconFileName("");
@@ -193,15 +263,25 @@ export default function BuilderPage() {
 
     supabase.auth.getUser().then(({ data, error }) => {
       if (!mounted) return;
-      setIsAuthed(!error && !!data.user);
+      const authed = !error && !!data.user;
+      setIsAuthed(authed);
       setAuthLoading(false);
+
+      if (authed) {
+        void logBuilderOpened();
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAuthed(!!session?.user);
+      const authed = !!session?.user;
+      setIsAuthed(authed);
       setAuthLoading(false);
+
+      if (authed) {
+        void logBuilderOpened();
+      }
     });
 
     return () => {

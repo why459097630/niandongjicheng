@@ -72,6 +72,24 @@ type SuccessRateRow = {
   successRate: number;
 };
 
+type PageViewStatRow = {
+  pagePath: string;
+  views: number;
+  visitors: number;
+  lastViewedAt: string | null;
+};
+
+type StoreDirectoryRow = {
+  storeId: string;
+  appName: string;
+  userId: string | null;
+  userLabel: string | null;
+  moduleName: string | null;
+  uiPackName: string | null;
+  plan: string | null;
+  latestBuildAt: string | null;
+};
+
 type AppCloudStoreRow = {
   store_id: string;
   module_type: string | null;
@@ -114,6 +132,8 @@ type StoreMembershipRow = {
 type CategoryRow = {
   id: string;
   store_id: string | null;
+  name_zh?: string | null;
+  name_en?: string | null;
   created_at: string | null;
 };
 
@@ -121,11 +141,15 @@ type DishRow = {
   id: string;
   store_id: string | null;
   category_id: string | null;
+  name_zh?: string | null;
+  name_en?: string | null;
   recommended: boolean | null;
   sold_out: boolean | null;
   hidden: boolean | null;
   price: number | null;
   discount_price: number | null;
+  click_count: number | null;
+  view_count: number | null;
   created_at: string | null;
   updated_at: number | null;
 };
@@ -251,6 +275,8 @@ type FrontendSnapshot = {
   authCallbackFailedCount: number;
   buildFailedEventCount: number;
   downloadFailedCount: number;
+  pageViews7d: number;
+  pageVisitors7d: number;
   d1Retention: number;
   d7Retention: number;
   d30Retention: number;
@@ -265,6 +291,8 @@ type FrontendSnapshot = {
   buildFailureStats: BuildFailureStatRow[];
   moduleSuccessStats: SuccessRateRow[];
   uiPackSuccessStats: SuccessRateRow[];
+  pageViewStats: PageViewStatRow[];
+  storeDirectory: StoreDirectoryRow[];
 };
 
 function formatCount(value: number): string {
@@ -308,17 +336,6 @@ function formatDurationMinutes(value: number | null): string {
   return `${Math.round(value)}m`;
 }
 
-function formatRelativeDays(diffMs: number): string {
-  const days = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
-  if (days <= 0) return "今天";
-  return `${days}天内`;
-}
-
-function getUserLabel(profile: FrontendProfileRow | undefined): string {
-  if (!profile) return "-";
-  return profile.email || profile.display_name || profile.id;
-}
-
 function isWithinDays(value: string | null | undefined, days: number, nowMs: number): boolean {
   if (!value) return false;
   const time = new Date(value).getTime();
@@ -331,20 +348,10 @@ function isEpochWithinDays(value: number | null | undefined, days: number, nowMs
   return value >= nowMs - days * 24 * 60 * 60 * 1000;
 }
 
-function getStoreFreshness(
-  storeId: string,
-  usage: Map<string, StoreUsageStatsRow>,
-  messagesByStore: Map<string, number>,
-  leadsByStore7d: Map<string, number>,
-): number {
-  const usageRow = usage.get(storeId);
-  return (
-    (usageRow?.writes_7d || 0) +
-    (usageRow?.messages_7d || 0) +
-    (usageRow?.leads_7d || 0) +
-    (messagesByStore.get(storeId) || 0) +
-    (leadsByStore7d.get(storeId) || 0)
-  );
+function rankMapEntries(map: Map<string, number>, limit = 20): Array<[string, number]> {
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit);
 }
 
 export async function GET() {
@@ -445,12 +452,12 @@ export async function GET() {
           .order("created_at", { ascending: false }),
         appCloudAdmin
           .from("categories")
-          .select("id,store_id,created_at")
+          .select("id,store_id,name_zh,name_en,created_at")
           .order("created_at", { ascending: false }),
         appCloudAdmin
           .from("dishes")
           .select(
-            "id,store_id,category_id,recommended,sold_out,hidden,price,discount_price,created_at,updated_at",
+            "id,store_id,category_id,name_zh,name_en,recommended,sold_out,hidden,price,discount_price,click_count,view_count,created_at,updated_at",
           )
           .order("created_at", { ascending: false }),
         appCloudAdmin
@@ -526,113 +533,161 @@ export async function GET() {
       chatRelay = (chatRelayResult.data || []) as ChatRelayRow[];
     }
 
-    const now = new Date();
-    const nowMs = now.getTime();
+    const nowMs = Date.now();
 
-    const profilesById = new Map<string, FrontendProfileRow>(
-      (frontendSnapshot.recentUsers || []).map((profile) => [profile.id, profile]),
+    const storeDirectoryMap = new Map<string, StoreDirectoryRow>(
+      (frontendSnapshot.storeDirectory || []).map((row) => [row.storeId, row]),
     );
-
-    const buildsByStoreId = new Map<string, FrontendBuildRow>();
-    for (const build of frontendSnapshot.recentBuilds || []) {
-      if (build.store_id && !buildsByStoreId.has(build.store_id)) {
-        buildsByStoreId.set(build.store_id, build);
-      }
-    }
 
     const storeUsageMap = new Map<string, StoreUsageStatsRow>(
       storeUsageStats.map((row) => [row.store_id, row]),
     );
 
-    const totalUsers = frontendSnapshot.totalUsers || 0;
+    const categoriesByStore = new Map<string, number>();
+    const dishesByStore = new Map<string, number>();
+    const dishImagesByStore = new Map<string, number>();
+    const announcementsByStore = new Map<string, number>();
+    const leadsByStore = new Map<string, number>();
+    const leadsByStore7d = new Map<string, number>();
+    const pushByStore = new Map<string, number>();
+    const conversationsByStore = new Map<string, number>();
+    const messagesByStore = new Map<string, number>();
+    const relayByStore = new Map<string, number>();
+    const businessStatusMap = new Map<string, number>();
+    const pushAudienceMap = new Map<string, number>();
+    const pushPlatformMap = new Map<string, number>();
+    const chatRoleMap = new Map<string, number>();
+    const chatDirectionMap = new Map<string, number>();
+    const relayRoleMap = new Map<string, number>();
+    const categoryNameMap = new Map<string, string>();
+    const dishNameMap = new Map<string, string>();
+    const categoryDishCountMap = new Map<string, number>();
+    const leadSourceDishMap = new Map<string, number>();
+
+    for (const row of categories) {
+      const storeId = row.store_id || "-";
+      categoriesByStore.set(storeId, (categoriesByStore.get(storeId) || 0) + 1);
+      categoryNameMap.set(row.id, row.name_zh || row.name_en || row.id);
+
+      if (row.id) {
+        categoryDishCountMap.set(row.id, categoryDishCountMap.get(row.id) || 0);
+      }
+    }
+
+    for (const row of dishes) {
+      const storeId = row.store_id || "-";
+      dishesByStore.set(storeId, (dishesByStore.get(storeId) || 0) + 1);
+      dishNameMap.set(row.id, row.name_zh || row.name_en || row.id);
+
+      if (row.category_id) {
+        categoryDishCountMap.set(row.category_id, (categoryDishCountMap.get(row.category_id) || 0) + 1);
+      }
+    }
+
+    for (const row of dishImages) {
+      const storeId = row.store_id || "-";
+      dishImagesByStore.set(storeId, (dishImagesByStore.get(storeId) || 0) + 1);
+    }
+
+    for (const row of announcements) {
+      const storeId = row.store_id || "-";
+      announcementsByStore.set(storeId, (announcementsByStore.get(storeId) || 0) + 1);
+    }
+
+    for (const row of leads) {
+      const storeId = row.store_id || "-";
+      leadsByStore.set(storeId, (leadsByStore.get(storeId) || 0) + 1);
+
+      if (isWithinDays(row.created_at, 7, nowMs)) {
+        leadsByStore7d.set(storeId, (leadsByStore7d.get(storeId) || 0) + 1);
+      }
+
+      if (row.source_dish_id) {
+        leadSourceDishMap.set(row.source_dish_id, (leadSourceDishMap.get(row.source_dish_id) || 0) + 1);
+      }
+    }
+
+    for (const row of pushDevices) {
+      const storeId = row.store_id || "-";
+      pushByStore.set(storeId, (pushByStore.get(storeId) || 0) + 1);
+
+      const audience = (row.audience || "unknown").trim() || "unknown";
+      pushAudienceMap.set(audience, (pushAudienceMap.get(audience) || 0) + 1);
+
+      const platform = (row.platform || "unknown").trim() || "unknown";
+      pushPlatformMap.set(platform, (pushPlatformMap.get(platform) || 0) + 1);
+    }
+
+    for (const row of chatConversations) {
+      const storeId = row.store_id || "-";
+      conversationsByStore.set(storeId, (conversationsByStore.get(storeId) || 0) + 1);
+    }
+
+    for (const row of chatMessages) {
+      const storeId = row.store_id || "-";
+      messagesByStore.set(storeId, (messagesByStore.get(storeId) || 0) + 1);
+
+      const role = (row.role || "unknown").trim() || "unknown";
+      chatRoleMap.set(role, (chatRoleMap.get(role) || 0) + 1);
+
+      const direction = (row.direction || "unknown").trim() || "unknown";
+      chatDirectionMap.set(direction, (chatDirectionMap.get(direction) || 0) + 1);
+    }
+
+    for (const row of chatRelay) {
+      const storeId = row.store_id || "-";
+      relayByStore.set(storeId, (relayByStore.get(storeId) || 0) + 1);
+
+      const role = (row.from_role || "unknown").trim() || "unknown";
+      relayRoleMap.set(role, (relayRoleMap.get(role) || 0) + 1);
+    }
+
+    for (const row of storeProfiles) {
+      const status = (row.business_status || "unknown").trim() || "unknown";
+      businessStatusMap.set(status, (businessStatusMap.get(status) || 0) + 1);
+    }
+
     const totalBuilds = frontendSnapshot.totalBuilds || 0;
     const successBuilds = frontendSnapshot.successBuilds || 0;
     const failedBuilds = frontendSnapshot.failedBuilds || 0;
     const queuedBuilds = frontendSnapshot.queuedBuilds || 0;
     const runningBuilds = frontendSnapshot.runningBuilds || 0;
-    const avgBuildMinutes = frontendSnapshot.avgBuildMinutes ?? null;
-    const activeUsers7d = frontendSnapshot.activeUsers7d || 0;
-    const paidUsers = frontendSnapshot.paidUsers || 0;
-    const repeatUsers = frontendSnapshot.repeatUsers || 0;
-    const buildFailuresToday = frontendSnapshot.buildFailuresToday || 0;
-    const stalledQueuedBuilds = frontendSnapshot.stalledQueuedBuilds || 0;
-    const missingDownloadOnSuccess = frontendSnapshot.missingDownloadOnSuccess || 0;
-    const builderOpenedCount = frontendSnapshot.builderOpenedCount || 0;
-    const iconUploadedCount = frontendSnapshot.iconUploadedCount || 0;
-    const buildStartedCount = frontendSnapshot.buildStartedCount || 0;
-    const historyOpenedCount = frontendSnapshot.historyOpenedCount || 0;
-    const resultOpenedCount = frontendSnapshot.resultOpenedCount || 0;
-    const downloadClickedCount = frontendSnapshot.downloadClickedCount || 0;
-    const loginSuccessCount = frontendSnapshot.loginSuccessCount || 0;
-    const buildStatusPolledCount = frontendSnapshot.buildStatusPolledCount || 0;
-    const authCallbackFailedCount = frontendSnapshot.authCallbackFailedCount || 0;
-    const buildFailedEventCount = frontendSnapshot.buildFailedEventCount || 0;
-    const downloadFailedCount = frontendSnapshot.downloadFailedCount || 0;
+    const buildSuccessRate = totalBuilds > 0 ? (successBuilds / totalBuilds) * 100 : 0;
 
-    const effectiveStores = stores.filter((store) => store.service_status !== "deleted").length;
-    const trialStores = stores.filter((store) => store.plan_type === "trial").length;
-    const paidStores = stores.filter((store) => store.plan_type === "paid").length;
-    const readOnlyStores = stores.filter((store) => store.service_status === "read_only").length;
-    const deletedStores = stores.filter((store) => store.service_status === "deleted").length;
-
-    const expiredStores = stores.filter(
-      (store) =>
-        !!store.service_end_at &&
-        new Date(store.service_end_at).getTime() < nowMs &&
-        store.service_status !== "deleted",
-    ).length;
+    const effectiveStores = stores.filter((row) => row.service_status !== "deleted").length;
+    const readOnlyStores = stores.filter((row) => row.service_status === "read_only").length;
+    const deletedStores = stores.filter((row) => row.service_status === "deleted").length;
+    const trialStores = stores.filter((row) => row.plan_type === "trial").length;
+    const paidStores = stores.filter((row) => row.plan_type === "paid").length;
 
     const expiring7dStores = stores.filter(
-      (store) =>
-        !!store.service_end_at &&
-        new Date(store.service_end_at).getTime() >= nowMs &&
-        new Date(store.service_end_at).getTime() <= nowMs + 7 * 24 * 60 * 60 * 1000 &&
-        store.service_status !== "deleted",
+      (row) =>
+        !!row.service_end_at &&
+        new Date(row.service_end_at).getTime() >= nowMs &&
+        new Date(row.service_end_at).getTime() <= nowMs + 7 * 24 * 60 * 60 * 1000 &&
+        row.service_status !== "deleted",
     );
 
-    const expiring30dStores = stores.filter(
-      (store) =>
-        !!store.service_end_at &&
-        new Date(store.service_end_at).getTime() >= nowMs &&
-        new Date(store.service_end_at).getTime() <= nowMs + 30 * 24 * 60 * 60 * 1000 &&
-        store.service_status !== "deleted",
+    const deleting7dStores = stores.filter(
+      (row) =>
+        !!row.delete_at &&
+        new Date(row.delete_at).getTime() >= nowMs &&
+        new Date(row.delete_at).getTime() <= nowMs + 7 * 24 * 60 * 60 * 1000 &&
+        row.service_status !== "deleted",
     );
 
     const cloudStateAnomalies = stores.filter(
-      (store) => store.service_status === "read_only" && store.is_write_allowed === true,
+      (row) => row.service_status === "read_only" && row.is_write_allowed === true,
     ).length;
 
-    const deletingSoonStores = stores.filter(
-      (store) =>
-        !!store.delete_at &&
-        new Date(store.delete_at).getTime() >= nowMs &&
-        new Date(store.delete_at).getTime() <= nowMs + 7 * 24 * 60 * 60 * 1000 &&
-        store.service_status !== "deleted",
-    );
-
-    const created7dStores = stores.filter((store) => isWithinDays(store.created_at, 7, nowMs)).length;
-    const started7dStores = stores.filter((store) => isWithinDays(store.service_start_at, 7, nowMs)).length;
-
-    const profileCoverage = new Set(storeProfiles.map((row) => row.store_id)).size;
     const activeMemberships = storeMemberships.filter((row) => row.is_active !== false).length;
+    const unreadMessages = chatMessages.filter((row) => row.is_read === false).length;
+    const archivedThreads = chatThreadMeta.filter((row) => row.merchant_archived === true).length;
 
-    const categories7d = categories.filter((row) => isWithinDays(row.created_at, 7, nowMs)).length;
-    const dishes7d = dishes.filter(
-      (row) => isWithinDays(row.created_at, 7, nowMs) || isEpochWithinDays(row.updated_at, 7, nowMs),
+    const publishedAnnouncements = announcements.filter(
+      (row) => (row.status || "").toLowerCase() === "published",
     ).length;
-    const announcements7d = announcements.filter(
-      (row) => isWithinDays(row.created_at, 7, nowMs) || isWithinDays(row.updated_at, 7, nowMs),
-    ).length;
-    const leads7d = leads.filter((row) => isWithinDays(row.created_at, 7, nowMs)).length;
-    const messages7dActual = chatMessages.filter(
-      (row) => isWithinDays(row.created_at, 7, nowMs) || isEpochWithinDays(row.time_ms, 7, nowMs),
-    ).length;
-    const devices7d = pushDevices.filter(
-      (row) => isWithinDays(row.created_at, 7, nowMs) || isEpochWithinDays(row.updated_at, 7, nowMs),
-    ).length;
-    const conversations7d = chatConversations.filter(
-      (row) => isWithinDays(row.created_at, 7, nowMs) || isWithinDays(row.updated_at, 7, nowMs),
-    ).length;
+    const draftAnnouncements = announcements.length - publishedAnnouncements;
 
     const recommendedDishes = dishes.filter((row) => row.recommended === true).length;
     const soldOutDishes = dishes.filter((row) => row.sold_out === true).length;
@@ -644,92 +699,61 @@ export async function GET() {
         Number(row.discount_price) < Number(row.price),
     ).length;
 
-    const publishedAnnouncements = announcements.filter(
-      (row) => String(row.status || "").toLowerCase() === "published",
-    ).length;
-    const draftAnnouncements = announcements.filter(
-      (row) => String(row.status || "").toLowerCase() !== "published",
-    ).length;
+    const pageViewStats = frontendSnapshot.pageViewStats || [];
+    const pageViewRows = pageViewStats.map((row) => [
+      row.pagePath,
+      formatCount(row.views),
+      formatCount(row.visitors),
+      formatDateTime(row.lastViewedAt),
+    ]);
 
-    const archivedThreads = chatThreadMeta.filter((row) => row.merchant_archived === true).length;
-    const unreadMessages = chatMessages.filter((row) => row.is_read === false).length;
+    const topCategoryRows = rankMapEntries(categoryDishCountMap, 20).map(([categoryId, count]) => [
+      categoryNameMap.get(categoryId) || categoryId,
+      formatCount(count),
+    ]);
 
-    const dishesByStore = new Map<string, number>();
-    const announcementsByStore = new Map<string, number>();
-    const leadsByStore = new Map<string, number>();
-    const leadsByStore7d = new Map<string, number>();
-    const messagesByStore = new Map<string, number>();
-    const conversationsByStore = new Map<string, number>();
-    const pushByStore = new Map<string, number>();
-    const imagesByStore = new Map<string, number>();
-    const categoriesByStore = new Map<string, number>();
+    const topLeadSourceRows = rankMapEntries(leadSourceDishMap, 20).map(([dishId, count]) => [
+      dishNameMap.get(dishId) || dishId,
+      formatCount(count),
+    ]);
 
-    for (const row of dishes) {
-      const key = row.store_id || "-";
-      dishesByStore.set(key, (dishesByStore.get(key) || 0) + 1);
-    }
-
-    for (const row of announcements) {
-      const key = row.store_id || "-";
-      announcementsByStore.set(key, (announcementsByStore.get(key) || 0) + 1);
-    }
-
-    for (const row of leads) {
-      const key = row.store_id || "-";
-      leadsByStore.set(key, (leadsByStore.get(key) || 0) + 1);
-      if (isWithinDays(row.created_at, 7, nowMs)) {
-        leadsByStore7d.set(key, (leadsByStore7d.get(key) || 0) + 1);
-      }
-    }
-
-    for (const row of chatMessages) {
-      const key = row.store_id || "-";
-      messagesByStore.set(key, (messagesByStore.get(key) || 0) + 1);
-    }
-
-    for (const row of chatConversations) {
-      const key = row.store_id || "-";
-      conversationsByStore.set(key, (conversationsByStore.get(key) || 0) + 1);
-    }
-
-    for (const row of pushDevices) {
-      const key = row.store_id || "-";
-      pushByStore.set(key, (pushByStore.get(key) || 0) + 1);
-    }
-
-    for (const row of dishImages) {
-      const key = row.store_id || "-";
-      imagesByStore.set(key, (imagesByStore.get(key) || 0) + 1);
-    }
-
-    for (const row of categories) {
-      const key = row.store_id || "-";
-      categoriesByStore.set(key, (categoriesByStore.get(key) || 0) + 1);
-    }
-
-    const storesSortedByFreshness = stores
+    const topAnnouncementRows = announcements
       .slice()
-      .sort(
-        (a, b) =>
-          getStoreFreshness(b.store_id, storeUsageMap, messagesByStore, leadsByStore7d) -
-          getStoreFreshness(a.store_id, storeUsageMap, messagesByStore, leadsByStore7d),
-      )
-      .slice(0, 20);
+      .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
+      .slice(0, 20)
+      .map((row) => [
+        row.store_id || "-",
+        row.id,
+        formatCount(row.view_count || 0),
+        row.status || "-",
+        formatDateTime(row.created_at),
+      ]);
 
-    const storesSortedByDeleteAt = stores
-      .filter((store) => !!store.delete_at && store.service_status !== "deleted")
+    const topDishClickRows = dishes
       .slice()
-      .sort(
-        (a, b) =>
-          new Date(a.delete_at || "2999-12-31").getTime() -
-          new Date(b.delete_at || "2999-12-31").getTime(),
-      )
-      .slice(0, 20);
+      .sort((a, b) => (b.click_count || 0) - (a.click_count || 0))
+      .slice(0, 20)
+      .map((row) => [
+        row.store_id || "-",
+        row.name_zh || row.name_en || row.id,
+        formatCount(row.click_count || 0),
+        formatCount(row.view_count || 0),
+      ]);
 
-    const successRate = totalBuilds > 0 ? (successBuilds / totalBuilds) * 100 : 0;
-    const pollPerBuild = buildStartedCount > 0 ? buildStatusPolledCount / buildStartedCount : 0;
+    const storesWithDirectory = stores
+      .slice()
+      .sort((a, b) => {
+        const aTime = storeDirectoryMap.get(a.store_id)?.latestBuildAt || "";
+        const bTime = storeDirectoryMap.get(b.store_id)?.latestBuildAt || "";
+        return new Date(bTime || 0).getTime() - new Date(aTime || 0).getTime();
+      });
 
     const summaryMetrics: Metric[] = [
+      {
+        title: "页面访问 7 天",
+        value: formatCount(frontendSnapshot.pageViews7d || 0),
+        hint: `访客 ${formatCount(frontendSnapshot.pageVisitors7d || 0)}`,
+      },
       {
         title: "当前排队",
         value: formatCount(queuedBuilds),
@@ -743,86 +767,47 @@ export async function GET() {
       {
         title: "未来 7 天到期",
         value: formatCount(expiring7dStores.length),
-        hint: `删库预警 ${formatCount(deletingSoonStores.length)}`,
-      },
-      {
-        title: "今日构建失败",
-        value: formatCount(buildFailuresToday),
-        hint: `下载失败日志 ${formatCount(downloadFailedCount)}`,
+        hint: `删库预警 ${formatCount(deleting7dStores.length)}`,
       },
     ];
 
     const tabs: Record<string, TabData> = {
       dashboard: {
         metrics: [
-          { title: "总用户数", value: formatCount(totalUsers), hint: "前端用户云端全局" },
-          { title: "总构建次数", value: formatCount(totalBuilds), hint: "builds 全局" },
-          {
-            title: "成功率",
-            value: formatPercent(successRate),
-            hint: `成功 ${formatCount(successBuilds)} / 失败 ${formatCount(failedBuilds)}`,
-          },
-          {
-            title: "平均构建时长",
-            value: formatDurationMinutes(avgBuildMinutes),
-            hint: "completed_at - created_at",
-          },
-          {
-            title: "当前有效云端商户",
-            value: formatCount(effectiveStores),
-            hint: `只读 ${formatCount(readOnlyStores)} / 已删 ${formatCount(deletedStores)}`,
-          },
-          {
-            title: "已接商户资料",
-            value: formatCount(profileCoverage),
-            hint: `store_profiles / stores = ${formatPercent(
-              stores.length > 0 ? (profileCoverage / stores.length) * 100 : 0,
-            )}`,
-          },
-          {
-            title: "商品总数",
-            value: formatCount(dishes.length),
-            hint: `分类 ${formatCount(categories.length)} / 图片 ${formatCount(dishImages.length)}`,
-          },
-          {
-            title: "聊天消息总数",
-            value: formatCount(chatMessages.length),
-            hint: `会话 ${formatCount(chatConversations.length)} / 7天 ${formatCount(messages7dActual)}`,
-          },
-          {
-            title: "公告总数",
-            value: formatCount(announcements.length),
-            hint: `已发布 ${formatCount(publishedAnnouncements)} / 草稿 ${formatCount(draftAnnouncements)}`,
-          },
-          { title: "线索总数", value: formatCount(leads.length), hint: `近7天 ${formatCount(leads7d)}` },
-          {
-            title: "推送设备总数",
-            value: formatCount(pushDevices.length),
-            hint: `近7天变动 ${formatCount(devices7d)}`,
-          },
-          {
-            title: "未来 7 天到期",
-            value: formatCount(expiring7dStores.length),
-            hint: `30天内 ${formatCount(expiring30dStores.length)}`,
-          },
+          { title: "总用户数", value: formatCount(frontendSnapshot.totalUsers || 0), hint: "profiles" },
+          { title: "页面访问 7 天", value: formatCount(frontendSnapshot.pageViews7d || 0), hint: `访客 ${formatCount(frontendSnapshot.pageVisitors7d || 0)}` },
+          { title: "总构建数", value: formatCount(totalBuilds), hint: "builds" },
+          { title: "构建成功率", value: formatPercent(buildSuccessRate), hint: `成功 ${formatCount(successBuilds)} / 失败 ${formatCount(failedBuilds)}` },
+          { title: "有效商户", value: formatCount(effectiveStores), hint: `只读 ${formatCount(readOnlyStores)} / 已删 ${formatCount(deletedStores)}` },
+          { title: "商品总数", value: formatCount(dishes.length), hint: `分类 ${formatCount(categories.length)} / 图片 ${formatCount(dishImages.length)}` },
+          { title: "公告总数", value: formatCount(announcements.length), hint: `已发布 ${formatCount(publishedAnnouncements)} / 草稿 ${formatCount(draftAnnouncements)}` },
+          { title: "消息总数", value: formatCount(chatMessages.length), hint: `未读 ${formatCount(unreadMessages)} / 归档线程 ${formatCount(archivedThreads)}` },
+          { title: "线索总数", value: formatCount(leads.length), hint: `7天 ${formatCount(Array.from(leadsByStore7d.values()).reduce((a, b) => a + b, 0))}` },
+          { title: "推送设备总数", value: formatCount(pushDevices.length), hint: `受众 ${formatCount(pushAudienceMap.size)} 类` },
+          { title: "激活 membership", value: formatCount(activeMemberships), hint: "store_memberships.is_active" },
+          { title: "business_status 类型", value: formatCount(businessStatusMap.size), hint: "store_profiles.business_status" },
         ],
         tables: [
           {
-            title: "商户经营活跃榜",
-            description: "按写入 + 消息 + 线索综合排序。",
-            headers: ["Store ID", "App", "状态", "7d写入", "7d消息", "7d线索", "最后输入", "到期"],
-            rows: storesSortedByFreshness.map((store) => {
-              const build = buildsByStoreId.get(store.store_id);
-              const usage = storeUsageMap.get(store.store_id);
+            title: "页面访问排行",
+            description: "全站真实页面访问统计。",
+            headers: ["页面", "访问量", "访客数", "最近访问"],
+            rows: pageViewRows,
+          },
+          {
+            title: "商户目录（真实映射）",
+            description: "按 build 全量目录映射 Store ↔ App ↔ 用户。",
+            headers: ["Store ID", "App 名称", "用户", "模块", "UI 包", "计划", "最新构建"],
+            rows: storesWithDirectory.slice(0, 20).map((store) => {
+              const directory = storeDirectoryMap.get(store.store_id);
               return [
                 store.store_id,
-                build?.app_name || "-",
-                store.service_status,
-                formatCount(usage?.writes_7d || 0),
-                formatCount(usage?.messages_7d || 0),
-                formatCount(usage?.leads_7d || 0),
-                formatDateTime(usage?.last_input_at),
-                formatDateOnly(store.service_end_at),
+                directory?.appName || "-",
+                directory?.userLabel || "-",
+                directory?.moduleName || store.module_type || "-",
+                directory?.uiPackName || "-",
+                directory?.plan || store.plan_type || "-",
+                formatDateTime(directory?.latestBuildAt || null),
               ];
             }),
           },
@@ -836,9 +821,9 @@ export async function GET() {
           { title: "失败构建", value: formatCount(failedBuilds) },
           { title: "排队中", value: formatCount(queuedBuilds) },
           { title: "构建中", value: formatCount(runningBuilds) },
-          { title: "今日失败", value: formatCount(buildFailuresToday) },
-          { title: "排队超时", value: formatCount(stalledQueuedBuilds), hint: ">30 分钟仍 queued" },
-          { title: "成功但缺下载", value: formatCount(missingDownloadOnSuccess), hint: "需排查回写" },
+          { title: "今日失败", value: formatCount(frontendSnapshot.buildFailuresToday || 0) },
+          { title: "排队超时", value: formatCount(frontendSnapshot.stalledQueuedBuilds || 0), hint: ">30 分钟 queued" },
+          { title: "成功但缺下载", value: formatCount(frontendSnapshot.missingDownloadOnSuccess || 0), hint: "需排查回写" },
         ],
         tables: [
           {
@@ -854,10 +839,10 @@ export async function GET() {
             headers: ["模块", "总构建", "成功", "失败", "成功率"],
             rows: (frontendSnapshot.moduleSuccessStats || []).map((row) => [
               row.name,
-              formatCount(row.total || 0),
-              formatCount(row.success || 0),
-              formatCount(row.failed || 0),
-              formatPercent(row.successRate || 0),
+              formatCount(row.total),
+              formatCount(row.success),
+              formatCount(row.failed),
+              formatPercent(row.successRate),
             ]),
           },
           {
@@ -865,31 +850,10 @@ export async function GET() {
             headers: ["UI 包", "总构建", "成功", "失败", "成功率"],
             rows: (frontendSnapshot.uiPackSuccessStats || []).map((row) => [
               row.name,
-              formatCount(row.total || 0),
-              formatCount(row.success || 0),
-              formatCount(row.failed || 0),
-              formatPercent(row.successRate || 0),
-            ]),
-          },
-          {
-            title: "最近构建记录",
-            description: "全站构建记录。",
-            headers: ["Run", "状态", "阶段", "创建时间", "完成时间", "构建耗时", "模块", "UI 包", "计划", "失败步骤"],
-            rows: (frontendSnapshot.recentBuilds || []).slice(0, 20).map((build) => [
-              build.run_id,
-              build.status,
-              build.stage || "-",
-              formatDateTime(build.created_at),
-              formatDateTime(build.completed_at),
-              formatDurationMinutes(
-                build.completed_at
-                  ? (new Date(build.completed_at).getTime() - new Date(build.created_at).getTime()) / 60000
-                  : null,
-              ),
-              build.module_name,
-              build.ui_pack_name,
-              build.plan,
-              build.failed_step || "-",
+              formatCount(row.total),
+              formatCount(row.success),
+              formatCount(row.failed),
+              formatPercent(row.successRate),
             ]),
           },
         ],
@@ -897,33 +861,33 @@ export async function GET() {
 
       users: {
         metrics: [
-          { title: "注册用户", value: formatCount(totalUsers), hint: "profiles 全局" },
-          { title: "7天活跃用户", value: formatCount(activeUsers7d), hint: "user_operation_logs 全局" },
-          { title: "登录成功", value: formatCount(loginSuccessCount), hint: "login_success" },
-          { title: "付费用户", value: formatCount(paidUsers), hint: "按 builds.plan!=free 推算" },
-          { title: "复购用户", value: formatCount(repeatUsers), hint: "多次非 free 构建" },
-          { title: "登录回调失败", value: formatCount(authCallbackFailedCount), hint: "auth_callback_failed" },
-          { title: "构建失败事件", value: formatCount(buildFailedEventCount), hint: "build_failed" },
-          { title: "下载失败事件", value: formatCount(downloadFailedCount), hint: "download_failed" },
+          { title: "注册用户", value: formatCount(frontendSnapshot.totalUsers || 0), hint: "profiles" },
+          { title: "7天活跃用户", value: formatCount(frontendSnapshot.activeUsers7d || 0), hint: "user_operation_logs" },
+          { title: "页面访问 7 天", value: formatCount(frontendSnapshot.pageViews7d || 0), hint: `访客 ${formatCount(frontendSnapshot.pageVisitors7d || 0)}` },
+          { title: "登录成功", value: formatCount(frontendSnapshot.loginSuccessCount || 0), hint: "login_success" },
+          { title: "登录回调失败", value: formatCount(frontendSnapshot.authCallbackFailedCount || 0), hint: "auth_callback_failed" },
+          { title: "构建失败事件", value: formatCount(frontendSnapshot.buildFailedEventCount || 0), hint: "build_failed" },
+          { title: "下载失败事件", value: formatCount(frontendSnapshot.downloadFailedCount || 0), hint: "download_failed" },
+          { title: "付费用户近似值", value: formatCount(frontendSnapshot.paidUsers || 0), hint: "按 builds.plan!=free" },
         ],
         tables: [
           {
             title: "最近用户行为",
-            description: "全站最近用户行为。",
+            description: "最近用户 + 最近动作。",
             headers: ["用户", "最近登录", "构建次数", "最近动作", "动作时间"],
-            rows: (frontendSnapshot.recentUsers || []).slice(0, 20).map((profile) => [
-              profile.email || profile.display_name || profile.id,
-              formatDateTime(profile.last_login_at),
-              formatCount(profile.build_count || 0),
-              profile.latest_event_name || "-",
-              formatDateTime(profile.latest_event_at),
+            rows: (frontendSnapshot.recentUsers || []).map((row) => [
+              row.email || row.display_name || row.id,
+              formatDateTime(row.last_login_at),
+              formatCount(row.build_count || 0),
+              row.latest_event_name || "-",
+              formatDateTime(row.latest_event_at),
             ]),
           },
           {
-            title: "最近前端操作日志",
-            description: "user_operation_logs 最新事件。",
+            title: "最近操作日志",
+            description: "真实 user_operation_logs。",
             headers: ["时间", "事件", "页面", "Run ID", "用户"],
-            rows: (frontendSnapshot.recentOperationLogs || []).slice(0, 20).map((row) => [
+            rows: (frontendSnapshot.recentOperationLogs || []).map((row) => [
               formatDateTime(row.occurred_at),
               row.event_name,
               row.page_path || "-",
@@ -936,160 +900,113 @@ export async function GET() {
 
       revenue: {
         metrics: [],
-        notes: ["按你的要求，这里先不接订单 / 支付 / 续费收入统计。"],
+        notes: ["按你的要求，这里先不接订单 / 支付 / 续费统计。"],
       },
 
       stores: {
         metrics: [
-          { title: "Store 总数", value: formatCount(stores.length), hint: "stores 全局" },
-          { title: "活跃 Store", value: formatCount(effectiveStores), hint: "service_status!=deleted" },
+          { title: "Store 总数", value: formatCount(stores.length), hint: "stores" },
+          { title: "有效 Store", value: formatCount(effectiveStores), hint: "service_status!=deleted" },
           { title: "只读 Store", value: formatCount(readOnlyStores), hint: "service_status=read_only" },
           { title: "已删除 Store", value: formatCount(deletedStores), hint: "service_status=deleted" },
-          { title: "近7天新建 Store", value: formatCount(created7dStores), hint: "stores.created_at" },
-          { title: "近7天开通服务", value: formatCount(started7dStores), hint: "stores.service_start_at" },
-          { title: "资料已建立商户", value: formatCount(profileCoverage), hint: "store_profiles" },
-          { title: "激活会员关系", value: formatCount(activeMemberships), hint: "store_memberships.is_active" },
+          { title: "试用 Store", value: formatCount(trialStores), hint: "plan_type=trial" },
+          { title: "付费 Store", value: formatCount(paidStores), hint: "plan_type=paid" },
+          { title: "有资料商户", value: formatCount(storeProfiles.length), hint: "store_profiles" },
+          { title: "激活 membership", value: formatCount(activeMemberships), hint: "store_memberships" },
         ],
         tables: [
           {
-            title: "商户 / Store 列表",
-            description: "全站商户列表。",
-            headers: ["Store ID", "App 名称", "所属用户", "模块", "状态", "开始时间", "到期时间", "删库时间", "可写", "计划"],
-            rows: stores.slice(0, 20).map((store) => {
-              const build = buildsByStoreId.get(store.store_id);
-              const profile = build ? profilesById.get(build.user_id) : undefined;
+            title: "Store 目录（真实 App / 用户映射）",
+            headers: ["Store ID", "App 名称", "所属用户", "模块", "状态", "开始时间", "到期时间", "删库时间", "可写"],
+            rows: storesWithDirectory.slice(0, 30).map((store) => {
+              const directory = storeDirectoryMap.get(store.store_id);
               return [
                 store.store_id,
-                build?.app_name || "-",
-                profile ? getUserLabel(profile) : "-",
-                store.module_type || "-",
+                directory?.appName || "-",
+                directory?.userLabel || "-",
+                directory?.moduleName || store.module_type || "-",
                 store.service_status,
                 formatDateOnly(store.service_start_at),
                 formatDateOnly(store.service_end_at),
                 formatDateOnly(store.delete_at),
                 store.is_write_allowed ? "是" : "否",
-                store.plan_type || "-",
               ];
             }),
           },
           {
-            title: "即将删库列表",
-            description: "delete_at 最近的商户。",
-            headers: ["Store ID", "状态", "到期", "删库时间", "最后输入", "7d写入"],
-            rows: storesSortedByDeleteAt.map((store) => {
-              const usage = storeUsageMap.get(store.store_id);
-              return [
-                store.store_id,
-                store.service_status,
-                formatDateOnly(store.service_end_at),
-                formatDateOnly(store.delete_at),
-                formatDateTime(usage?.last_input_at),
-                formatCount(usage?.writes_7d || 0),
-              ];
-            }),
+            title: "business_status 分布",
+            headers: ["状态", "商户数"],
+            rows: rankMapEntries(businessStatusMap, 50).map(([name, count]) => [
+              name,
+              formatCount(count),
+            ]),
           },
         ],
       },
 
       history: {
         metrics: [
-          { title: "历史记录总数", value: formatCount(totalBuilds) },
-          { title: "成功记录", value: formatCount(successBuilds), hint: "可下载 / 可续费候选" },
-          { title: "失败记录", value: formatCount(failedBuilds) },
-          {
-            title: "轮询次数",
-            value: formatCount(buildStatusPolledCount),
-            hint: `平均每次构建 ${pollPerBuild.toFixed(1)} 次`,
-          },
-          { title: "打开 History", value: formatCount(historyOpenedCount), hint: "history_opened" },
-          { title: "打开 Result", value: formatCount(resultOpenedCount), hint: "result_opened" },
-          { title: "点击 Download", value: formatCount(downloadClickedCount), hint: "download_clicked" },
-          { title: "下载失败日志", value: formatCount(downloadFailedCount), hint: "download_failed" },
+          { title: "History 打开次数", value: formatCount(frontendSnapshot.historyOpenedCount || 0), hint: "history_opened" },
+          { title: "Result 打开次数", value: formatCount(frontendSnapshot.resultOpenedCount || 0), hint: "result_opened" },
+          { title: "Download 点击", value: formatCount(frontendSnapshot.downloadClickedCount || 0), hint: "download_clicked" },
+          { title: "构建状态轮询", value: formatCount(frontendSnapshot.buildStatusPolledCount || 0), hint: "build_status_polled" },
         ],
         tables: [
           {
-            title: "历史记录管理",
-            description: "全站构建历史记录。",
-            headers: ["App 名称", "状态", "阶段", "创建时间", "完成时间", "下载", "模块", "UI 包", "计划", "Store ID"],
-            rows: (frontendSnapshot.recentBuilds || []).slice(0, 20).map((build) => [
-              build.app_name,
-              build.status,
-              build.stage || "-",
-              formatDateTime(build.created_at),
-              formatDateTime(build.completed_at),
-              build.download_url ? "已生成" : "-",
-              build.module_name,
-              build.ui_pack_name,
-              build.plan,
-              build.store_id || "-",
+            title: "最近构建历史",
+            headers: ["App", "状态", "阶段", "创建时间", "完成时间", "Store ID", "模块", "UI 包", "下载"],
+            rows: (frontendSnapshot.recentBuilds || []).map((row) => [
+              row.app_name,
+              row.status,
+              row.stage || "-",
+              formatDateTime(row.created_at),
+              formatDateTime(row.completed_at),
+              row.store_id || "-",
+              row.module_name,
+              row.ui_pack_name,
+              row.download_url ? "已生成" : "-",
             ]),
-          },
-          {
-            title: "失败与异常事件日志",
-            description: "便于对照前端实际失败与下载异常。",
-            headers: ["时间", "事件", "Run ID", "页面", "用户"],
-            rows: (frontendSnapshot.recentOperationLogs || [])
-              .filter((row) =>
-                ["auth_callback_failed", "build_failed", "download_failed"].includes(row.event_name),
-              )
-              .slice(0, 20)
-              .map((row) => [
-                formatDateTime(row.occurred_at),
-                row.event_name,
-                row.run_id || "-",
-                row.page_path || "-",
-                row.user_id || "-",
-              ]),
           },
         ],
       },
 
       cloud: {
         metrics: [
-          { title: "即将到期商户数", value: formatCount(expiring7dStores.length), hint: "未来 7 天" },
-          { title: "已过期商户数", value: formatCount(expiredStores), hint: "service_end_at < now" },
-          { title: "即将删库商户数", value: formatCount(deletingSoonStores.length), hint: "未来 7 天 delete_at" },
+          { title: "未来 7 天到期", value: formatCount(expiring7dStores.length), hint: "stores.service_end_at" },
+          { title: "未来 7 天删库", value: formatCount(deleting7dStores.length), hint: "stores.delete_at" },
           { title: "云端状态异常", value: formatCount(cloudStateAnomalies), hint: "read_only 但仍可写" },
-          {
-            title: "24h 写入总数",
-            value: formatCount(storeUsageStats.reduce((sum, row) => sum + (row.writes_24h || 0), 0)),
-            hint: "store_usage_stats",
-          },
-          {
-            title: "7d 写入总数",
-            value: formatCount(storeUsageStats.reduce((sum, row) => sum + (row.writes_7d || 0), 0)),
-            hint: "store_usage_stats",
-          },
-          { title: "真实 7d 消息数", value: formatCount(messages7dActual), hint: "chat_messages" },
-          { title: "真实 7d 线索数", value: formatCount(leads7d), hint: "leads" },
+          { title: "24h 写入总数", value: formatCount(storeUsageStats.reduce((sum, row) => sum + (row.writes_24h || 0), 0)), hint: "store_usage_stats" },
+          { title: "7d 写入总数", value: formatCount(storeUsageStats.reduce((sum, row) => sum + (row.writes_7d || 0), 0)), hint: "store_usage_stats" },
+          { title: "消息总数", value: formatCount(chatMessages.length), hint: `未读 ${formatCount(unreadMessages)}` },
+          { title: "会话总数", value: formatCount(chatConversations.length), hint: `归档 ${formatCount(archivedThreads)}` },
+          { title: "relay 总数", value: formatCount(chatRelay.length), hint: "chat_relay" },
         ],
         tables: [
           {
-            title: "未来 7 天到期列表",
-            description: "全站到期监控。",
-            headers: ["Store ID", "App", "状态", "到期", "删库", "用户", "最后写入", "备注"],
-            rows: expiring7dStores.slice(0, 20).map((store) => {
-              const build = buildsByStoreId.get(store.store_id);
-              const profile = build ? profilesById.get(build.user_id) : undefined;
-              const usage = storeUsageMap.get(store.store_id);
-              const diffMs = new Date(store.service_end_at || now.toISOString()).getTime() - nowMs;
-              return [
-                store.store_id,
-                build?.app_name || "-",
-                store.service_status,
-                formatDateOnly(store.service_end_at),
-                formatDateOnly(store.delete_at),
-                profile ? getUserLabel(profile) : "-",
-                formatDateTime(usage?.last_input_at),
-                formatRelativeDays(diffMs),
-              ];
-            }),
+            title: "到期 / 删库监控",
+            headers: ["Store ID", "App", "用户", "状态", "到期", "删库", "最后输入", "7d写入"],
+            rows: stores
+              .filter((row) => row.service_status !== "deleted" && (!!row.service_end_at || !!row.delete_at))
+              .slice(0, 30)
+              .map((row) => {
+                const directory = storeDirectoryMap.get(row.store_id);
+                const usage = storeUsageMap.get(row.store_id);
+                return [
+                  row.store_id,
+                  directory?.appName || "-",
+                  directory?.userLabel || "-",
+                  row.service_status,
+                  formatDateOnly(row.service_end_at),
+                  formatDateOnly(row.delete_at),
+                  formatDateTime(usage?.last_input_at),
+                  formatCount(usage?.writes_7d || 0),
+                ];
+              }),
           },
           {
             title: "云端活跃概览",
-            description: "从 store_usage_stats + 真实业务表整合。",
-            headers: ["Store ID", "最后输入", "24h写入", "7d写入", "商品数", "公告数", "7d消息", "7d线索", "推送设备"],
-            rows: storeUsageStats.slice(0, 20).map((row) => [
+            headers: ["Store ID", "最后输入", "24h写入", "7d写入", "商品", "公告", "7d消息", "7d线索"],
+            rows: storeUsageStats.slice(0, 30).map((row) => [
               row.store_id,
               formatDateTime(row.last_input_at),
               formatCount(row.writes_24h || 0),
@@ -1098,7 +1015,6 @@ export async function GET() {
               formatCount(row.announcements_count || announcementsByStore.get(row.store_id) || 0),
               formatCount(row.messages_7d || 0),
               formatCount(row.leads_7d || 0),
-              formatCount(pushByStore.get(row.store_id) || 0),
             ]),
           },
         ],
@@ -1106,142 +1022,68 @@ export async function GET() {
 
       content: {
         metrics: [
-          {
-            title: "逻辑模块使用次数",
-            value: formatCount(totalBuilds),
-            hint: "builds.module_name 聚合",
-          },
-          {
-            title: "最热门模块",
-            value: frontendSnapshot.topModules?.[0]?.name || "-",
-            hint: frontendSnapshot.topModules?.[0]
-              ? formatCount(frontendSnapshot.topModules[0].count)
-              : "-",
-          },
-          {
-            title: "最热门 UI 包",
-            value: frontendSnapshot.topUiPacks?.[0]?.name || "-",
-            hint: frontendSnapshot.topUiPacks?.[0]
-              ? formatCount(frontendSnapshot.topUiPacks[0].count)
-              : "-",
-          },
-          { title: "分类总数", value: formatCount(categories.length), hint: `近7天新增 ${formatCount(categories7d)}` },
-          { title: "商品总数", value: formatCount(dishes.length), hint: `近7天变动 ${formatCount(dishes7d)}` },
-          {
-            title: "推荐商品",
-            value: formatCount(recommendedDishes),
-            hint: `售罄 ${formatCount(soldOutDishes)} / 隐藏 ${formatCount(hiddenDishes)}`,
-          },
-          { title: "折扣商品", value: formatCount(discountedDishes), hint: "discount_price < price" },
-          {
-            title: "商品图片数",
-            value: formatCount(dishImages.length),
-            hint: `平均每商品 ${(dishes.length > 0 ? dishImages.length / dishes.length : 0).toFixed(1)} 张`,
-          },
-          {
-            title: "公告总数",
-            value: formatCount(announcements.length),
-            hint: `已发布 ${formatCount(publishedAnnouncements)} / 草稿 ${formatCount(draftAnnouncements)}`,
-          },
-          {
-            title: "公告总浏览",
-            value: formatCount(announcements.reduce((sum, row) => sum + (row.view_count || 0), 0)),
-            hint: "announcements.view_count",
-          },
-          { title: "线索总数", value: formatCount(leads.length), hint: `近7天 ${formatCount(leads7d)}` },
-          { title: "聊天会话总数", value: formatCount(chatConversations.length), hint: `近7天 ${formatCount(conversations7d)}` },
+          { title: "分类总数", value: formatCount(categories.length), hint: "categories" },
+          { title: "商品总数", value: formatCount(dishes.length), hint: `推荐 ${formatCount(recommendedDishes)} / 折扣 ${formatCount(discountedDishes)}` },
+          { title: "售罄商品", value: formatCount(soldOutDishes), hint: `隐藏 ${formatCount(hiddenDishes)}` },
+          { title: "商品图片数", value: formatCount(dishImages.length), hint: `平均每商品 ${(dishes.length > 0 ? dishImages.length / dishes.length : 0).toFixed(1)} 张` },
+          { title: "公告总数", value: formatCount(announcements.length), hint: `总浏览 ${formatCount(announcements.reduce((sum, row) => sum + (row.view_count || 0), 0))}` },
+          { title: "线索总数", value: formatCount(leads.length), hint: "leads" },
+          { title: "热门模块", value: frontendSnapshot.topModules?.[0]?.name || "-", hint: frontendSnapshot.topModules?.[0] ? formatCount(frontendSnapshot.topModules[0].count) : "-" },
+          { title: "热门 UI 包", value: frontendSnapshot.topUiPacks?.[0]?.name || "-", hint: frontendSnapshot.topUiPacks?.[0] ? formatCount(frontendSnapshot.topUiPacks[0].count) : "-" },
         ],
         tables: [
           {
-            title: "模块 / UI 包排行",
-            headers: ["分类", "名称", "使用次数", "占比"],
-            rows: [
-              ...(frontendSnapshot.topModules || []).map((row) => [
-                "逻辑模块",
-                row.name,
-                formatCount(row.count),
-                totalBuilds > 0 ? formatPercent((row.count / totalBuilds) * 100) : "0%",
-              ]),
-              ...(frontendSnapshot.topUiPacks || []).map((row) => [
-                "UI 包",
-                row.name,
-                formatCount(row.count),
-                totalBuilds > 0 ? formatPercent((row.count / totalBuilds) * 100) : "0%",
-              ]),
-            ],
+            title: "商品点击 / 浏览排行",
+            headers: ["Store ID", "商品", "点击数", "浏览数"],
+            rows: topDishClickRows,
           },
           {
-            title: "商户内容规模榜",
-            description: "按商品 / 公告 / 聊天 / 线索综合看。",
-            headers: ["Store ID", "分类", "商品", "图片", "公告", "线索", "会话", "消息"],
-            rows: storesSortedByFreshness.map((store) => [
-              store.store_id,
-              formatCount(categoriesByStore.get(store.store_id) || 0),
-              formatCount(dishesByStore.get(store.store_id) || 0),
-              formatCount(imagesByStore.get(store.store_id) || 0),
-              formatCount(announcementsByStore.get(store.store_id) || 0),
-              formatCount(leadsByStore.get(store.store_id) || 0),
-              formatCount(conversationsByStore.get(store.store_id) || 0),
-              formatCount(messagesByStore.get(store.store_id) || 0),
-            ]),
+            title: "公告浏览排行",
+            headers: ["Store ID", "公告ID", "浏览数", "状态", "创建时间"],
+            rows: topAnnouncementRows,
+          },
+          {
+            title: "分类商品排行",
+            headers: ["分类", "商品数"],
+            rows: topCategoryRows,
+          },
+          {
+            title: "线索来源商品排行",
+            headers: ["商品", "线索数"],
+            rows: topLeadSourceRows,
           },
         ],
       },
 
       alerts: {
         metrics: [
-          { title: "构建失败告警", value: formatCount(buildFailuresToday), hint: "今日失败" },
-          { title: "排队超时", value: formatCount(stalledQueuedBuilds), hint: ">30 分钟仍 queued" },
-          { title: "成功但缺下载", value: formatCount(missingDownloadOnSuccess), hint: "需排查回写" },
-          { title: "登录回调失败", value: formatCount(authCallbackFailedCount), hint: "auth_callback_failed" },
-          { title: "下载失败日志", value: formatCount(downloadFailedCount), hint: "download_failed" },
+          { title: "今日构建失败", value: formatCount(frontendSnapshot.buildFailuresToday || 0), hint: "builds" },
+          { title: "排队超时", value: formatCount(frontendSnapshot.stalledQueuedBuilds || 0), hint: ">30 分钟 queued" },
+          { title: "下载失败", value: formatCount(frontendSnapshot.downloadFailedCount || 0), hint: "download_failed" },
+          { title: "登录回调失败", value: formatCount(frontendSnapshot.authCallbackFailedCount || 0), hint: "auth_callback_failed" },
           { title: "云端状态异常", value: formatCount(cloudStateAnomalies), hint: "read_only 但仍可写" },
-          { title: "即将删库", value: formatCount(deletingSoonStores.length), hint: "未来 7 天 delete_at" },
+          { title: "即将删库", value: formatCount(deleting7dStores.length), hint: "未来 7 天" },
           { title: "未读消息", value: formatCount(unreadMessages), hint: "chat_messages.is_read=false" },
+          { title: "relay 活跃", value: formatCount(chatRelay.length), hint: "chat_relay" },
         ],
         tables: [
           {
-            title: "异常告警列表",
-            description: "全站异常告警。",
-            headers: ["异常类型", "对象", "级别", "发生时间", "状态"],
+            title: "异常清单",
+            headers: ["类型", "对象", "时间", "状态"],
             rows: [
               ...(frontendSnapshot.recentBuilds || [])
-                .filter((build) => build.status === "failed")
+                .filter((row) => row.status === "failed")
                 .slice(0, 8)
-                .map((build) => [
-                  "构建失败",
-                  build.run_id,
-                  "高",
-                  formatDateTime(build.updated_at),
-                  "待处理",
-                ]),
+                .map((row) => ["构建失败", row.run_id, formatDateTime(row.updated_at), "待处理"]),
               ...(frontendSnapshot.recentOperationLogs || [])
                 .filter((row) => ["auth_callback_failed", "download_failed"].includes(row.event_name))
-                .slice(0, 6)
-                .map((row) => [
-                  row.event_name === "auth_callback_failed" ? "登录回调失败" : "下载失败",
-                  row.run_id || row.user_id || "-",
-                  "高",
-                  formatDateTime(row.occurred_at),
-                  "待处理",
-                ]),
+                .slice(0, 8)
+                .map((row) => [row.event_name, row.run_id || row.user_id || "-", formatDateTime(row.occurred_at), "待处理"]),
               ...stores
-                .filter((store) => store.service_status === "read_only" && store.is_write_allowed === true)
-                .slice(0, 6)
-                .map((store) => [
-                  "云端状态异常",
-                  store.store_id,
-                  "高",
-                  formatDateTime(store.service_end_at || store.created_at),
-                  "待处理",
-                ]),
-              ...deletingSoonStores.slice(0, 6).map((store) => [
-                "即将删库",
-                store.store_id,
-                "中",
-                formatDateTime(store.delete_at),
-                "待处理",
-              ]),
+                .filter((row) => row.service_status === "read_only" && row.is_write_allowed === true)
+                .slice(0, 8)
+                .map((row) => ["云端状态异常", row.store_id, formatDateTime(row.service_end_at || row.created_at), "待处理"]),
+              ...deleting7dStores.slice(0, 8).map((row) => ["即将删库", row.store_id, formatDateTime(row.delete_at), "待处理"]),
             ],
           },
         ],
@@ -1249,18 +1091,13 @@ export async function GET() {
 
       actions: {
         metrics: [
-          {
-            title: "后台操作总数",
-            value: formatCount((frontendSnapshot.adminActions || []).length),
-            hint: "admin_action_logs",
-          },
+          { title: "后台操作总数", value: formatCount((frontendSnapshot.adminActions || []).length), hint: "admin_action_logs" },
         ],
         tables: [
           {
             title: "后台操作日志",
-            description: "后台动作日志。",
             headers: ["时间", "操作者", "动作", "目标类型", "目标ID"],
-            rows: (frontendSnapshot.adminActions || []).slice(0, 20).map((row) => [
+            rows: (frontendSnapshot.adminActions || []).map((row) => [
               formatDateTime(row.created_at),
               row.actor_user_id || "-",
               row.action_name,
@@ -1273,74 +1110,73 @@ export async function GET() {
 
       conversion: {
         metrics: [
-          { title: "登录成功", value: formatCount(loginSuccessCount), hint: "login_success" },
-          { title: "打开 Builder", value: formatCount(builderOpenedCount), hint: "builder_opened" },
-          { title: "上传图标", value: formatCount(iconUploadedCount), hint: "icon_uploaded" },
-          { title: "点击 Generate", value: formatCount(buildStartedCount), hint: "build_started" },
-          { title: "打开 Result", value: formatCount(resultOpenedCount), hint: "result_opened" },
-          { title: "点击 Download", value: formatCount(downloadClickedCount), hint: "download_clicked" },
-          {
-            title: "构建轮询次数",
-            value: formatCount(buildStatusPolledCount),
-            hint: `平均每构建 ${pollPerBuild.toFixed(1)} 次`,
-          },
+          { title: "登录成功", value: formatCount(frontendSnapshot.loginSuccessCount || 0), hint: "login_success" },
+          { title: "打开 Builder", value: formatCount(frontendSnapshot.builderOpenedCount || 0), hint: "builder_opened" },
+          { title: "上传图标", value: formatCount(frontendSnapshot.iconUploadedCount || 0), hint: "icon_uploaded" },
+          { title: "点击 Generate", value: formatCount(frontendSnapshot.buildStartedCount || 0), hint: "build_started" },
+          { title: "打开 Result", value: formatCount(frontendSnapshot.resultOpenedCount || 0), hint: "result_opened" },
+          { title: "点击 Download", value: formatCount(frontendSnapshot.downloadClickedCount || 0), hint: "download_clicked" },
+          { title: "页面访问 7 天", value: formatCount(frontendSnapshot.pageViews7d || 0), hint: "page_view_logs" },
         ],
         tables: [
           {
-            title: "当前可接漏斗",
-            description: "全站转化漏斗。",
+            title: "漏斗",
             headers: ["阶段", "次数", "相对上一阶段转化"],
             rows: [
-              ["登录成功", formatCount(loginSuccessCount), "100%"],
+              ["登录成功", formatCount(frontendSnapshot.loginSuccessCount || 0), "100%"],
               [
                 "打开 Builder",
-                formatCount(builderOpenedCount),
-                loginSuccessCount > 0 ? formatPercent((builderOpenedCount / loginSuccessCount) * 100) : "0%",
+                formatCount(frontendSnapshot.builderOpenedCount || 0),
+                frontendSnapshot.loginSuccessCount > 0
+                  ? formatPercent(((frontendSnapshot.builderOpenedCount || 0) / frontendSnapshot.loginSuccessCount) * 100)
+                  : "0%",
               ],
               [
                 "上传图标",
-                formatCount(iconUploadedCount),
-                builderOpenedCount > 0 ? formatPercent((iconUploadedCount / builderOpenedCount) * 100) : "0%",
+                formatCount(frontendSnapshot.iconUploadedCount || 0),
+                frontendSnapshot.builderOpenedCount > 0
+                  ? formatPercent(((frontendSnapshot.iconUploadedCount || 0) / frontendSnapshot.builderOpenedCount) * 100)
+                  : "0%",
               ],
               [
                 "点击 Generate",
-                formatCount(buildStartedCount),
-                iconUploadedCount > 0 ? formatPercent((buildStartedCount / iconUploadedCount) * 100) : "0%",
+                formatCount(frontendSnapshot.buildStartedCount || 0),
+                frontendSnapshot.iconUploadedCount > 0
+                  ? formatPercent(((frontendSnapshot.buildStartedCount || 0) / frontendSnapshot.iconUploadedCount) * 100)
+                  : "0%",
               ],
               [
                 "打开 Result",
-                formatCount(resultOpenedCount),
-                buildStartedCount > 0 ? formatPercent((resultOpenedCount / buildStartedCount) * 100) : "0%",
+                formatCount(frontendSnapshot.resultOpenedCount || 0),
+                frontendSnapshot.buildStartedCount > 0
+                  ? formatPercent(((frontendSnapshot.resultOpenedCount || 0) / frontendSnapshot.buildStartedCount) * 100)
+                  : "0%",
               ],
               [
                 "点击 Download",
-                formatCount(downloadClickedCount),
-                resultOpenedCount > 0 ? formatPercent((downloadClickedCount / resultOpenedCount) * 100) : "0%",
+                formatCount(frontendSnapshot.downloadClickedCount || 0),
+                frontendSnapshot.resultOpenedCount > 0
+                  ? formatPercent(((frontendSnapshot.downloadClickedCount || 0) / frontendSnapshot.resultOpenedCount) * 100)
+                  : "0%",
               ],
             ],
+          },
+          {
+            title: "页面访问排行",
+            headers: ["页面", "访问量", "访客数", "最近访问"],
+            rows: pageViewRows,
           },
         ],
       },
 
       channels: {
         metrics: [
-          {
-            title: "渠道会话数",
-            value: formatCount(
-              (frontendSnapshot.channels || []).reduce((sum, row) => sum + (row.sessions || 0), 0),
-            ),
-            hint: "user_acquisition_logs",
-          },
-          {
-            title: "最佳渠道",
-            value: frontendSnapshot.bestChannel || "-",
-            hint: "按会话数排序",
-          },
+          { title: "渠道会话数", value: formatCount((frontendSnapshot.channels || []).reduce((sum, row) => sum + row.sessions, 0)), hint: "user_acquisition_logs" },
+          { title: "最佳渠道", value: frontendSnapshot.bestChannel || "-", hint: "会话数最高" },
         ],
         tables: [
           {
             title: "渠道来源分布",
-            description: "按 user_acquisition_logs 聚合。",
             headers: ["渠道", "会话数", "占比"],
             rows: (frontendSnapshot.channels || []).map((row) => [
               row.channel,
@@ -1353,23 +1189,30 @@ export async function GET() {
 
       retention: {
         metrics: [
+          { title: "D1 留存", value: formatPercent(frontendSnapshot.d1Retention || 0), hint: "user_operation_logs cohort" },
+          { title: "D7 留存", value: formatPercent(frontendSnapshot.d7Retention || 0), hint: "user_operation_logs cohort" },
+          { title: "D30 留存", value: formatPercent(frontendSnapshot.d30Retention || 0), hint: "user_operation_logs cohort" },
+        ],
+        tables: [
           {
-            title: "D1 留存",
-            value: formatPercent(frontendSnapshot.d1Retention || 0),
-            hint: "基于操作日志 cohort 推算",
+            title: "push 设备分布",
+            headers: ["受众/平台", "数量"],
+            rows: [
+              ...rankMapEntries(pushAudienceMap, 20).map(([name, count]) => [`audience:${name}`, formatCount(count)]),
+              ...rankMapEntries(pushPlatformMap, 20).map(([name, count]) => [`platform:${name}`, formatCount(count)]),
+            ],
           },
           {
-            title: "D7 留存",
-            value: formatPercent(frontendSnapshot.d7Retention || 0),
-            hint: "基于操作日志 cohort 推算",
-          },
-          {
-            title: "D30 留存",
-            value: formatPercent(frontendSnapshot.d30Retention || 0),
-            hint: "基于操作日志 cohort 推算",
+            title: "聊天角色 / 方向 / relay 分布",
+            headers: ["维度", "数量"],
+            rows: [
+              ...rankMapEntries(chatRoleMap, 20).map(([name, count]) => [`role:${name}`, formatCount(count)]),
+              ...rankMapEntries(chatDirectionMap, 20).map(([name, count]) => [`direction:${name}`, formatCount(count)]),
+              ...rankMapEntries(relayRoleMap, 20).map(([name, count]) => [`relay:${name}`, formatCount(count)]),
+            ],
           },
         ],
-        notes: ["留存继续走 user_operation_logs 口径；订单 / 续费统计按你的要求先不接。"],
+        notes: ["订单 / 支付 / 续费统计按你的要求未接入。"],
       },
     };
 

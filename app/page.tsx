@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Download, DollarSign, Eye, HelpCircle, Smartphone, Sparkles, Wand2, Zap } from "lucide-react";
 import SiteHeader from "@/components/layout/SiteHeader";
 
+const ACQUISITION_SESSION_KEY = "ndjc_acquisition_session_id";
+
 export default function Home() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
   const navItems = [
@@ -14,6 +16,40 @@ export default function Home() {
   const [activePreview, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
   const [isHeaderCompact, setIsHeaderCompact] = useState(false);
   const [activeSection, setActiveSection] = useState<(typeof navItems)[number]["id"] | null>(null);
+  
+    useEffect(() => {
+    try {
+      let sessionId = window.localStorage.getItem(ACQUISITION_SESSION_KEY);
+
+      if (!sessionId) {
+        sessionId =
+          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `ndjc_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+        window.localStorage.setItem(ACQUISITION_SESSION_KEY, sessionId);
+      }
+
+      const url = new URL(window.location.href);
+
+      void fetch("/api/track-acquisition", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sessionId,
+          landingPath: `${url.pathname}${url.search}`,
+          referrer: document.referrer || null,
+          utmSource: url.searchParams.get("utm_source"),
+          utmMedium: url.searchParams.get("utm_medium"),
+          utmCampaign: url.searchParams.get("utm_campaign"),
+        }),
+      });
+    } catch (error) {
+      console.error("NDJC home: failed to track acquisition", error);
+    }
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

@@ -80,7 +80,7 @@ type UpdateBuildRecordInput = {
 };
 
 type InsertOperationLogInput = {
-  userId: string;
+  userId?: string | null;
   buildId?: string | null;
   runId?: string | null;
   eventName: UserOperationEventName;
@@ -305,7 +305,7 @@ export async function insertOperationLog(
   input: InsertOperationLogInput,
 ): Promise<void> {
   const { error } = await supabase.from("user_operation_logs").insert({
-    user_id: input.userId,
+    user_id: input.userId ?? null,
     build_id: input.buildId ?? null,
     run_id: input.runId ?? null,
     event_name: input.eventName,
@@ -331,10 +331,14 @@ export async function insertOperationLogOnce(
   let query = supabase
     .from("user_operation_logs")
     .select("id")
-    .eq("user_id", input.userId)
     .eq("event_name", input.eventName)
     .gte("occurred_at", since)
     .limit(1);
+
+  query =
+    input.userId != null
+      ? query.eq("user_id", input.userId)
+      : query.is("user_id", null);
 
   query =
     input.runId != null

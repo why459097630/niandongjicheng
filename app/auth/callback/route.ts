@@ -73,7 +73,7 @@ export async function GET(request: Request) {
       await insertOperationLogOnce(
         supabase,
         {
-          userId: "00000000-0000-0000-0000-000000000000",
+          userId: null,
           eventName: "auth_callback_failed",
           pagePath: "/auth/callback",
           metadata: {
