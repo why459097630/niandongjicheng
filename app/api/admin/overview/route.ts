@@ -181,6 +181,8 @@ type PushDeviceRow = {
   id: string;
   store_id: string | null;
   audience: string | null;
+  token: string | null;
+  device_install_id: string | null;
   platform: string | null;
   updated_at: number | null;
   created_at: string | null;
@@ -474,7 +476,7 @@ export async function GET() {
           .order("created_at", { ascending: false }),
         appCloudAdmin
           .from("push_devices")
-          .select("id,store_id,audience,platform,updated_at,created_at")
+          .select("id,store_id,audience,token,device_install_id,platform,updated_at,created_at")
           .order("created_at", { ascending: false }),
         appCloudAdmin
           .from("chat_conversations")
@@ -550,6 +552,7 @@ export async function GET() {
     const leadsByStore = new Map<string, number>();
     const leadsByStore7d = new Map<string, number>();
     const pushByStore = new Map<string, number>();
+    const registeredDevicesByStore = new Map<string, Set<string>>();
     const conversationsByStore = new Map<string, number>();
     const messagesByStore = new Map<string, number>();
     const relayByStore = new Map<string, number>();
@@ -609,7 +612,17 @@ export async function GET() {
 
     for (const row of pushDevices) {
       const storeId = row.store_id || "-";
-      pushByStore.set(storeId, (pushByStore.get(storeId) || 0) + 1);
+      const dedupeKey =
+        (row.device_install_id || "").trim() ||
+        (row.token || "").trim() ||
+        row.id;
+
+      if (!registeredDevicesByStore.has(storeId)) {
+        registeredDevicesByStore.set(storeId, new Set<string>());
+      }
+
+      registeredDevicesByStore.get(storeId)!.add(dedupeKey);
+      pushByStore.set(storeId, registeredDevicesByStore.get(storeId)!.size);
 
       const audience = (row.audience || "unknown").trim() || "unknown";
       pushAudienceMap.set(audience, (pushAudienceMap.get(audience) || 0) + 1);
@@ -681,6 +694,10 @@ export async function GET() {
     ).length;
 
     const activeMemberships = storeMemberships.filter((row) => row.is_active !== false).length;
+    const totalRegisteredDevices = Array.from(registeredDevicesByStore.values()).reduce(
+      (sum, set) => sum + set.size,
+      0,
+    );
     const unreadMessages = chatMessages.filter((row) => row.is_read === false).length;
     const archivedThreads = chatThreadMeta.filter((row) => row.merchant_archived === true).length;
 
@@ -783,7 +800,7 @@ export async function GET() {
           { title: "公告总数", value: formatCount(announcements.length), hint: `已发布 ${formatCount(publishedAnnouncements)} / 草稿 ${formatCount(draftAnnouncements)}` },
           { title: "消息总数", value: formatCount(chatMessages.length), hint: `未读 ${formatCount(unreadMessages)} / 归档线程 ${formatCount(archivedThreads)}` },
           { title: "线索总数", value: formatCount(leads.length), hint: `7天 ${formatCount(Array.from(leadsByStore7d.values()).reduce((a, b) => a + b, 0))}` },
-          { title: "推送设备总数", value: formatCount(pushDevices.length), hint: `受众 ${formatCount(pushAudienceMap.size)} 类` },
+          { title: "注册设备总数", value: formatCount(totalRegisteredDevices), hint: `受众 ${formatCount(pushAudienceMap.size)} 类` },
           { title: "激活 membership", value: formatCount(activeMemberships), hint: "store_memberships.is_active" },
           { title: "business_status 类型", value: formatCount(businessStatusMap.size), hint: "store_profiles.business_status" },
         ],
@@ -917,7 +934,7 @@ export async function GET() {
         tables: [
           {
             title: "Store 目录（真实 App / 用户映射）",
-            headers: ["Store ID", "App 名称", "所属用户", "模块", "状态", "开始时间", "到期时间", "删库时间", "可写"],
+            headers: ["Store ID", "App 名称", "所属用户", "模块", "状态", "注册设备数", "开始时间", "到期时间", "删库时间", "可写"],
             rows: storesWithDirectory.slice(0, 30).map((store) => {
               const directory = storeDirectoryMap.get(store.store_id);
               return [
@@ -926,6 +943,7 @@ export async function GET() {
                 directory?.userLabel || "-",
                 directory?.moduleName || store.module_type || "-",
                 store.service_status,
+                formatCount(pushByStore.get(store.store_id) || 0),
                 formatDateOnly(store.service_start_at),
                 formatDateOnly(store.service_end_at),
                 formatDateOnly(store.delete_at),
@@ -979,6 +997,7 @@ export async function GET() {
           { title: "7d 写入总数", value: formatCount(storeUsageStats.reduce((sum, row) => sum + (row.writes_7d || 0), 0)), hint: "store_usage_stats" },
           { title: "消息总数", value: formatCount(chatMessages.length), hint: `未读 ${formatCount(unreadMessages)}` },
           { title: "会话总数", value: formatCount(chatConversations.length), hint: `归档 ${formatCount(archivedThreads)}` },
+          { title: "注册设备总数", value: formatCount(totalRegisteredDevices), hint: "按 store_id + device_install_id / token 去重" },
           { title: "relay 总数", value: formatCount(chatRelay.length), hint: "chat_relay" },
         ],
         tables: [
@@ -1005,7 +1024,7 @@ export async function GET() {
           },
           {
             title: "云端活跃概览",
-            headers: ["Store ID", "最后输入", "24h写入", "7d写入", "商品", "公告", "7d消息", "7d线索"],
+            headers: ["Store ID", "最后输入", "24h写入", "7d写入", "商品", "公告", "7d消息", "7d线索", "注册设备数"],
             rows: storeUsageStats.slice(0, 30).map((row) => [
               row.store_id,
               formatDateTime(row.last_input_at),
@@ -1015,6 +1034,7 @@ export async function GET() {
               formatCount(row.announcements_count || announcementsByStore.get(row.store_id) || 0),
               formatCount(row.messages_7d || 0),
               formatCount(row.leads_7d || 0),
+              formatCount(pushByStore.get(row.store_id) || 0),
             ]),
           },
         ],
