@@ -489,22 +489,26 @@ export default function AdminChatPanel() {
                         <div className="truncate text-[14px] font-semibold">
                           {conversation.userEmail || conversation.userName || "游客访客"}
                         </div>
-                        <div className="mt-[2px] flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                        <div className="mt-[2px] flex items-center gap-3 text-[11px] text-slate-500">
                           <span className="truncate pr-2">{conversation.sourcePath || "未知页面"}</span>
-                          <span className="shrink-0 text-slate-400">{formatTime(conversation.lastMessageAt)}</span>
                         </div>
                       </div>
 
                       <div className="flex shrink-0 items-start gap-2">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-[4px] text-[10px] font-semibold ${
-                            conversation.status === "open"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-slate-200 text-slate-600"
-                          }`}
-                        >
-                          {conversation.status === "open" ? "活跃" : "关闭"}
-                        </span>
+                        <div className="flex flex-col items-end gap-[3px]">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-[4px] text-[10px] font-semibold ${
+                              conversation.status === "open"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-slate-200 text-slate-600"
+                            }`}
+                          >
+                            {conversation.status === "open" ? "活跃" : "关闭"}
+                          </span>
+                          <span className="shrink-0 text-[10px] text-slate-400">
+                            {formatTime(conversation.lastMessageAt)}
+                          </span>
+                        </div>
 
                         {conversation.adminUnreadCount > 0 && (
                           <span className="inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
