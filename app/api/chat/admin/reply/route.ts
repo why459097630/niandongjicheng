@@ -37,45 +37,65 @@ export async function POST(request: Request) {
     }
 
     const supabase = createAdminClient();
-    const now = new Date().toISOString();
 
-    const { data: currentConversation, error: currentConversationError } = await supabase
+    const { data: conversation, error: conversationError } = await supabase
       .from("support_conversations")
-      .select("user_unread_count")
+      .select("id")
       .eq("id", conversationId)
-      .single();
+      .maybeSingle();
 
-    if (currentConversationError) {
-      throw currentConversationError;
+    if (conversationError) {
+      throw conversationError;
     }
 
-    const { error: insertError } = await supabase
+    if (!conversation) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Conversation not found.",
+        },
+        { status: 404 }
+      );
+    }
+
+    const { data: latestAdminMessage, error: latestError } = await supabase
       .from("support_messages")
-      .insert({
-        conversation_id: conversationId,
-        sender_role: "admin",
-        body: messageBody,
-        admin_user_id: adminCheck.user.id,
-        created_at: now,
-      });
+      .select("body, created_at")
+      .eq("conversation_id", conversationId)
+      .eq("sender_role", "admin")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (insertError) {
-      throw insertError;
+    if (latestError) {
+      throw latestError;
     }
 
-    const { error: updateConversationError } = await supabase
-      .from("support_conversations")
-      .update({
-        status: "open",
-        last_message_preview: messageBody.slice(0, 160),
-        last_message_at: now,
-        user_unread_count: (currentConversation.user_unread_count || 0) + 1,
-        updated_at: now,
-      })
-      .eq("id", conversationId);
+    if (latestAdminMessage) {
+      const latestAt = new Date(latestAdminMessage.created_at).getTime();
+      const nowAt = Date.now();
 
-    if (updateConversationError) {
-      throw updateConversationError;
+      if (
+        latestAdminMessage.body === messageBody &&
+        Number.isFinite(latestAt) &&
+        nowAt - latestAt < 8000
+      ) {
+        return NextResponse.json({
+          ok: true,
+          duplicateSkipped: true,
+        });
+      }
+    }
+
+    const { error: sendError } = await supabase.rpc("support_send_admin_message", {
+      p_conversation_id: conversationId,
+      p_body: messageBody,
+      p_admin_user_id: adminCheck.user.id,
+    });
+
+    if (sendError) {
+      throw sendError;
     }
 
     return NextResponse.json({

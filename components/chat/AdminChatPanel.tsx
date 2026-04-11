@@ -34,6 +34,7 @@ type ConversationsResponse = {
 type MessagesResponse = {
   ok: boolean;
   messages?: ChatMessage[];
+  duplicateSkipped?: boolean;
   error?: string;
 };
 
@@ -55,6 +56,11 @@ function formatTime(value: string) {
   }).format(date);
 }
 
+function isNearBottom(element: HTMLElement) {
+  const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+  return distance < 56;
+}
+
 function MetricPill({
   icon,
   label,
@@ -65,7 +71,7 @@ function MetricPill({
   value: string | number;
 }) {
   return (
-      <div className="rounded-[16px] border border-slate-200/80 bg-slate-50/90 px-4 py-2.5">
+    <div className="rounded-[16px] border border-slate-200/80 bg-slate-50/90 px-4 py-2.5">
       <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
         {icon}
         {label}
@@ -77,9 +83,13 @@ function MetricPill({
 
 export default function AdminChatPanel() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const listPollingRef = useRef(false);
   const messagePollingRef = useRef(false);
   const previousMessageCountRef = useRef(0);
+  const shouldStickToBottomRef = useRef(true);
+  const forceScrollRef = useRef(false);
+  const lastSentRef = useRef<{ body: string; at: number } | null>(null);
 
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState("");
@@ -150,23 +160,17 @@ export default function AdminChatPanel() {
       setConversations(nextConversations);
       setListError(null);
 
-      if (!keepSelection) {
-        if (nextConversations.length > 0) {
-          setSelectedConversationId((prev) => {
-            if (prev && nextConversations.some((item) => item.id === prev)) {
-              return prev;
-            }
-            return nextConversations[0].id;
-          });
-        } else {
-          setSelectedConversationId("");
+      setSelectedConversationId((prev) => {
+        if (nextConversations.length === 0) {
+          return "";
         }
-      } else if (
-        selectedConversationId &&
-        !nextConversations.some((item) => item.id === selectedConversationId)
-      ) {
-        setSelectedConversationId(nextConversations[0]?.id || "");
-      }
+
+        if (keepSelection && prev && nextConversations.some((item) => item.id === prev)) {
+          return prev;
+        }
+
+        return nextConversations[0].id;
+      });
     } catch (error) {
       setListError(error instanceof Error ? error.message : "Failed to load conversations.");
     } finally {
@@ -175,117 +179,160 @@ export default function AdminChatPanel() {
     }
   };
 
-const loadMessages = async (conversationId: string, showLoading = false) => {
-  if (!conversationId || messagePollingRef.current) return;
-
-  try {
-    messagePollingRef.current = true;
-
-    if (showLoading) {
-      setLoadingMessages(true);
+  const loadMessages = async (
+    conversationId: string,
+    options?: {
+      showLoading?: boolean;
+      markRead?: boolean;
+      forceScroll?: boolean;
     }
+  ) => {
+    if (!conversationId || messagePollingRef.current) return;
 
-    const response = await fetch(
-      `/api/chat/admin/messages?conversationId=${encodeURIComponent(conversationId)}`,
-      {
-        method: "GET",
-        cache: "no-store",
+    try {
+      messagePollingRef.current = true;
+
+      if (options?.showLoading) {
+        setLoadingMessages(true);
       }
-    );
 
-    const json = (await response.json()) as MessagesResponse;
+      const markRead = options?.markRead ? "1" : "0";
 
-    if (!response.ok || !json.ok) {
-      throw new Error(json.error || "Failed to load chat messages.");
+      const response = await fetch(
+        `/api/chat/admin/messages?conversationId=${encodeURIComponent(
+          conversationId
+        )}&markRead=${markRead}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      const json = (await response.json()) as MessagesResponse;
+
+      if (!response.ok || !json.ok) {
+        throw new Error(json.error || "Failed to load chat messages.");
+      }
+
+      const nextMessages = json.messages || [];
+      const shouldAutoScroll =
+        options?.forceScroll ||
+        forceScrollRef.current ||
+        previousMessageCountRef.current === 0 ||
+        shouldStickToBottomRef.current;
+
+      setMessages(nextMessages);
+
+      if (options?.markRead) {
+        setConversations((prev) =>
+          prev.map((item) =>
+            item.id === conversationId
+              ? {
+                  ...item,
+                  adminUnreadCount: 0,
+                }
+              : item
+          )
+        );
+      }
+
+      setMessageError(null);
+      setMessagesInitialized(true);
+
+      if (shouldAutoScroll) {
+        window.requestAnimationFrame(() => {
+          bottomRef.current?.scrollIntoView({ behavior: "auto" });
+          forceScrollRef.current = false;
+        });
+      }
+    } catch (error) {
+      setMessageError(error instanceof Error ? error.message : "Failed to load chat messages.");
+    } finally {
+      messagePollingRef.current = false;
+
+      if (options?.showLoading) {
+        setLoadingMessages(false);
+      }
     }
-
-    const nextMessages = json.messages || [];
-    setMessages(nextMessages);
-
-    setConversations((prev) =>
-      prev.map((item) =>
-        item.id === conversationId
-          ? {
-              ...item,
-              adminUnreadCount: 0,
-            }
-          : item
-      )
-    );
-
-    setMessageError(null);
-    setMessagesInitialized(true);
-  } catch (error) {
-    setMessageError(error instanceof Error ? error.message : "Failed to load chat messages.");
-  } finally {
-    messagePollingRef.current = false;
-
-    if (showLoading) {
-      setLoadingMessages(false);
-    }
-  }
-};
+  };
 
   useEffect(() => {
     void loadConversations(false);
   }, []);
 
-useEffect(() => {
-  if (!selectedConversationId) {
+  useEffect(() => {
+    if (!selectedConversationId) {
+      setMessages([]);
+      setMessagesInitialized(false);
+      previousMessageCountRef.current = 0;
+      return;
+    }
+
     setMessages([]);
     setMessagesInitialized(false);
     previousMessageCountRef.current = 0;
-    return;
-  }
+    forceScrollRef.current = true;
 
-  setMessages([]);
-  setMessagesInitialized(false);
-  previousMessageCountRef.current = 0;
-  void loadMessages(selectedConversationId, true);
-}, [selectedConversationId]);
+    void loadMessages(selectedConversationId, {
+      showLoading: true,
+      markRead: document.visibilityState === "visible",
+      forceScroll: true,
+    });
+  }, [selectedConversationId]);
 
   useEffect(() => {
     const listPoll = window.setInterval(() => {
       if (document.hidden) return;
       void loadConversations(true);
-    }, 5000);
+    }, 10000);
 
     return () => {
       window.clearInterval(listPoll);
     };
-  }, [selectedConversationId]);
-
-useEffect(() => {
-  if (!selectedConversationId) return;
-
-  const messagePoll = window.setInterval(() => {
-    if (document.hidden) return;
-    void loadMessages(selectedConversationId, false);
-  }, 2500);
-
-  return () => {
-    window.clearInterval(messagePoll);
-  };
-}, [selectedConversationId]);
+  }, []);
 
   useEffect(() => {
     if (!selectedConversationId) return;
 
-    if (messages.length > previousMessageCountRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "auto" });
-    }
+    const messagePoll = window.setInterval(() => {
+      if (document.hidden) return;
 
+      void loadMessages(selectedConversationId, {
+        markRead: true,
+      });
+    }, 4000);
+
+    return () => {
+      window.clearInterval(messagePoll);
+    };
+  }, [selectedConversationId]);
+
+  useEffect(() => {
     previousMessageCountRef.current = messages.length;
-  }, [messages, selectedConversationId]);
+  }, [messages]);
 
   const handleReply = async () => {
     const nextBody = reply.trim();
 
     if (!selectedConversationId || !nextBody || sending) return;
 
+    const now = Date.now();
+    const lastSent = lastSentRef.current;
+
+    if (lastSent && lastSent.body === nextBody && now - lastSent.at < 1200) {
+      return;
+    }
+
     try {
       setSending(true);
       setMessageError(null);
+
+      lastSentRef.current = {
+        body: nextBody,
+        at: now,
+      };
+
+      forceScrollRef.current = true;
 
       const response = await fetch("/api/chat/admin/reply", {
         method: "POST",
@@ -305,7 +352,14 @@ useEffect(() => {
       }
 
       setReply("");
-      await Promise.all([loadConversations(true), loadMessages(selectedConversationId)]);
+
+      await Promise.all([
+        loadConversations(true),
+        loadMessages(selectedConversationId, {
+          markRead: true,
+          forceScroll: true,
+        }),
+      ]);
     } catch (error) {
       setMessageError(error instanceof Error ? error.message : "Failed to send reply.");
     } finally {
@@ -404,7 +458,10 @@ useEffect(() => {
                   <button
                     key={conversation.id}
                     type="button"
-                    onClick={() => setSelectedConversationId(conversation.id)}
+                    onClick={() => {
+                      setSelectedConversationId(conversation.id);
+                      forceScrollRef.current = true;
+                    }}
                     className={`w-full rounded-[16px] border px-4 py-2.5 text-left transition-all ${
                       isActive
                         ? "border-slate-900 bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.16)]"
@@ -517,7 +574,13 @@ useEffect(() => {
             )}
           </div>
 
-          <div className="max-h-[500px] overflow-y-auto px-6 py-5">
+          <div
+            ref={messagesContainerRef}
+            onScroll={(event) => {
+              shouldStickToBottomRef.current = isNearBottom(event.currentTarget);
+            }}
+            className="max-h-[500px] overflow-y-auto px-6 py-5"
+          >
             {!selectedConversationId ? (
               <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
                 Select a conversation from the left list.
@@ -546,9 +609,15 @@ useEffect(() => {
                               : "border border-slate-200 bg-white text-slate-800"
                           }`}
                         >
-                          <div className="whitespace-pre-wrap break-words">{message.body}</div>
+                          <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                            {message.body}
+                          </div>
                         </div>
-                        <div className={`mt-1.5 text-[11px] text-slate-400 ${isAdmin ? "text-right" : "text-left"}`}>
+                        <div
+                          className={`mt-1.5 text-[11px] text-slate-400 ${
+                            isAdmin ? "text-right" : "text-left"
+                          }`}
+                        >
                           {formatTime(message.createdAt)}
                         </div>
                       </div>

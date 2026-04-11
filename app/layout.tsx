@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import PageViewTracker from "@/components/analytics/PageViewTracker";
-import FloatingChatWidget from "@/components/chat/FloatingChatWidget";
+import FloatingChatGate from "@/components/chat/FloatingChatGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,7 +35,7 @@ export default function RootLayout({
           <PageViewTracker />
         </Suspense>
         {children}
-        <FloatingChatWidget />
+        <FloatingChatGate />
       </body>
     </html>
   );

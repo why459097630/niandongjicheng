@@ -8,10 +8,13 @@ type SendMessageBody = {
   body?: string;
 };
 
-async function resolveConversation(
-  conversationId: string,
-  guestSessionId: string
-) {
+type ConversationRow = {
+  id: string;
+  guest_session_id: string;
+  user_id: string | null;
+};
+
+async function resolveConversation(conversationId: string, guestSessionId: string) {
   const authClient = await createServerClient();
   const {
     data: { user },
@@ -23,7 +26,7 @@ async function resolveConversation(
     .from("support_conversations")
     .select("id, guest_session_id, user_id")
     .eq("id", conversationId)
-    .maybeSingle();
+    .maybeSingle<ConversationRow>();
 
   if (error) {
     throw error;
@@ -33,6 +36,7 @@ async function resolveConversation(
     return {
       supabase,
       conversation: null,
+      user,
     };
   }
 
@@ -43,12 +47,14 @@ async function resolveConversation(
     return {
       supabase,
       conversation: null,
+      user,
     };
   }
 
   return {
     supabase,
     conversation,
+    user,
   };
 }
 
@@ -56,6 +62,7 @@ export async function GET(request: NextRequest) {
   try {
     const conversationId = request.nextUrl.searchParams.get("conversationId")?.trim() || "";
     const guestSessionId = request.nextUrl.searchParams.get("guestSessionId")?.trim() || "";
+    const shouldMarkRead = request.nextUrl.searchParams.get("markRead") === "1";
 
     if (!conversationId || !guestSessionId) {
       return NextResponse.json(
@@ -83,37 +90,21 @@ export async function GET(request: NextRequest) {
       .from("support_messages")
       .select("id, sender_role, body, created_at")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
 
     if (messagesError) {
       throw messagesError;
     }
 
-    const now = new Date().toISOString();
+    if (shouldMarkRead) {
+      const { error: markReadError } = await supabase.rpc("support_mark_user_read", {
+        p_conversation_id: conversation.id,
+      });
 
-    const { error: markReadError } = await supabase
-      .from("support_messages")
-      .update({
-        read_by_user_at: now,
-      })
-      .eq("conversation_id", conversationId)
-      .eq("sender_role", "admin")
-      .is("read_by_user_at", null);
-
-    if (markReadError) {
-      throw markReadError;
-    }
-
-    const { error: resetUnreadError } = await supabase
-      .from("support_conversations")
-      .update({
-        user_unread_count: 0,
-        updated_at: now,
-      })
-      .eq("id", conversationId);
-
-    if (resetUnreadError) {
-      throw resetUnreadError;
+      if (markReadError) {
+        throw markReadError;
+      }
     }
 
     return NextResponse.json({
@@ -166,45 +157,43 @@ export async function POST(request: Request) {
       );
     }
 
-    const now = new Date().toISOString();
-
-    const { data: currentConversation, error: currentConversationError } = await supabase
-      .from("support_conversations")
-      .select("admin_unread_count")
-      .eq("id", conversationId)
-      .single();
-
-    if (currentConversationError) {
-      throw currentConversationError;
-    }
-
-    const { error: insertError } = await supabase
+    const { data: latestUserMessage, error: latestError } = await supabase
       .from("support_messages")
-      .insert({
-        conversation_id: conversationId,
-        sender_role: "user",
-        body: messageBody,
-        created_at: now,
-      });
+      .select("body, created_at")
+      .eq("conversation_id", conversationId)
+      .eq("sender_role", "user")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (insertError) {
-      throw insertError;
+    if (latestError) {
+      throw latestError;
     }
 
-const { error: updateConversationError } = await supabase
-  .from("support_conversations")
-  .update({
-    status: "open",
-    last_message_preview: messageBody.slice(0, 160),
-    last_message_at: now,
-    admin_unread_count: (currentConversation.admin_unread_count || 0) + 1,
-    user_unread_count: 0,
-    updated_at: now,
-  })
-  .eq("id", conversationId);
+    if (latestUserMessage) {
+      const latestAt = new Date(latestUserMessage.created_at).getTime();
+      const nowAt = Date.now();
 
-    if (updateConversationError) {
-      throw updateConversationError;
+      if (
+        latestUserMessage.body === messageBody &&
+        Number.isFinite(latestAt) &&
+        nowAt - latestAt < 8000
+      ) {
+        return NextResponse.json({
+          ok: true,
+          duplicateSkipped: true,
+        });
+      }
+    }
+
+    const { error: sendError } = await supabase.rpc("support_send_user_message", {
+      p_conversation_id: conversation.id,
+      p_body: messageBody,
+    });
+
+    if (sendError) {
+      throw sendError;
     }
 
     return NextResponse.json({

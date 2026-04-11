@@ -9,6 +9,30 @@ type BootstrapBody = {
   sourcePath?: string | null;
 };
 
+type ConversationRow = {
+  id: string;
+  guest_session_id: string;
+  user_id: string | null;
+  user_email: string | null;
+  user_name: string | null;
+  source_path: string | null;
+  latest_source_path: string | null;
+  last_message_at: string;
+};
+
+function createGuestSessionId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `guest_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeName(value: string | null) {
+  const next = value?.trim() || "";
+  return next || null;
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as BootstrapBody;
@@ -16,7 +40,7 @@ export async function POST(request: Request) {
     const guestSessionId = body.guestSessionId?.trim() || "";
     const sourcePath = body.sourcePath?.trim() || null;
     const submittedEmail = body.userEmail?.trim() || null;
-    const submittedName = body.userName?.trim() || null;
+    const submittedName = normalizeName(body.userName || null);
 
     if (!guestSessionId) {
       return NextResponse.json(
@@ -34,32 +58,40 @@ export async function POST(request: Request) {
     } = await authClient.auth.getUser();
 
     const supabase = createAdminClient();
-
-    const { data: existingConversation, error: selectError } = await supabase
-      .from("support_conversations")
-      .select("id, guest_session_id, user_email, user_name, source_path, latest_source_path")
-      .eq("guest_session_id", guestSessionId)
-      .maybeSingle();
-
-    if (selectError) {
-      throw selectError;
-    }
-
     const userEmail = user?.email || submittedEmail;
-    const userName = submittedName;
+    const userName = submittedName || (userEmail ? userEmail.split("@")[0] || null : null);
     const now = new Date().toISOString();
 
-    if (existingConversation) {
+    let userConversation: ConversationRow | null = null;
+
+    if (user?.id) {
+      const { data, error } = await supabase
+        .from("support_conversations")
+        .select(
+          "id, guest_session_id, user_id, user_email, user_name, source_path, latest_source_path, last_message_at"
+        )
+        .eq("user_id", user.id)
+        .order("last_message_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      userConversation = data;
+    }
+
+    if (userConversation) {
       const { error: updateError } = await supabase
         .from("support_conversations")
         .update({
-          user_id: user?.id || null,
-          user_email: userEmail,
-          user_name: userName,
-          latest_source_path: sourcePath,
+          user_email: userEmail || userConversation.user_email,
+          user_name: userConversation.user_name || userName,
+          latest_source_path: sourcePath || userConversation.latest_source_path,
           updated_at: now,
         })
-        .eq("id", existingConversation.id);
+        .eq("id", userConversation.id);
 
       if (updateError) {
         throw updateError;
@@ -68,19 +100,73 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         conversation: {
-          id: existingConversation.id,
-          guestSessionId,
-          userEmail,
-          userName,
-          sourcePath: sourcePath || existingConversation.latest_source_path || existingConversation.source_path,
+          id: userConversation.id,
+          guestSessionId: userConversation.guest_session_id,
+          userEmail: userEmail || userConversation.user_email,
+          userName: userConversation.user_name || userName,
+          sourcePath:
+            sourcePath || userConversation.latest_source_path || userConversation.source_path,
         },
       });
     }
 
+    const { data: guestCandidates, error: guestError } = await supabase
+      .from("support_conversations")
+      .select(
+        "id, guest_session_id, user_id, user_email, user_name, source_path, latest_source_path, last_message_at"
+      )
+      .eq("guest_session_id", guestSessionId)
+      .order("last_message_at", { ascending: false })
+      .limit(20);
+
+    if (guestError) {
+      throw guestError;
+    }
+
+    const reusableGuestConversation =
+      (guestCandidates || []).find((item) => !item.user_id || item.user_id === user?.id) || null;
+
+    if (reusableGuestConversation) {
+      const { error: updateError } = await supabase
+        .from("support_conversations")
+        .update({
+          user_id: reusableGuestConversation.user_id || user?.id || null,
+          user_email: userEmail || reusableGuestConversation.user_email,
+          user_name: reusableGuestConversation.user_name || userName,
+          latest_source_path: sourcePath || reusableGuestConversation.latest_source_path,
+          updated_at: now,
+        })
+        .eq("id", reusableGuestConversation.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      return NextResponse.json({
+        ok: true,
+        conversation: {
+          id: reusableGuestConversation.id,
+          guestSessionId: reusableGuestConversation.guest_session_id,
+          userEmail: userEmail || reusableGuestConversation.user_email,
+          userName: reusableGuestConversation.user_name || userName,
+          sourcePath:
+            sourcePath ||
+            reusableGuestConversation.latest_source_path ||
+            reusableGuestConversation.source_path,
+        },
+      });
+    }
+
+    const hasGuestConflict = (guestCandidates || []).some(
+      (item) => !!item.user_id && item.user_id !== user?.id
+    );
+
+    const nextGuestSessionId = hasGuestConflict ? createGuestSessionId() : guestSessionId;
+
     const { data: insertedConversation, error: insertError } = await supabase
       .from("support_conversations")
       .insert({
-        guest_session_id: guestSessionId,
+        guest_session_id: nextGuestSessionId,
         user_id: user?.id || null,
         user_email: userEmail,
         user_name: userName,
@@ -105,7 +191,7 @@ export async function POST(request: Request) {
       ok: true,
       conversation: {
         id: insertedConversation.id,
-        guestSessionId,
+        guestSessionId: nextGuestSessionId,
         userEmail,
         userName,
         sourcePath,

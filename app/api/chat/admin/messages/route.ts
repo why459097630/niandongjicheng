@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     }
 
     const conversationId = request.nextUrl.searchParams.get("conversationId")?.trim() || "";
+    const shouldMarkRead = request.nextUrl.searchParams.get("markRead") === "1";
 
     if (!conversationId) {
       return NextResponse.json(
@@ -30,41 +31,45 @@ export async function GET(request: NextRequest) {
 
     const supabase = createAdminClient();
 
+    const { data: conversation, error: conversationError } = await supabase
+      .from("support_conversations")
+      .select("id")
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    if (conversationError) {
+      throw conversationError;
+    }
+
+    if (!conversation) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Conversation not found.",
+        },
+        { status: 404 }
+      );
+    }
+
     const { data: messages, error: messagesError } = await supabase
       .from("support_messages")
       .select("id, sender_role, body, created_at")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
 
     if (messagesError) {
       throw messagesError;
     }
 
-    const now = new Date().toISOString();
+    if (shouldMarkRead) {
+      const { error: markReadError } = await supabase.rpc("support_mark_admin_read", {
+        p_conversation_id: conversationId,
+      });
 
-    const { error: markReadError } = await supabase
-      .from("support_messages")
-      .update({
-        read_by_admin_at: now,
-      })
-      .eq("conversation_id", conversationId)
-      .eq("sender_role", "user")
-      .is("read_by_admin_at", null);
-
-    if (markReadError) {
-      throw markReadError;
-    }
-
-    const { error: resetUnreadError } = await supabase
-      .from("support_conversations")
-      .update({
-        admin_unread_count: 0,
-        updated_at: now,
-      })
-      .eq("id", conversationId);
-
-    if (resetUnreadError) {
-      throw resetUnreadError;
+      if (markReadError) {
+        throw markReadError;
+      }
     }
 
     return NextResponse.json({

@@ -45,6 +45,7 @@ type BootstrapResponse = {
 type MessagesResponse = {
   ok: boolean;
   messages?: ChatMessage[];
+  duplicateSkipped?: boolean;
   error?: string;
 };
 
@@ -72,6 +73,11 @@ function createGuestSessionId() {
   return `guest_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function isNearBottom(element: HTMLElement) {
+  const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+  return distance < 48;
+}
+
 export default function FloatingChatWidget() {
   const supabase = useMemo<ChatSupabaseClient | null>(() => {
     const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -88,11 +94,15 @@ export default function FloatingChatWidget() {
     }
   }, []);
 
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagePollingRef = useRef(false);
   const summaryPollingRef = useRef(false);
   const contactSaveTimerRef = useRef<number | null>(null);
   const previousMessageCountRef = useRef(0);
+  const shouldStickToBottomRef = useRef(true);
+  const forceScrollRef = useRef(false);
+  const lastSentRef = useRef<{ body: string; at: number } | null>(null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
@@ -108,6 +118,14 @@ export default function FloatingChatWidget() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const syncGuestSessionId = (nextId: string) => {
+    setGuestSessionId(nextId);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(GUEST_SESSION_STORAGE_KEY, nextId);
+    }
+  };
+
   useEffect(() => {
     const existing =
       typeof window !== "undefined"
@@ -120,12 +138,7 @@ export default function FloatingChatWidget() {
     }
 
     const nextId = createGuestSessionId();
-
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(GUEST_SESSION_STORAGE_KEY, nextId);
-    }
-
-    setGuestSessionId(nextId);
+    syncGuestSessionId(nextId);
   }, []);
 
   useEffect(() => {
@@ -142,8 +155,8 @@ export default function FloatingChatWidget() {
       const email = data.user?.email || "";
       setUserEmail(email);
 
-      if (email && !userName) {
-        setUserName(email.split("@")[0] || "");
+      if (email) {
+        setUserName((prev) => prev || email.split("@")[0] || "");
       }
 
       setAuthChecked(true);
@@ -168,7 +181,7 @@ export default function FloatingChatWidget() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [supabase, userName]);
+  }, [supabase]);
 
   const saveContactInfo = async () => {
     if ((!conversationId && !guestSessionId) || (!userEmail.trim() && !userName.trim())) {
@@ -189,8 +202,12 @@ export default function FloatingChatWidget() {
         }),
       });
     } catch {
-      // 联系方式保存失败不阻断聊天主流程
+      // 不阻断聊天主流程
     }
+  };
+
+  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    bottomRef.current?.scrollIntoView({ behavior });
   };
 
   const refreshConversationSummary = async () => {
@@ -218,6 +235,10 @@ export default function FloatingChatWidget() {
       setConversationId(json.conversation.id);
       setUnreadCount(json.conversation.userUnreadCount || 0);
 
+      if (json.conversation.guestSessionId && json.conversation.guestSessionId !== guestSessionId) {
+        syncGuestSessionId(json.conversation.guestSessionId);
+      }
+
       if (!userEmail && json.conversation.userEmail) {
         setUserEmail(json.conversation.userEmail);
       }
@@ -226,22 +247,31 @@ export default function FloatingChatWidget() {
         setUserName(json.conversation.userName);
       }
     } catch {
-      // 挂件按钮不要因为摘要请求失败而报整块错误
+      // 挂件按钮不要整块报错
     } finally {
       summaryPollingRef.current = false;
     }
   };
 
-  const loadMessages = async (targetConversationId: string, targetGuestSessionId: string) => {
+  const loadMessages = async (
+    targetConversationId: string,
+    targetGuestSessionId: string,
+    options?: {
+      markRead?: boolean;
+      forceScroll?: boolean;
+    }
+  ) => {
     if (messagePollingRef.current) return;
 
     try {
       messagePollingRef.current = true;
 
+      const markRead = options?.markRead ? "1" : "0";
+
       const response = await fetch(
         `/api/chat/messages?conversationId=${encodeURIComponent(
           targetConversationId
-        )}&guestSessionId=${encodeURIComponent(targetGuestSessionId)}`,
+        )}&guestSessionId=${encodeURIComponent(targetGuestSessionId)}&markRead=${markRead}`,
         {
           method: "GET",
           cache: "no-store",
@@ -255,9 +285,25 @@ export default function FloatingChatWidget() {
       }
 
       const nextMessages = json.messages || [];
+      const shouldAutoScroll =
+        options?.forceScroll ||
+        forceScrollRef.current ||
+        previousMessageCountRef.current === 0 ||
+        shouldStickToBottomRef.current;
+
       setMessages(nextMessages);
-      setUnreadCount(0);
       setLoadError(null);
+
+      if (options?.markRead) {
+        setUnreadCount(0);
+      }
+
+      if (shouldAutoScroll) {
+        window.requestAnimationFrame(() => {
+          scrollToBottom("auto");
+          forceScrollRef.current = false;
+        });
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Failed to load messages.");
     } finally {
@@ -293,6 +339,10 @@ export default function FloatingChatWidget() {
 
       setConversationId(json.conversation.id);
 
+      if (json.conversation.guestSessionId && json.conversation.guestSessionId !== guestSessionId) {
+        syncGuestSessionId(json.conversation.guestSessionId);
+      }
+
       if (!userEmail && json.conversation.userEmail) {
         setUserEmail(json.conversation.userEmail);
       }
@@ -301,7 +351,13 @@ export default function FloatingChatWidget() {
         setUserName(json.conversation.userName);
       }
 
-      await loadMessages(json.conversation.id, guestSessionId);
+      forceScrollRef.current = true;
+
+      await loadMessages(json.conversation.id, json.conversation.guestSessionId, {
+        markRead: document.visibilityState === "visible",
+        forceScroll: true,
+      });
+
       await refreshConversationSummary();
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Failed to start support chat.");
@@ -311,22 +367,25 @@ export default function FloatingChatWidget() {
   };
 
   useEffect(() => {
-    if (!guestSessionId) return;
+    if (!guestSessionId || !authChecked) return;
     void refreshConversationSummary();
-  }, [guestSessionId]);
+  }, [guestSessionId, authChecked]);
 
   useEffect(() => {
-    if (!isOpen || !guestSessionId) return;
+    if (!isOpen || !guestSessionId || !authChecked) return;
     void bootstrapConversation();
-  }, [isOpen, guestSessionId]);
+  }, [isOpen, guestSessionId, authChecked]);
 
   useEffect(() => {
     if (!isOpen || !conversationId || !guestSessionId) return;
 
     const poll = window.setInterval(() => {
       if (document.hidden) return;
-      void loadMessages(conversationId, guestSessionId);
-    }, 2000);
+
+      void loadMessages(conversationId, guestSessionId, {
+        markRead: true,
+      });
+    }, 4000);
 
     return () => {
       window.clearInterval(poll);
@@ -339,7 +398,7 @@ export default function FloatingChatWidget() {
     const poll = window.setInterval(() => {
       if (document.hidden) return;
       void refreshConversationSummary();
-    }, 6000);
+    }, 12000);
 
     return () => {
       window.clearInterval(poll);
@@ -347,17 +406,8 @@ export default function FloatingChatWidget() {
   }, [isOpen, guestSessionId]);
 
   useEffect(() => {
-    if (!isOpen) {
-      previousMessageCountRef.current = messages.length;
-      return;
-    }
-
-    if (messages.length > previousMessageCountRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "auto" });
-    }
-
     previousMessageCountRef.current = messages.length;
-  }, [messages, isOpen]);
+  }, [messages]);
 
   useEffect(() => {
     if (!isOpen || !conversationId) return;
@@ -368,7 +418,7 @@ export default function FloatingChatWidget() {
 
     contactSaveTimerRef.current = window.setTimeout(() => {
       void saveContactInfo();
-    }, 600);
+    }, 700);
 
     return () => {
       if (contactSaveTimerRef.current) {
@@ -382,11 +432,25 @@ export default function FloatingChatWidget() {
 
     if (!nextBody || !conversationId || !guestSessionId || sending) return;
 
+    const now = Date.now();
+    const lastSent = lastSentRef.current;
+
+    if (lastSent && lastSent.body === nextBody && now - lastSent.at < 1200) {
+      return;
+    }
+
     try {
       setSending(true);
       setLoadError(null);
 
+      lastSentRef.current = {
+        body: nextBody,
+        at: now,
+      };
+
       await saveContactInfo();
+
+      forceScrollRef.current = true;
 
       const response = await fetch("/api/chat/messages", {
         method: "POST",
@@ -407,7 +471,12 @@ export default function FloatingChatWidget() {
       }
 
       setDraft("");
-      await loadMessages(conversationId, guestSessionId);
+
+      await loadMessages(conversationId, guestSessionId, {
+        markRead: document.visibilityState === "visible",
+        forceScroll: true,
+      });
+
       await refreshConversationSummary();
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Failed to send message.");
@@ -503,7 +572,13 @@ export default function FloatingChatWidget() {
                 </div>
               ) : null}
 
-              <div className="max-h-[360px] overflow-y-auto px-5 py-4">
+              <div
+                ref={messagesContainerRef}
+                onScroll={(event) => {
+                  shouldStickToBottomRef.current = isNearBottom(event.currentTarget);
+                }}
+                className="max-h-[360px] overflow-y-auto px-5 py-4"
+              >
                 {bootstrapping ? (
                   <div className="text-sm text-slate-500">Opening support chat...</div>
                 ) : messages.length === 0 ? (
@@ -527,7 +602,9 @@ export default function FloatingChatWidget() {
                                 : "border border-slate-200 bg-white text-slate-800"
                             }`}
                           >
-                            <div className="whitespace-pre-wrap break-words">{message.body}</div>
+                            <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                              {message.body}
+                            </div>
                             <div
                               className={`mt-1.5 text-[11px] ${
                                 isUser ? "text-white/60" : "text-slate-400"
