@@ -45,9 +45,7 @@ export async function POST() {
       );
     }
 
-    const stripe = new Stripe(stripeSecretKey, {
-      apiVersion: "2025-03-31.basil",
-    });
+    const stripe = new Stripe(stripeSecretKey);
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
