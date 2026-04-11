@@ -489,8 +489,8 @@ export default function AdminChatPanel() {
                         <div className="truncate text-[14px] font-semibold">
                           {conversation.userEmail || conversation.userName || "游客访客"}
                         </div>
-                        <div className="mt-[2px] flex items-center gap-2 text-[11px] text-slate-500">
-                          <span className="truncate">{conversation.sourcePath || "未知页面"}</span>
+                        <div className="mt-[2px] flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                          <span className="truncate pr-2">{conversation.sourcePath || "未知页面"}</span>
                           <span className="shrink-0 text-slate-400">{formatTime(conversation.lastMessageAt)}</span>
                         </div>
                       </div>
