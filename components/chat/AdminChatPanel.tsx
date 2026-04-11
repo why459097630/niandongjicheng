@@ -486,7 +486,7 @@ export default function AdminChatPanel() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1 pr-2">
-                        <div className="text-[14px] font-semibold leading-tight break-all">
+                        <div className="text-[14px] font-semibold leading-tight break-words">
                           {conversation.userEmail || conversation.userName || "游客访客"}
                         </div>
                         <div className="mt-[2px] flex items-center gap-3 text-[11px] text-slate-500">
