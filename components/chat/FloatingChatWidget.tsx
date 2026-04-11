@@ -538,12 +538,10 @@ export default function FloatingChatWidget() {
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="fixed bottom-6 right-6 z-[80] inline-flex h-14 items-center justify-center rounded-full border border-white/80 bg-white/90 px-5.5 text-[15px] font-semibold tracking-[-0.02em] text-slate-900 shadow-[0_18px_44px_rgba(168,85,247,0.16),0_10px_24px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-fuchsia-200 hover:bg-white"
+        className="fixed bottom-6 right-6 z-[80] inline-flex h-14 items-center justify-center rounded-full border border-white/80 bg-white/90 px-5 text-sm font-semibold text-slate-900 shadow-[0_20px_50px_rgba(15,23,42,0.18)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:bg-white"
       >
-        <div className="relative mr-2.5">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-fuchsia-200/70 bg-fuchsia-50/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-            <MessageCircle className="h-[18px] w-[18px] text-fuchsia-500" />
-          </span>
+        <div className="relative mr-2">
+          <MessageCircle className="h-5 w-5 text-fuchsia-500" />
           {!isOpen && unreadCount > 0 ? (
             <span className="absolute -right-2 -top-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
               {unreadCount > 9 ? "9+" : unreadCount}
