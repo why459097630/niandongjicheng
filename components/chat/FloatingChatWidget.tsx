@@ -654,19 +654,22 @@ export default function FloatingChatWidget() {
                             <div className="max-w-[80%]">
                               <div
                                 className={`rounded-[15px] px-3 py-2 text-sm transition-all duration-200 ${
-                                isUser
-                                  ? "bg-gradient-to-br from-fuchsia-600 via-purple-600 to-indigo-600 text-white shadow-[0_18px_40px_rgba(168,85,247,0.32)]"
-                                  : "bg-white/78 text-slate-800 ring-1 ring-white/75 shadow-[0_14px_32px_rgba(15,23,42,0.08)] backdrop-blur-md"
-                              }`}
+                                  isUser
+                                    ? "bg-gradient-to-br from-fuchsia-600 via-purple-600 to-indigo-600 text-white shadow-[0_18px_40px_rgba(168,85,247,0.32)]"
+                                    : "bg-white/78 text-slate-800 ring-1 ring-white/75 shadow-[0_14px_32px_rgba(15,23,42,0.08)] backdrop-blur-md"
+                                }`}
                               >
-                              <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                                {message.body}
+                                <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                                  {message.body}
+                                </div>
                               </div>
-                              </div>
-                              <div className={`mt-1 text-[11px] ${isUser ? "text-right text-white/75" : "text-left text-slate-500"}`}>
+                              <div
+                                className={`mt-1 text-[11px] ${
+                                  isUser ? "text-right text-white/75" : "text-left text-slate-500"
+                                }`}
+                              >
                                 {formatMessageTime(message.createdAt)}
                               </div>
-                            </div>
                             </div>
                           </motion.div>
                         );
