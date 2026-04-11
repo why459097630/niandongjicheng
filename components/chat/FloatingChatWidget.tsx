@@ -566,9 +566,7 @@ export default function FloatingChatWidget() {
                   <div className="bg-gradient-to-r from-fuchsia-600 to-purple-600 bg-clip-text text-[15px] font-semibold tracking-[-0.02em] text-transparent">
                     Think it Done Chat
                   </div>
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500">
-                    <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/60" />
-                  </span>
+                  
                 </div>
                 <div className="mt-1 text-[11px] text-slate-400">
                   Replies may be delayed due to time zone differences
