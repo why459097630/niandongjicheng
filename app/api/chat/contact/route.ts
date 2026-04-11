@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { verifyGuestAccessToken } from "@/lib/chat/guestAccess";
 
 type ContactBody = {
   conversationId?: string;
   guestSessionId?: string;
+  accessToken?: string;
   userEmail?: string | null;
   userName?: string | null;
 };
@@ -28,6 +30,7 @@ export async function POST(request: Request) {
 
     const conversationId = body.conversationId?.trim() || "";
     const guestSessionId = body.guestSessionId?.trim() || "";
+    const accessToken = body.accessToken?.trim() || "";
     const submittedEmail = body.userEmail?.trim() || null;
     const submittedName = normalizeName(body.userName || null);
 
@@ -86,7 +89,12 @@ export async function POST(request: Request) {
           return userMatched || (guestMatched && (!item.user_id || item.user_id === user.id));
         }
 
-        return guestMatched && !item.user_id;
+        const guestAuthorized =
+          guestMatched &&
+          !!accessToken &&
+          verifyGuestAccessToken(accessToken, item.id, item.guest_session_id);
+
+        return guestAuthorized && !item.user_id;
       }) || null;
 
     if (!conversation) {

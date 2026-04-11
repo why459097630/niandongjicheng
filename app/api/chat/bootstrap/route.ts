@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createGuestAccessToken } from "@/lib/chat/guestAccess";
 
 type BootstrapBody = {
   guestSessionId?: string;
@@ -106,6 +107,10 @@ export async function POST(request: Request) {
           userName: userConversation.user_name || userName,
           sourcePath:
             sourcePath || userConversation.latest_source_path || userConversation.source_path,
+          accessToken: createGuestAccessToken(
+            userConversation.id,
+            userConversation.guest_session_id
+          ),
         },
       });
     }
@@ -153,6 +158,10 @@ export async function POST(request: Request) {
             sourcePath ||
             reusableGuestConversation.latest_source_path ||
             reusableGuestConversation.source_path,
+          accessToken: createGuestAccessToken(
+            reusableGuestConversation.id,
+            reusableGuestConversation.guest_session_id
+          ),
         },
       });
     }
@@ -195,6 +204,7 @@ export async function POST(request: Request) {
         userEmail,
         userName,
         sourcePath,
+        accessToken: createGuestAccessToken(insertedConversation.id, nextGuestSessionId),
       },
     });
   } catch (error) {

@@ -44,6 +44,10 @@ type StatusResponse = {
   error?: string;
 };
 
+const ADMIN_CONVERSATION_LIMIT = 100;
+const ADMIN_MESSAGE_LIMIT = 100;
+const MAX_ADMIN_REPLY_LENGTH = 2000;
+
 function formatTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -135,126 +139,129 @@ export default function AdminChatPanel() {
   const unreadCount = conversations.reduce((sum, item) => sum + item.adminUnreadCount, 0);
   const closedCount = conversations.filter((item) => item.status === "closed").length;
 
-  const loadConversations = async (keepSelection = true) => {
-    if (listPollingRef.current) return;
+const loadConversations = async (keepSelection = true) => {
+  if (listPollingRef.current) return;
 
-    try {
-      listPollingRef.current = true;
+  try {
+    listPollingRef.current = true;
 
-      if (!keepSelection) {
-        setLoadingList(true);
-      }
+    if (!keepSelection) {
+      setLoadingList(true);
+    }
 
-      const response = await fetch("/api/chat/admin/conversations", {
+    const response = await fetch(
+      `/api/chat/admin/conversations?limit=${ADMIN_CONVERSATION_LIMIT}`,
+      {
         method: "GET",
         cache: "no-store",
-      });
+      }
+    );
 
-      const json = (await response.json()) as ConversationsResponse;
+    const json = (await response.json()) as ConversationsResponse;
 
-      if (!response.ok || !json.ok) {
-        throw new Error(json.error || "Failed to load conversations.");
+    if (!response.ok || !json.ok) {
+      throw new Error(json.error || "Failed to load conversations.");
+    }
+
+    const nextConversations = json.conversations || [];
+    setConversations(nextConversations);
+    setListError(null);
+
+    setSelectedConversationId((prev) => {
+      if (nextConversations.length === 0) {
+        return "";
       }
 
-      const nextConversations = json.conversations || [];
-      setConversations(nextConversations);
-      setListError(null);
-
-      setSelectedConversationId((prev) => {
-        if (nextConversations.length === 0) {
-          return "";
-        }
-
-        if (keepSelection && prev && nextConversations.some((item) => item.id === prev)) {
-          return prev;
-        }
-
-        return nextConversations[0].id;
-      });
-    } catch (error) {
-      setListError(error instanceof Error ? error.message : "Failed to load conversations.");
-    } finally {
-      listPollingRef.current = false;
-      setLoadingList(false);
-    }
-  };
-
-  const loadMessages = async (
-    conversationId: string,
-    options?: {
-      showLoading?: boolean;
-      markRead?: boolean;
-      forceScroll?: boolean;
-    }
-  ) => {
-    if (!conversationId || messagePollingRef.current) return;
-
-    try {
-      messagePollingRef.current = true;
-
-      if (options?.showLoading) {
-        setLoadingMessages(true);
+      if (keepSelection && prev && nextConversations.some((item) => item.id === prev)) {
+        return prev;
       }
 
-      const markRead = options?.markRead ? "1" : "0";
+      return nextConversations[0].id;
+    });
+  } catch (error) {
+    setListError(error instanceof Error ? error.message : "Failed to load conversations.");
+  } finally {
+    listPollingRef.current = false;
+    setLoadingList(false);
+  }
+};
 
-      const response = await fetch(
-        `/api/chat/admin/messages?conversationId=${encodeURIComponent(
-          conversationId
-        )}&markRead=${markRead}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        }
+const loadMessages = async (
+  conversationId: string,
+  options?: {
+    showLoading?: boolean;
+    markRead?: boolean;
+    forceScroll?: boolean;
+  }
+) => {
+  if (!conversationId || messagePollingRef.current) return;
+
+  try {
+    messagePollingRef.current = true;
+
+    if (options?.showLoading) {
+      setLoadingMessages(true);
+    }
+
+    const markRead = options?.markRead ? "1" : "0";
+
+    const response = await fetch(
+      `/api/chat/admin/messages?conversationId=${encodeURIComponent(
+        conversationId
+      )}&markRead=${markRead}&limit=${ADMIN_MESSAGE_LIMIT}`,
+      {
+        method: "GET",
+        cache: "no-store",
+      }
+    );
+
+    const json = (await response.json()) as MessagesResponse;
+
+    if (!response.ok || !json.ok) {
+      throw new Error(json.error || "Failed to load chat messages.");
+    }
+
+    const nextMessages = json.messages || [];
+    const shouldAutoScroll =
+      options?.forceScroll ||
+      forceScrollRef.current ||
+      previousMessageCountRef.current === 0 ||
+      shouldStickToBottomRef.current;
+
+    setMessages(nextMessages);
+
+    if (options?.markRead) {
+      setConversations((prev) =>
+        prev.map((item) =>
+          item.id === conversationId
+            ? {
+                ...item,
+                adminUnreadCount: 0,
+              }
+            : item
+        )
       );
-
-      const json = (await response.json()) as MessagesResponse;
-
-      if (!response.ok || !json.ok) {
-        throw new Error(json.error || "Failed to load chat messages.");
-      }
-
-      const nextMessages = json.messages || [];
-      const shouldAutoScroll =
-        options?.forceScroll ||
-        forceScrollRef.current ||
-        previousMessageCountRef.current === 0 ||
-        shouldStickToBottomRef.current;
-
-      setMessages(nextMessages);
-
-      if (options?.markRead) {
-        setConversations((prev) =>
-          prev.map((item) =>
-            item.id === conversationId
-              ? {
-                  ...item,
-                  adminUnreadCount: 0,
-                }
-              : item
-          )
-        );
-      }
-
-      setMessageError(null);
-      setMessagesInitialized(true);
-
-      if (shouldAutoScroll) {
-        window.requestAnimationFrame(() => {
-          bottomRef.current?.scrollIntoView({ behavior: "auto" });
-          forceScrollRef.current = false;
-        });
-      }
-    } catch (error) {
-      setMessageError(error instanceof Error ? error.message : "Failed to load chat messages.");
-    } finally {
-      messagePollingRef.current = false;
-
-      if (options?.showLoading) {
-        setLoadingMessages(false);
-      }
     }
-  };
+
+    setMessageError(null);
+    setMessagesInitialized(true);
+
+    if (shouldAutoScroll) {
+      window.requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "auto" });
+        forceScrollRef.current = false;
+      });
+    }
+  } catch (error) {
+    setMessageError(error instanceof Error ? error.message : "Failed to load chat messages.");
+  } finally {
+    messagePollingRef.current = false;
+
+    if (options?.showLoading) {
+      setLoadingMessages(false);
+    }
+  }
+};
 
   useEffect(() => {
     void loadConversations(false);
@@ -280,92 +287,97 @@ export default function AdminChatPanel() {
     });
   }, [selectedConversationId]);
 
-  useEffect(() => {
-    const listPoll = window.setInterval(() => {
-      if (document.hidden) return;
-      void loadConversations(true);
-    }, 10000);
+useEffect(() => {
+  const listPoll = window.setInterval(() => {
+    if (document.hidden) return;
+    void loadConversations(true);
+  }, 15000);
 
-    return () => {
-      window.clearInterval(listPoll);
-    };
-  }, []);
+  return () => {
+    window.clearInterval(listPoll);
+  };
+}, []);
 
-  useEffect(() => {
-    if (!selectedConversationId) return;
+useEffect(() => {
+  if (!selectedConversationId) return;
 
-    const messagePoll = window.setInterval(() => {
-      if (document.hidden) return;
+  const messagePoll = window.setInterval(() => {
+    if (document.hidden) return;
 
-      void loadMessages(selectedConversationId, {
-        markRead: true,
-      });
-    }, 4000);
+    void loadMessages(selectedConversationId, {
+      markRead: true,
+    });
+  }, 6000);
 
-    return () => {
-      window.clearInterval(messagePoll);
-    };
-  }, [selectedConversationId]);
+  return () => {
+    window.clearInterval(messagePoll);
+  };
+}, [selectedConversationId]);
 
   useEffect(() => {
     previousMessageCountRef.current = messages.length;
   }, [messages]);
 
-  const handleReply = async () => {
-    const nextBody = reply.trim();
+const handleReply = async () => {
+  const nextBody = reply.trim();
 
-    if (!selectedConversationId || !nextBody || sending) return;
+  if (!selectedConversationId || !nextBody || sending) return;
 
-    const now = Date.now();
-    const lastSent = lastSentRef.current;
+  if (nextBody.length > MAX_ADMIN_REPLY_LENGTH) {
+    setMessageError(`回复内容不能超过 ${MAX_ADMIN_REPLY_LENGTH} 个字符。`);
+    return;
+  }
 
-    if (lastSent && lastSent.body === nextBody && now - lastSent.at < 1200) {
-      return;
-    }
+  const now = Date.now();
+  const lastSent = lastSentRef.current;
 
-    try {
-      setSending(true);
-      setMessageError(null);
+  if (lastSent && lastSent.body === nextBody && now - lastSent.at < 1200) {
+    return;
+  }
 
-      lastSentRef.current = {
+  try {
+    setSending(true);
+    setMessageError(null);
+
+    lastSentRef.current = {
+      body: nextBody,
+      at: now,
+    };
+
+    forceScrollRef.current = true;
+
+    const response = await fetch("/api/chat/admin/reply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        conversationId: selectedConversationId,
         body: nextBody,
-        at: now,
-      };
+      }),
+    });
 
-      forceScrollRef.current = true;
+    const json = (await response.json()) as MessagesResponse;
 
-      const response = await fetch("/api/chat/admin/reply", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          conversationId: selectedConversationId,
-          body: nextBody,
-        }),
-      });
-
-      const json = (await response.json()) as MessagesResponse;
-
-      if (!response.ok || !json.ok) {
-        throw new Error(json.error || "Failed to send reply.");
-      }
-
-      setReply("");
-
-      await Promise.all([
-        loadConversations(true),
-        loadMessages(selectedConversationId, {
-          markRead: true,
-          forceScroll: true,
-        }),
-      ]);
-    } catch (error) {
-      setMessageError(error instanceof Error ? error.message : "Failed to send reply.");
-    } finally {
-      setSending(false);
+    if (!response.ok || !json.ok) {
+      throw new Error(json.error || "Failed to send reply.");
     }
-  };
+
+    setReply("");
+
+    await Promise.all([
+      loadConversations(true),
+      loadMessages(selectedConversationId, {
+        markRead: true,
+        forceScroll: true,
+      }),
+    ]);
+  } catch (error) {
+    setMessageError(error instanceof Error ? error.message : "Failed to send reply.");
+  } finally {
+    setSending(false);
+  }
+};
 
   const handleToggleStatus = async () => {
     if (!selectedConversation || statusChanging) return;
@@ -637,18 +649,19 @@ export default function AdminChatPanel() {
 
           <div className="border-t border-slate-200/80 px-6 py-4">
             <div className="flex items-end gap-3">
-              <textarea
-                value={reply}
-                onChange={(event) => setReply(event.target.value)}
-                placeholder={
-                  selectedConversation?.status === "closed"
-                    ? "该会话已关闭，重新打开后才能继续回复..."
-                    : "回复这位访客……"
-                }
-                rows={4}
-                disabled={!selectedConversationId || selectedConversation?.status === "closed"}
-                className="min-h-[88px] flex-1 resize-none rounded-[16px] border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
-              />
+<textarea
+  value={reply}
+  onChange={(event) => setReply(event.target.value.slice(0, MAX_ADMIN_REPLY_LENGTH))}
+  placeholder={
+    selectedConversation?.status === "closed"
+      ? "该会话已关闭，重新打开后才能继续回复..."
+      : "回复这位访客……"
+  }
+  rows={4}
+  maxLength={MAX_ADMIN_REPLY_LENGTH}
+  disabled={!selectedConversationId || selectedConversation?.status === "closed"}
+  className="min-h-[88px] flex-1 resize-none rounded-[16px] border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+/>
 
               <button
                 type="button"

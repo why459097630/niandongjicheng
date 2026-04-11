@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { verifyGuestAccessToken } from "@/lib/chat/guestAccess";
 
 type SendMessageBody = {
   conversationId?: string;
   guestSessionId?: string;
+  accessToken?: string;
   body?: string;
 };
 
@@ -12,9 +14,14 @@ type ConversationRow = {
   id: string;
   guest_session_id: string;
   user_id: string | null;
+  status: "open" | "closed";
 };
 
-async function resolveConversation(conversationId: string, guestSessionId: string) {
+async function resolveConversation(
+  conversationId: string,
+  guestSessionId: string,
+  accessToken: string
+) {
   const authClient = await createServerClient();
   const {
     data: { user },
@@ -24,7 +31,7 @@ async function resolveConversation(conversationId: string, guestSessionId: strin
 
   const { data: conversation, error } = await supabase
     .from("support_conversations")
-    .select("id, guest_session_id, user_id")
+    .select("id, guest_session_id, user_id, status")
     .eq("id", conversationId)
     .maybeSingle<ConversationRow>();
 
@@ -40,10 +47,13 @@ async function resolveConversation(conversationId: string, guestSessionId: strin
     };
   }
 
-  const guestMatched = conversation.guest_session_id === guestSessionId;
   const userMatched = !!user?.id && conversation.user_id === user.id;
+  const guestAuthorized =
+    conversation.guest_session_id === guestSessionId &&
+    !!accessToken &&
+    verifyGuestAccessToken(accessToken, conversation.id, conversation.guest_session_id);
 
-  if (!guestMatched && !userMatched) {
+  if (!userMatched && !guestAuthorized) {
     return {
       supabase,
       conversation: null,
@@ -58,23 +68,37 @@ async function resolveConversation(conversationId: string, guestSessionId: strin
   };
 }
 
+function normalizeLimit(raw: string | null, fallback: number, max: number) {
+  const parsed = Number(raw || fallback);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(Math.floor(parsed), max);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const conversationId = request.nextUrl.searchParams.get("conversationId")?.trim() || "";
     const guestSessionId = request.nextUrl.searchParams.get("guestSessionId")?.trim() || "";
+    const accessToken = request.nextUrl.searchParams.get("accessToken")?.trim() || "";
     const shouldMarkRead = request.nextUrl.searchParams.get("markRead") === "1";
+    const limit = normalizeLimit(request.nextUrl.searchParams.get("limit"), 100, 100);
 
-    if (!conversationId || !guestSessionId) {
+    if (!conversationId || !guestSessionId || !accessToken) {
       return NextResponse.json(
         {
           ok: false,
-          error: "conversationId and guestSessionId are required.",
+          error: "conversationId, guestSessionId and accessToken are required.",
         },
         { status: 400 }
       );
     }
 
-    const { supabase, conversation } = await resolveConversation(conversationId, guestSessionId);
+    const { supabase, conversation } = await resolveConversation(
+      conversationId,
+      guestSessionId,
+      accessToken
+    );
 
     if (!conversation) {
       return NextResponse.json(
@@ -90,8 +114,9 @@ export async function GET(request: NextRequest) {
       .from("support_messages")
       .select("id, sender_role, body, created_at")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true });
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(limit);
 
     if (messagesError) {
       throw messagesError;
@@ -107,14 +132,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const nextMessages = [...(messages || [])].reverse();
+
     return NextResponse.json({
       ok: true,
-      messages: (messages || []).map((item) => ({
+      messages: nextMessages.map((item) => ({
         id: item.id,
         senderRole: item.sender_role,
         body: item.body,
         createdAt: item.created_at,
       })),
+      hasMore: (messages || []).length >= limit,
     });
   } catch (error) {
     return NextResponse.json(
@@ -133,19 +161,34 @@ export async function POST(request: Request) {
 
     const conversationId = body.conversationId?.trim() || "";
     const guestSessionId = body.guestSessionId?.trim() || "";
+    const accessToken = body.accessToken?.trim() || "";
     const messageBody = body.body?.trim() || "";
 
-    if (!conversationId || !guestSessionId || !messageBody) {
+    if (!conversationId || !guestSessionId || !accessToken || !messageBody) {
       return NextResponse.json(
         {
           ok: false,
-          error: "conversationId, guestSessionId and body are required.",
+          error: "conversationId, guestSessionId, accessToken and body are required.",
         },
         { status: 400 }
       );
     }
 
-    const { supabase, conversation } = await resolveConversation(conversationId, guestSessionId);
+    if (messageBody.length > 2000) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Message is too long.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const { supabase, conversation } = await resolveConversation(
+      conversationId,
+      guestSessionId,
+      accessToken
+    );
 
     if (!conversation) {
       return NextResponse.json(
@@ -154,6 +197,16 @@ export async function POST(request: Request) {
           error: "Conversation not found or access denied.",
         },
         { status: 403 }
+      );
+    }
+
+    if (conversation.status === "closed") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "This conversation is closed.",
+        },
+        { status: 409 }
       );
     }
 

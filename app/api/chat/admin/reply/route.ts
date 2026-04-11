@@ -36,11 +36,21 @@ export async function POST(request: Request) {
       );
     }
 
+    if (messageBody.length > 2000) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Message is too long.",
+        },
+        { status: 400 }
+      );
+    }
+
     const supabase = createAdminClient();
 
     const { data: conversation, error: conversationError } = await supabase
       .from("support_conversations")
-      .select("id")
+      .select("id, status")
       .eq("id", conversationId)
       .maybeSingle();
 
@@ -55,6 +65,16 @@ export async function POST(request: Request) {
           error: "Conversation not found.",
         },
         { status: 404 }
+      );
+    }
+
+    if (conversation.status === "closed") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "This conversation is closed.",
+        },
+        { status: 409 }
       );
     }
 

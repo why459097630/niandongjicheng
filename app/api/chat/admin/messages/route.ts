@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertAdminAccess } from "@/lib/chat/assertAdminAccess";
 
+function normalizeLimit(raw: string | null, fallback: number, max: number) {
+  const parsed = Number(raw || fallback);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(Math.floor(parsed), max);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const adminCheck = await assertAdminAccess();
@@ -18,6 +26,7 @@ export async function GET(request: NextRequest) {
 
     const conversationId = request.nextUrl.searchParams.get("conversationId")?.trim() || "";
     const shouldMarkRead = request.nextUrl.searchParams.get("markRead") === "1";
+    const limit = normalizeLimit(request.nextUrl.searchParams.get("limit"), 100, 100);
 
     if (!conversationId) {
       return NextResponse.json(
@@ -55,8 +64,9 @@ export async function GET(request: NextRequest) {
       .from("support_messages")
       .select("id, sender_role, body, created_at")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true });
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(limit);
 
     if (messagesError) {
       throw messagesError;
@@ -72,14 +82,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const nextMessages = [...(messages || [])].reverse();
+
     return NextResponse.json({
       ok: true,
-      messages: (messages || []).map((item) => ({
+      messages: nextMessages.map((item) => ({
         id: item.id,
         senderRole: item.sender_role,
         body: item.body,
         createdAt: item.created_at,
       })),
+      hasMore: (messages || []).length >= limit,
     });
   } catch (error) {
     return NextResponse.json(

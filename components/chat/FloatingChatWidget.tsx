@@ -5,6 +5,9 @@ import { ChevronDown, MessageCircle, Send, UserRound, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 const GUEST_SESSION_STORAGE_KEY = "ndjc_support_guest_session_id";
+const GUEST_ACCESS_TOKEN_STORAGE_KEY = "ndjc_support_guest_access_token";
+const MAX_CHAT_MESSAGE_LENGTH = 2000;
+const CHAT_MESSAGE_LIMIT = 100;
 
 type ChatMessage = {
   id: string;
@@ -26,6 +29,7 @@ type ConversationSummary = {
   userUnreadCount: number;
   createdAt: string;
   updatedAt: string;
+  accessToken: string;
 };
 
 type ChatSupabaseClient = ReturnType<typeof createClient>;
@@ -38,6 +42,7 @@ type BootstrapResponse = {
     userEmail: string | null;
     userName: string | null;
     sourcePath: string | null;
+    accessToken: string;
   };
   error?: string;
 };
@@ -106,40 +111,57 @@ export default function FloatingChatWidget() {
 
   const [isOpen, setIsOpen] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
-  const [guestSessionId, setGuestSessionId] = useState("");
-  const [conversationId, setConversationId] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [draft, setDraft] = useState("");
-  const [userEmail, setUserEmail] = useState("");
-  const [userName, setUserName] = useState("");
-  const [authChecked, setAuthChecked] = useState(false);
-  const [bootstrapping, setBootstrapping] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loadError, setLoadError] = useState<string | null>(null);
+const [guestSessionId, setGuestSessionId] = useState("");
+const [guestAccessToken, setGuestAccessToken] = useState("");
+const [conversationId, setConversationId] = useState("");
+const [messages, setMessages] = useState<ChatMessage[]>([]);
+const [draft, setDraft] = useState("");
+const [userEmail, setUserEmail] = useState("");
+const [userName, setUserName] = useState("");
+const [authChecked, setAuthChecked] = useState(false);
+const [bootstrapping, setBootstrapping] = useState(false);
+const [sending, setSending] = useState(false);
+const [unreadCount, setUnreadCount] = useState(0);
+const [loadError, setLoadError] = useState<string | null>(null);
 
-  const syncGuestSessionId = (nextId: string) => {
-    setGuestSessionId(nextId);
+const syncGuestSessionId = (nextId: string) => {
+  setGuestSessionId(nextId);
 
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(GUEST_SESSION_STORAGE_KEY, nextId);
-    }
-  };
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(GUEST_SESSION_STORAGE_KEY, nextId);
+  }
+};
 
-  useEffect(() => {
-    const existing =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(GUEST_SESSION_STORAGE_KEY)
-        : null;
+const syncGuestAccessToken = (nextToken: string) => {
+  setGuestAccessToken(nextToken);
 
-    if (existing) {
-      setGuestSessionId(existing);
-      return;
-    }
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(GUEST_ACCESS_TOKEN_STORAGE_KEY, nextToken);
+  }
+};
 
+useEffect(() => {
+  const existingGuestSessionId =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem(GUEST_SESSION_STORAGE_KEY)
+      : null;
+
+  const existingGuestAccessToken =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem(GUEST_ACCESS_TOKEN_STORAGE_KEY)
+      : null;
+
+  if (existingGuestSessionId) {
+    setGuestSessionId(existingGuestSessionId);
+  } else {
     const nextId = createGuestSessionId();
     syncGuestSessionId(nextId);
-  }, []);
+  }
+
+  if (existingGuestAccessToken) {
+    setGuestAccessToken(existingGuestAccessToken);
+  }
+}, []);
 
   useEffect(() => {
     if (!supabase) {
@@ -183,188 +205,201 @@ export default function FloatingChatWidget() {
     };
   }, [supabase]);
 
-  const saveContactInfo = async () => {
-    if ((!conversationId && !guestSessionId) || (!userEmail.trim() && !userName.trim())) {
-      return;
-    }
+const saveContactInfo = async () => {
+  if ((!conversationId && !guestSessionId) || (!userEmail.trim() && !userName.trim())) {
+    return;
+  }
 
-    try {
-      await fetch("/api/chat/contact", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          conversationId: conversationId || null,
-          guestSessionId: guestSessionId || null,
-          userEmail: userEmail.trim() || null,
-          userName: userName.trim() || null,
-        }),
-      });
-    } catch {
-      // 不阻断聊天主流程
-    }
-  };
+  try {
+    await fetch("/api/chat/contact", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        conversationId: conversationId || null,
+        guestSessionId: guestSessionId || null,
+        accessToken: guestAccessToken || null,
+        userEmail: userEmail.trim() || null,
+        userName: userName.trim() || null,
+      }),
+    });
+  } catch {
+    // 不阻断聊天主流程
+  }
+};
 
   const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
     bottomRef.current?.scrollIntoView({ behavior });
   };
 
-  const refreshConversationSummary = async () => {
-    if (!guestSessionId || summaryPollingRef.current) return;
+const refreshConversationSummary = async () => {
+  if (!guestSessionId || summaryPollingRef.current) return;
 
-    try {
-      summaryPollingRef.current = true;
+  try {
+    summaryPollingRef.current = true;
 
-      const response = await fetch(
-        `/api/chat/conversation?guestSessionId=${encodeURIComponent(guestSessionId)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        }
-      );
+    const query = new URLSearchParams({
+      guestSessionId,
+      accessToken: guestAccessToken || "",
+    });
 
-      const json = (await response.json()) as ConversationResponse;
+    const response = await fetch(`/api/chat/conversation?${query.toString()}`, {
+      method: "GET",
+      cache: "no-store",
+    });
 
-      if (!response.ok || !json.ok) {
-        throw new Error(json.error || "Failed to load conversation summary.");
-      }
+    const json = (await response.json()) as ConversationResponse;
 
-      if (!json.conversation) return;
-
-      setConversationId(json.conversation.id);
-      setUnreadCount(json.conversation.userUnreadCount || 0);
-
-      if (json.conversation.guestSessionId && json.conversation.guestSessionId !== guestSessionId) {
-        syncGuestSessionId(json.conversation.guestSessionId);
-      }
-
-      if (!userEmail && json.conversation.userEmail) {
-        setUserEmail(json.conversation.userEmail);
-      }
-
-      if (!userName && json.conversation.userName) {
-        setUserName(json.conversation.userName);
-      }
-    } catch {
-      // 挂件按钮不要整块报错
-    } finally {
-      summaryPollingRef.current = false;
+    if (!response.ok || !json.ok) {
+      throw new Error(json.error || "Failed to load conversation summary.");
     }
-  };
 
-  const loadMessages = async (
-    targetConversationId: string,
-    targetGuestSessionId: string,
-    options?: {
-      markRead?: boolean;
-      forceScroll?: boolean;
+    if (!json.conversation) return;
+
+    setConversationId(json.conversation.id);
+    setUnreadCount(json.conversation.userUnreadCount || 0);
+
+    if (json.conversation.guestSessionId && json.conversation.guestSessionId !== guestSessionId) {
+      syncGuestSessionId(json.conversation.guestSessionId);
     }
-  ) => {
-    if (messagePollingRef.current) return;
 
-    try {
-      messagePollingRef.current = true;
-
-      const markRead = options?.markRead ? "1" : "0";
-
-      const response = await fetch(
-        `/api/chat/messages?conversationId=${encodeURIComponent(
-          targetConversationId
-        )}&guestSessionId=${encodeURIComponent(targetGuestSessionId)}&markRead=${markRead}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        }
-      );
-
-      const json = (await response.json()) as MessagesResponse;
-
-      if (!response.ok || !json.ok) {
-        throw new Error(json.error || "Failed to load messages.");
-      }
-
-      const nextMessages = json.messages || [];
-      const shouldAutoScroll =
-        options?.forceScroll ||
-        forceScrollRef.current ||
-        previousMessageCountRef.current === 0 ||
-        shouldStickToBottomRef.current;
-
-      setMessages(nextMessages);
-      setLoadError(null);
-
-      if (options?.markRead) {
-        setUnreadCount(0);
-      }
-
-      if (shouldAutoScroll) {
-        window.requestAnimationFrame(() => {
-          scrollToBottom("auto");
-          forceScrollRef.current = false;
-        });
-      }
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Failed to load messages.");
-    } finally {
-      messagePollingRef.current = false;
+    if (json.conversation.accessToken) {
+      syncGuestAccessToken(json.conversation.accessToken);
     }
-  };
 
-  const bootstrapConversation = async () => {
-    if (!guestSessionId || bootstrapping) return;
+    if (!userEmail && json.conversation.userEmail) {
+      setUserEmail(json.conversation.userEmail);
+    }
 
-    try {
-      setBootstrapping(true);
-      setLoadError(null);
+    if (!userName && json.conversation.userName) {
+      setUserName(json.conversation.userName);
+    }
+  } catch {
+    // 挂件按钮不要整块报错
+  } finally {
+    summaryPollingRef.current = false;
+  }
+};
 
-      const response = await fetch("/api/chat/bootstrap", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          guestSessionId,
-          userEmail: userEmail.trim() || null,
-          userName: userName.trim() || null,
-          sourcePath: typeof window !== "undefined" ? window.location.pathname : "/",
-        }),
+const loadMessages = async (
+  targetConversationId: string,
+  targetGuestSessionId: string,
+  options?: {
+    markRead?: boolean;
+    forceScroll?: boolean;
+  }
+) => {
+  if (messagePollingRef.current || !guestAccessToken) return;
+
+  try {
+    messagePollingRef.current = true;
+
+    const markRead = options?.markRead ? "1" : "0";
+    const query = new URLSearchParams({
+      conversationId: targetConversationId,
+      guestSessionId: targetGuestSessionId,
+      accessToken: guestAccessToken,
+      markRead,
+      limit: String(CHAT_MESSAGE_LIMIT),
+    });
+
+    const response = await fetch(`/api/chat/messages?${query.toString()}`, {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    const json = (await response.json()) as MessagesResponse;
+
+    if (!response.ok || !json.ok) {
+      throw new Error(json.error || "Failed to load messages.");
+    }
+
+    const nextMessages = json.messages || [];
+    const shouldAutoScroll =
+      options?.forceScroll ||
+      forceScrollRef.current ||
+      previousMessageCountRef.current === 0 ||
+      shouldStickToBottomRef.current;
+
+    setMessages(nextMessages);
+    setLoadError(null);
+
+    if (options?.markRead) {
+      setUnreadCount(0);
+    }
+
+    if (shouldAutoScroll) {
+      window.requestAnimationFrame(() => {
+        scrollToBottom("auto");
+        forceScrollRef.current = false;
       });
-
-      const json = (await response.json()) as BootstrapResponse;
-
-      if (!response.ok || !json.ok || !json.conversation) {
-        throw new Error(json.error || "Failed to start support chat.");
-      }
-
-      setConversationId(json.conversation.id);
-
-      if (json.conversation.guestSessionId && json.conversation.guestSessionId !== guestSessionId) {
-        syncGuestSessionId(json.conversation.guestSessionId);
-      }
-
-      if (!userEmail && json.conversation.userEmail) {
-        setUserEmail(json.conversation.userEmail);
-      }
-
-      if (!userName && json.conversation.userName) {
-        setUserName(json.conversation.userName);
-      }
-
-      forceScrollRef.current = true;
-
-      await loadMessages(json.conversation.id, json.conversation.guestSessionId, {
-        markRead: document.visibilityState === "visible",
-        forceScroll: true,
-      });
-
-      await refreshConversationSummary();
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Failed to start support chat.");
-    } finally {
-      setBootstrapping(false);
     }
-  };
+  } catch (error) {
+    setLoadError(error instanceof Error ? error.message : "Failed to load messages.");
+  } finally {
+    messagePollingRef.current = false;
+  }
+};
+
+const bootstrapConversation = async () => {
+  if (!guestSessionId || bootstrapping) return;
+
+  try {
+    setBootstrapping(true);
+    setLoadError(null);
+
+    const response = await fetch("/api/chat/bootstrap", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        guestSessionId,
+        userEmail: userEmail.trim() || null,
+        userName: userName.trim() || null,
+        sourcePath: typeof window !== "undefined" ? window.location.pathname : "/",
+      }),
+    });
+
+    const json = (await response.json()) as BootstrapResponse;
+
+    if (!response.ok || !json.ok || !json.conversation) {
+      throw new Error(json.error || "Failed to start support chat.");
+    }
+
+    setConversationId(json.conversation.id);
+
+    if (json.conversation.guestSessionId && json.conversation.guestSessionId !== guestSessionId) {
+      syncGuestSessionId(json.conversation.guestSessionId);
+    }
+
+    if (json.conversation.accessToken) {
+      syncGuestAccessToken(json.conversation.accessToken);
+    }
+
+    if (!userEmail && json.conversation.userEmail) {
+      setUserEmail(json.conversation.userEmail);
+    }
+
+    if (!userName && json.conversation.userName) {
+      setUserName(json.conversation.userName);
+    }
+
+    forceScrollRef.current = true;
+
+    await loadMessages(json.conversation.id, json.conversation.guestSessionId, {
+      markRead: document.visibilityState === "visible",
+      forceScroll: true,
+    });
+
+    await refreshConversationSummary();
+  } catch (error) {
+    setLoadError(error instanceof Error ? error.message : "Failed to start support chat.");
+  } finally {
+    setBootstrapping(false);
+  }
+};
 
   useEffect(() => {
     if (!guestSessionId || !authChecked) return;
@@ -376,34 +411,34 @@ export default function FloatingChatWidget() {
     void bootstrapConversation();
   }, [isOpen, guestSessionId, authChecked]);
 
-  useEffect(() => {
-    if (!isOpen || !conversationId || !guestSessionId) return;
+useEffect(() => {
+  if (!isOpen || !conversationId || !guestSessionId || !guestAccessToken) return;
 
-    const poll = window.setInterval(() => {
-      if (document.hidden) return;
+  const poll = window.setInterval(() => {
+    if (document.hidden) return;
 
-      void loadMessages(conversationId, guestSessionId, {
-        markRead: true,
-      });
-    }, 4000);
+    void loadMessages(conversationId, guestSessionId, {
+      markRead: true,
+    });
+  }, 6000);
 
-    return () => {
-      window.clearInterval(poll);
-    };
-  }, [isOpen, conversationId, guestSessionId]);
+  return () => {
+    window.clearInterval(poll);
+  };
+}, [isOpen, conversationId, guestSessionId, guestAccessToken]);
 
-  useEffect(() => {
-    if (isOpen || !guestSessionId) return;
+useEffect(() => {
+  if (isOpen || !guestSessionId) return;
 
-    const poll = window.setInterval(() => {
-      if (document.hidden) return;
-      void refreshConversationSummary();
-    }, 12000);
+  const poll = window.setInterval(() => {
+    if (document.hidden) return;
+    void refreshConversationSummary();
+  }, 15000);
 
-    return () => {
-      window.clearInterval(poll);
-    };
-  }, [isOpen, guestSessionId]);
+  return () => {
+    window.clearInterval(poll);
+  };
+}, [isOpen, guestSessionId]);
 
   useEffect(() => {
     previousMessageCountRef.current = messages.length;
@@ -427,63 +462,69 @@ export default function FloatingChatWidget() {
     };
   }, [conversationId, guestSessionId, userEmail, userName, isOpen]);
 
-  const handleSend = async () => {
-    const nextBody = draft.trim();
+const handleSend = async () => {
+  const nextBody = draft.trim();
 
-    if (!nextBody || !conversationId || !guestSessionId || sending) return;
+  if (!nextBody || !conversationId || !guestSessionId || !guestAccessToken || sending) return;
 
-    const now = Date.now();
-    const lastSent = lastSentRef.current;
+  if (nextBody.length > MAX_CHAT_MESSAGE_LENGTH) {
+    setLoadError(`留言不能超过 ${MAX_CHAT_MESSAGE_LENGTH} 个字符。`);
+    return;
+  }
 
-    if (lastSent && lastSent.body === nextBody && now - lastSent.at < 1200) {
-      return;
-    }
+  const now = Date.now();
+  const lastSent = lastSentRef.current;
 
-    try {
-      setSending(true);
-      setLoadError(null);
+  if (lastSent && lastSent.body === nextBody && now - lastSent.at < 1200) {
+    return;
+  }
 
-      lastSentRef.current = {
+  try {
+    setSending(true);
+    setLoadError(null);
+
+    lastSentRef.current = {
+      body: nextBody,
+      at: now,
+    };
+
+    await saveContactInfo();
+
+    forceScrollRef.current = true;
+
+    const response = await fetch("/api/chat/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        conversationId,
+        guestSessionId,
+        accessToken: guestAccessToken,
         body: nextBody,
-        at: now,
-      };
+      }),
+    });
 
-      await saveContactInfo();
+    const json = (await response.json()) as MessagesResponse;
 
-      forceScrollRef.current = true;
-
-      const response = await fetch("/api/chat/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          conversationId,
-          guestSessionId,
-          body: nextBody,
-        }),
-      });
-
-      const json = (await response.json()) as MessagesResponse;
-
-      if (!response.ok || !json.ok) {
-        throw new Error(json.error || "Failed to send message.");
-      }
-
-      setDraft("");
-
-      await loadMessages(conversationId, guestSessionId, {
-        markRead: document.visibilityState === "visible",
-        forceScroll: true,
-      });
-
-      await refreshConversationSummary();
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Failed to send message.");
-    } finally {
-      setSending(false);
+    if (!response.ok || !json.ok) {
+      throw new Error(json.error || "Failed to send message.");
     }
-  };
+
+    setDraft("");
+
+    await loadMessages(conversationId, guestSessionId, {
+      markRead: document.visibilityState === "visible",
+      forceScroll: true,
+    });
+
+    await refreshConversationSummary();
+  } catch (error) {
+    setLoadError(error instanceof Error ? error.message : "Failed to send message.");
+  } finally {
+    setSending(false);
+  }
+};
 
   const shouldShowContactToggle = !userEmail;
   const shouldShowContactPanel = contactInfoOpen && !userEmail;
@@ -627,13 +668,14 @@ export default function FloatingChatWidget() {
 
               <div className="border-t border-slate-200/80 px-5 py-4">
                 <div className="flex items-end gap-3">
-                  <textarea
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    placeholder="输入你的留言……"
-                    rows={3}
-                    className="min-h-[80px] flex-1 resize-none rounded-[16px] border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
-                  />
+<textarea
+  value={draft}
+  onChange={(event) => setDraft(event.target.value.slice(0, MAX_CHAT_MESSAGE_LENGTH))}
+  placeholder="输入你的留言……"
+  rows={3}
+  maxLength={MAX_CHAT_MESSAGE_LENGTH}
+  className="min-h-[80px] flex-1 resize-none rounded-[16px] border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-fuchsia-300"
+/>
 
                   <button
                     type="button"
