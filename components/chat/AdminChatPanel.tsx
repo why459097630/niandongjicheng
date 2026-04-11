@@ -485,20 +485,17 @@ export default function AdminChatPanel() {
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 pr-2">
+                      <div className="min-w-0 flex-1 pr-2">
                         <div className="truncate text-[14px] font-semibold">
                           {conversation.userEmail || conversation.userName || "游客访客"}
                         </div>
-                        <div className="mt-[2px] truncate text-[11px] text-slate-500">
-                          {conversation.sourcePath || "未知页面"}
+                        <div className="mt-[2px] flex items-center gap-2 text-[11px] text-slate-500">
+                          <span className="truncate">{conversation.sourcePath || "未知页面"}</span>
+                          <span className="shrink-0 text-slate-400">{formatTime(conversation.lastMessageAt)}</span>
                         </div>
                       </div>
 
                       <div className="flex shrink-0 items-start gap-2">
-                        <div className="pt-[1px] text-right text-[10px] text-slate-400">
-                          {formatTime(conversation.lastMessageAt)}
-                        </div>
-
                         <span
                           className={`inline-flex items-center rounded-full px-2 py-[4px] text-[10px] font-semibold ${
                             conversation.status === "open"
