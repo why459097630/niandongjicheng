@@ -30,9 +30,9 @@ function addDays(value: string, days: number) {
 
 export default function CloudRenewPage() {
   const RENEW_OPTIONS = [
-    { id: "30d", label: "30 days", priceLabel: "$29", days: 30 },
-    { id: "90d", label: "90 days", priceLabel: "$79", days: 90 },
-    { id: "180d", label: "180 days", priceLabel: "$149", days: 180 },
+    { id: "30d", label: "30 days", priceLabel: "$29", days: 30, priceId: "price_1TL0NqADTfAordt3ClNQzKCZ" },
+    { id: "90d", label: "90 days", priceLabel: "$79", days: 90, priceId: "price_1TL1nsADTfAordt3aihIfddI" },
+    { id: "180d", label: "180 days", priceLabel: "$149", days: 180, priceId: "price_1TL1oqADTfAordt3NQhDZox1" },
   ] as const;
   const [appName, setAppName] = useState("Untitled App");
   const [storeId, setStoreId] = useState("store_showcase_paid_000019");
@@ -42,6 +42,7 @@ export default function CloudRenewPage() {
   const [isHeaderCompact, setIsHeaderCompact] = useState(false);
   const [selectedRenewId, setSelectedRenewId] = useState<(typeof RENEW_OPTIONS)[number]["id"]>("180d");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
@@ -86,6 +87,70 @@ export default function CloudRenewPage() {
     setCloudExpiresAt(nextCloudExpiresAt);
     setIsPageReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!isPageReady) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const stripeSuccess = params.get("stripeSuccess");
+    const sessionId = params.get("session_id");
+
+    if (stripeSuccess !== "1" || !sessionId) {
+      return;
+    }
+
+    const dedupeKey = `ndjc_renew_session_done_${sessionId}`;
+    if (sessionStorage.getItem(dedupeKey) === "1") {
+      return;
+    }
+
+    let cancelled = false;
+
+    const verifyRenewPayment = async () => {
+      try {
+        setIsVerifyingPayment(true);
+        setSubmitError("");
+
+        const response = await fetch("/api/stripe/verify-renew-session", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId,
+            storeId,
+            renewId: selectedRenewId,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data?.ok) {
+          throw new Error(data?.error || "Failed to verify cloud renewal payment.");
+        }
+
+        sessionStorage.setItem(dedupeKey, "1");
+
+        if (!cancelled) {
+          window.location.href = `/history?renewed=1&storeId=${encodeURIComponent(storeId)}&renewPlan=${encodeURIComponent(selectedRenewId)}`;
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSubmitError(error instanceof Error ? error.message : "Failed to renew cloud access.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsVerifyingPayment(false);
+        }
+      }
+    };
+
+    void verifyRenewPayment();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPageReady, selectedRenewId, storeId]);
 
   const selectedRenewOption =
     RENEW_OPTIONS.find((option) => option.id === selectedRenewId) ?? RENEW_OPTIONS[0];
@@ -341,13 +406,30 @@ export default function CloudRenewPage() {
 
               <button
                 type="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isVerifyingPayment}
                 onClick={async () => {
                   try {
                     setIsSubmitting(true);
                     setSubmitError("");
-                    await new Promise((resolve) => setTimeout(resolve, 900));
-                    window.location.href = `/history?renewed=1&storeId=${encodeURIComponent(storeId)}&renewPlan=${encodeURIComponent(selectedRenewId)}`;
+
+                    const response = await fetch("/api/stripe/create-renew-session", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({
+                        storeId,
+                        renewId: selectedRenewId,
+                      }),
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok || !data?.ok || !data?.url) {
+                      throw new Error(data?.error || "Failed to create Stripe renewal session.");
+                    }
+
+                    window.location.href = data.url;
                   } catch (error) {
                     setSubmitError(error instanceof Error ? error.message : "Failed to renew cloud access.");
                   } finally {
@@ -358,7 +440,13 @@ export default function CloudRenewPage() {
               >
                 <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.16)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                 <div className="relative flex items-center justify-center gap-2">
-                  <span className="text-[15px]">{isSubmitting ? "Processing payment..." : `Confirm and pay ${renewPrice}`}</span>
+                  <span className="text-[15px]">
+                    {isVerifyingPayment
+                      ? "Verifying payment..."
+                      : isSubmitting
+                        ? "Redirecting to Stripe..."
+                        : `Confirm and pay ${renewPrice}`}
+                  </span>
                   <ArrowRight className="h-[15px] w-[15px] text-white/80 transition-transform duration-300 group-hover:translate-x-0.5" />
                 </div>
               </button>
