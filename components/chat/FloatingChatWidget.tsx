@@ -665,7 +665,7 @@ export default function FloatingChatWidget() {
                               </div>
                               <div
                                 className={`mt-1 text-[11px] ${
-                                  isUser ? "text-right text-fuchsia-200/90" : "text-left text-slate-500"
+                                  isUser ? "text-right text-slate-500" : "text-left text-slate-500"
                                 }`}
                               >
                                 {formatMessageTime(message.createdAt)}
