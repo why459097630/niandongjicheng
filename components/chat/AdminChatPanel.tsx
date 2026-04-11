@@ -484,36 +484,37 @@ export default function AdminChatPanel() {
                         : "border-white/70 bg-white/80 text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.04)] hover:bg-white"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1 pr-2">
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-[2px]">
+                      <div className="min-w-0">
                         <div className="text-[14px] font-semibold leading-tight break-words">
                           {conversation.userEmail || conversation.userName || "游客访客"}
                         </div>
-                        <div className="mt-[2px] flex items-center justify-between gap-3 text-[11px] text-slate-500">
-                          <span className="truncate pr-2">{conversation.sourcePath || "未知页面"}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="shrink-0 text-[10px] text-slate-400">
-                              {formatTime(conversation.lastMessageAt)}
-                            </span>
-                            <span
-                              className={`inline-flex items-center rounded-full px-2 py-[4px] text-[10px] font-semibold ${
-                                conversation.status === "open"
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : "bg-slate-200 text-slate-600"
-                              }`}
-                            >
-                              {conversation.status === "open" ? "活跃" : "关闭"}
-                            </span>
-                          </div>
-                        </div>
                       </div>
 
-                      <div className="flex shrink-0 items-start gap-2">
+                      <div className="flex items-start gap-2 row-span-2">
                         {conversation.adminUnreadCount > 0 && (
                           <span className="inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
                             {conversation.adminUnreadCount}
                           </span>
                         )}
+                      </div>
+
+                      <div className="min-w-0 flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                        <span className="truncate pr-2">{conversation.sourcePath || "未知页面"}</span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="text-[10px] text-slate-400">
+                            {formatTime(conversation.lastMessageAt)}
+                          </span>
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-[4px] text-[10px] font-semibold ${
+                              conversation.status === "open"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-slate-200 text-slate-600"
+                            }`}
+                          >
+                            {conversation.status === "open" ? "活跃" : "关闭"}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
