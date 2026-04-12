@@ -388,18 +388,15 @@ if (!localRecord) {
 
   const elapsed = now - requestStartTime;
 
-  // 10秒容错窗口
   if (isPaidFlow && elapsed < 10000) {
     return {
       ok: true,
-      status: "queued",
       stage: "queued",
       message: "Preparing build...",
       queueAheadCount: 0,
     };
   }
 
-  // 超过10秒才真正报错
   return {
     ok: false,
     error: "Build initialization timeout",
