@@ -51,6 +51,7 @@ export type BuildRequest = {
   adminPassword?: string;
   storeId?: string;
   userId?: string;
+  runId?: string;
 };
 
 export type CloudServiceStatus = "active" | "read_only" | "deleted";

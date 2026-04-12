@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { releaseNextQueuedBuild } from "./releaseNextQueuedBuild";
 import {
+  getBuildRecordByRunId,
   insertBuildRecord,
   insertOperationLog,
   insertOperationLogOnce,
@@ -265,7 +266,7 @@ export async function startBuild(
   const adminName = input.adminName?.trim() || "";
   const storeId = input.storeId?.trim() || "";
   const userId = input.userId?.trim() || "";
-  const runId = createRunId();
+  const runId = input.runId?.trim() || createRunId();
 
   if (!storeId) {
     return {
@@ -281,25 +282,47 @@ export async function startBuild(
     };
   }
 
-  const saved = await insertBuildRecord(supabase, {
-    userId,
-    runId,
-    appName,
-    moduleName,
-    uiPackName,
-    plan,
-    storeId,
-    status: "queued",
-    stage: "queued",
-    message: "Your request has been received and is waiting for an available build slot.",
-    workflowRunId: null,
-    workflowUrl: null,
-    artifactUrl: null,
-    downloadUrl: null,
-    error: null,
-    statusSource: "local_api",
-    lastSyncedAt: null,
-  });
+  const existingRecord = await getBuildRecordByRunId(supabase, runId);
+
+  const saved = existingRecord
+    ? await updateBuildRecordByRunId(supabase, runId, {
+        appName,
+        moduleName,
+        uiPackName,
+        plan,
+        storeId,
+        status: "queued",
+        stage: "queued",
+        message: "Your request has been received and is waiting for an available build slot.",
+        workflowRunId: null,
+        workflowUrl: null,
+        artifactUrl: null,
+        downloadUrl: null,
+        error: null,
+        failedStep: null,
+        completedAt: null,
+        statusSource: "local_api",
+        lastSyncedAt: null,
+      })
+    : await insertBuildRecord(supabase, {
+        userId,
+        runId,
+        appName,
+        moduleName,
+        uiPackName,
+        plan,
+        storeId,
+        status: "queued",
+        stage: "queued",
+        message: "Your request has been received and is waiting for an available build slot.",
+        workflowRunId: null,
+        workflowUrl: null,
+        artifactUrl: null,
+        downloadUrl: null,
+        error: null,
+        statusSource: "local_api",
+        lastSyncedAt: null,
+      });
 
   await insertOperationLog(supabase, {
     userId,

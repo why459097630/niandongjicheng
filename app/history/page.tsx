@@ -174,21 +174,25 @@ export default function HistoryPage() {
     }
 
     let cancelled = false;
+    let hasLoggedOpen = false;
 
-    setLoading(true);
-    setError("");
+    const fetchHistory = async (isInitialLoad: boolean) => {
+      try {
+        if (isInitialLoad) {
+          setLoading(true);
+        }
 
-    const historyOpenKey = "ndjc_history_opened_logged";
-    const shouldLogOpen =
-      typeof window !== "undefined" &&
-      window.sessionStorage.getItem(historyOpenKey) !== "1";
+        const historyOpenKey = "ndjc_history_opened_logged";
+        const shouldLogOpen =
+          !hasLoggedOpen &&
+          typeof window !== "undefined" &&
+          window.sessionStorage.getItem(historyOpenKey) !== "1";
 
-    const requestUrl = shouldLogOpen
-      ? "/api/build-list?logOpen=1"
-      : "/api/build-list";
+        const requestUrl = shouldLogOpen
+          ? "/api/build-list?logOpen=1"
+          : "/api/build-list";
 
-    fetch(requestUrl, { cache: "no-store" })
-      .then(async (res) => {
+        const res = await fetch(requestUrl, { cache: "no-store" });
         const data: BuildListResponse = await res.json();
 
         if (!res.ok || !data.ok) {
@@ -200,28 +204,38 @@ export default function HistoryPage() {
         }
 
         setItems(data.items || []);
+        setError("");
 
         if (shouldLogOpen && typeof window !== "undefined") {
           window.sessionStorage.setItem(historyOpenKey, "1");
+          hasLoggedOpen = true;
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         if (cancelled) {
           return;
         }
 
         setError(err instanceof Error ? err.message : "Failed to load build history.");
-      })
-      .finally(() => {
+      } finally {
         if (cancelled) {
           return;
         }
 
-        setLoading(false);
-      });
+        if (isInitialLoad) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void fetchHistory(true);
+
+    const timer = window.setInterval(() => {
+      void fetchHistory(false);
+    }, 5000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [authLoading, isAuthed]);
 

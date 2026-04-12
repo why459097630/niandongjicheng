@@ -12,7 +12,6 @@ const CHECKOUT_UI_PACK_STORAGE_KEY = "ndjc_checkout_ui_pack";
 const CHECKOUT_PLAN_STORAGE_KEY = "ndjc_checkout_plan";
 const CHECKOUT_ADMIN_NAME_STORAGE_KEY = "ndjc_checkout_admin_name";
 const CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY = "ndjc_checkout_admin_password";
-const CHECKOUT_SESSION_DONE_PREFIX = "ndjc_checkout_session_done_";
 
 export default function CheckoutPage() {
   const [appName, setAppName] = useState("Untitled App");
@@ -24,7 +23,6 @@ export default function CheckoutPage() {
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
   const [iconFileName, setIconFileName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [isPageReady, setIsPageReady] = useState(false);
 
@@ -82,89 +80,7 @@ export default function CheckoutPage() {
     setIsPageReady(true);
   }, []);
 
-  useEffect(() => {
-    if (!isPageReady) return;
 
-    const params = new URLSearchParams(window.location.search);
-    const stripeSuccess = params.get("stripeSuccess");
-    const sessionId = params.get("session_id");
-
-    if (stripeSuccess !== "1" || !sessionId) {
-      return;
-    }
-
-    const dedupeKey = `${CHECKOUT_SESSION_DONE_PREFIX}${sessionId}`;
-    if (sessionStorage.getItem(dedupeKey) === "1") {
-      return;
-    }
-
-    let cancelled = false;
-
-    const verifyAndStartBuild = async () => {
-      try {
-        setIsVerifyingPayment(true);
-        setSubmitError("");
-
-        const verifyResponse = await fetch("/api/stripe/verify-generate-session", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            sessionId,
-          }),
-        });
-
-        const verifyData = await verifyResponse.json();
-
-        if (!verifyResponse.ok || !verifyData?.ok) {
-          throw new Error(verifyData?.error || "Stripe payment verification failed.");
-        }
-
-        const buildResponse = await fetch("/api/start-build", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            appName,
-            module: moduleName,
-            uiPack: uiPackName,
-            plan,
-            adminName,
-            adminPassword,
-            iconDataUrl,
-          }),
-        });
-
-        const buildData = await buildResponse.json();
-
-        if (!buildResponse.ok || !buildData?.ok || !buildData?.runId) {
-          throw new Error(buildData?.error || "Failed to start build after payment.");
-        }
-
-        sessionStorage.setItem(dedupeKey, "1");
-
-        if (!cancelled) {
-          window.location.href = `/generating?runId=${encodeURIComponent(buildData.runId)}`;
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setSubmitError(error instanceof Error ? error.message : "Failed to verify payment.");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsVerifyingPayment(false);
-        }
-      }
-    };
-
-    void verifyAndStartBuild();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [adminName, adminPassword, appName, iconDataUrl, isPageReady, moduleName, plan, uiPackName]);
 
   const modeLabel = plan === "free" ? "Free Trial" : "Paid Purchase";
   const planLabel = plan === "free" ? "Free" : "Pro";
@@ -402,7 +318,7 @@ export default function CheckoutPage() {
                 <div className="space-y-3">
                   <button
                     type="button"
-                    disabled={isSubmitting || isVerifyingPayment}
+                    disabled={isSubmitting}
                     onClick={async () => {
                       try {
                         setIsSubmitting(true);
@@ -447,6 +363,7 @@ export default function CheckoutPage() {
                             plan,
                             adminName,
                             adminPassword,
+                            iconDataUrl,
                           }),
                         });
 
@@ -459,7 +376,6 @@ export default function CheckoutPage() {
                         window.location.href = data.url;
                       } catch (error) {
                         setSubmitError(error instanceof Error ? error.message : "Failed to continue to payment.");
-                      } finally {
                         setIsSubmitting(false);
                       }
                     }}
@@ -468,15 +384,13 @@ export default function CheckoutPage() {
                     <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.16)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                     <div className="relative flex items-center justify-center gap-2">
                       <span className="text-[15px]">
-                        {isVerifyingPayment
-                          ? "Verifying payment..."
-                          : isSubmitting
-                            ? plan === "free"
-                              ? "Starting build..."
-                              : "Redirecting to Stripe..."
-                            : plan === "free"
-                              ? "Start Free Build"
-                              : "Pay $59 & Build"}
+                        {isSubmitting
+                          ? plan === "free"
+                            ? "Starting build..."
+                            : "Redirecting to Stripe..."
+                          : plan === "free"
+                            ? "Start Free Build"
+                            : "Pay $59 & Build"}
                       </span>
                       <ArrowRight className="h-[15px] w-[15px] text-white/80 transition-transform duration-300 group-hover:translate-x-0.5" />
                     </div>
