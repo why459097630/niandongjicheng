@@ -4,7 +4,6 @@ import {
   insertOperationLogOnce,
   updateBuildRecordByRunId,
 } from "./storage";
-import { releaseNextQueuedBuild } from "./releaseNextQueuedBuild";
 import {
   BuildStage,
   BuildStatusResponse,
@@ -298,10 +297,6 @@ export async function getBuildStatus(
   supabase: SupabaseClient,
   runId: string,
 ): Promise<BuildStatusResponse> {
-  await releaseNextQueuedBuild(supabase).catch((error) => {
-    console.error("NDJC getBuildStatus: failed to release queued build", error);
-  });
-
   const localRecord = await getBuildRecordByRunId(supabase, runId);
   const remoteStatus = await readRemoteStatusFile(runId);
 
