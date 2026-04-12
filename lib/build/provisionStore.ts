@@ -99,20 +99,20 @@ function extractStoreIdFromRpc(data: unknown): string {
 export async function provisionStore(
   input: ProvisionStoreInput,
 ): Promise<ProvisionStoreResult> {
-  const supabaseUrl = (process.env.SUPABASE_URL || '').trim();
-  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  const supabaseUrl = (process.env.APP_CLOUD_SUPABASE_URL || '').trim();
+  const secretKey = (process.env.APP_CLOUD_SUPABASE_SECRET_KEY || '').trim();
 
   if (!supabaseUrl) {
     return {
       ok: false,
-      error: 'SUPABASE_URL is required.',
+      error: 'APP_CLOUD_SUPABASE_URL is required.',
     };
   }
 
-  if (!serviceRoleKey) {
+  if (!secretKey) {
     return {
       ok: false,
-      error: 'SUPABASE_SERVICE_ROLE_KEY is required.',
+      error: 'APP_CLOUD_SUPABASE_SECRET_KEY is required.',
     };
   }
 
@@ -127,8 +127,8 @@ export async function provisionStore(
     adminName,
     supabaseUrl,
     supabaseUrlLength: supabaseUrl.length,
-    serviceRoleKeyPrefix: serviceRoleKey.slice(0, 12),
-    serviceRoleKeyLength: serviceRoleKey.length,
+    secretKeyPrefix: secretKey.slice(0, 12),
+    secretKeyLength: secretKey.length,
   });
 
   if (!adminName) {
@@ -160,7 +160,7 @@ export async function provisionStore(
   }
 
   const commonHeaders = {
-    apikey: serviceRoleKey,
+    apikey: secretKey,
     'Content-Type': 'application/json',
   };
 

@@ -400,10 +400,10 @@ export async function GET() {
     let chatRelay: ChatRelayRow[] = [];
 
     const appCloudUrl = process.env.APP_CLOUD_SUPABASE_URL?.trim() || "";
-    const appCloudServiceRole = process.env.APP_CLOUD_SUPABASE_SERVICE_ROLE_KEY?.trim() || "";
+    const appCloudSecretKey = process.env.APP_CLOUD_SUPABASE_SECRET_KEY?.trim() || "";
 
-    if (appCloudUrl && appCloudServiceRole) {
-      const appCloudAdmin = createSupabaseClient(appCloudUrl, appCloudServiceRole, {
+    if (appCloudUrl && appCloudSecretKey) {
+      const appCloudAdmin = createSupabaseClient(appCloudUrl, appCloudSecretKey, {
         auth: {
           persistSession: false,
           autoRefreshToken: false,

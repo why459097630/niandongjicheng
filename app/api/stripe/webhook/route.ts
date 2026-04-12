@@ -31,8 +31,8 @@ export async function POST(request: NextRequest) {
   try {
     const stripeSecretKey = getRequiredEnv("STRIPE_SECRET_KEY");
     const stripeWebhookSecret = getRequiredEnv("STRIPE_WEBHOOK_SECRET");
-    const supabaseUrl = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
-    const supabaseServiceRoleKey = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseUrl = getRequiredEnv("WEB_SUPABASE_URL");
+    const supabaseSecretKey = getRequiredEnv("WEB_SUPABASE_SERVICE_ROLE_KEY");
 
     const rawBody = await request.text();
     const signature = request.headers.get("stripe-signature") || "";
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    const supabase = createSupabaseClient(supabaseUrl, supabaseServiceRoleKey, {
+    const supabase = createSupabaseClient(supabaseUrl, supabaseSecretKey, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,

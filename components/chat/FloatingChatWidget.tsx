@@ -89,8 +89,8 @@ function isNearBottom(element: HTMLElement) {
 
 export default function FloatingChatWidget() {
   const supabase = useMemo<ChatSupabaseClient | null>(() => {
-    const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const hasKey = !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    const hasUrl = !!process.env.WEB_SUPABASE_URL;
+    const hasKey = !!process.env.WEB_SUPABASE_PUBLISHABLE_KEY;
 
     if (!hasUrl || !hasKey) {
       return null;

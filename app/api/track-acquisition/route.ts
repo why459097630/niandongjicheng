@@ -12,14 +12,14 @@ type Body = {
 
 export async function POST(request: NextRequest) {
   try {
-    const frontendUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || "";
-    const frontendPublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() || "";
+    const frontendUrl = process.env.WEB_SUPABASE_URL?.trim() || "";
+    const frontendPublishableKey = process.env.WEB_SUPABASE_PUBLISHABLE_KEY?.trim() || "";
 
     if (!frontendUrl || !frontendPublishableKey) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.",
+          error: "Missing WEB_SUPABASE_URL or WEB_SUPABASE_PUBLISHABLE_KEY.",
         },
         { status: 500 },
       );

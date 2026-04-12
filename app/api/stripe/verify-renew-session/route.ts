@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   try {
     const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
     const appCloudUrl = (process.env.APP_CLOUD_SUPABASE_URL || "").trim();
-    const appCloudServiceRoleKey = (process.env.APP_CLOUD_SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    const appCloudSecretKey = (process.env.APP_CLOUD_SUPABASE_SECRET_KEY || "").trim();
 
     if (!stripeSecretKey) {
       return NextResponse.json(
@@ -31,11 +31,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!appCloudUrl || !appCloudServiceRoleKey) {
+    if (!appCloudUrl || !appCloudSecretKey) {
       return NextResponse.json(
         {
           ok: false,
-          error: "APP_CLOUD_SUPABASE_URL and APP_CLOUD_SUPABASE_SERVICE_ROLE_KEY are required.",
+          error: "APP_CLOUD_SUPABASE_URL and APP_CLOUD_SUPABASE_SECRET_KEY are required.",
         },
         { status: 500 },
       );
@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const appCloudSupabase = createClient(appCloudUrl, appCloudServiceRoleKey, {
+    const appCloudSupabase = createClient(appCloudUrl, appCloudSecretKey, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,

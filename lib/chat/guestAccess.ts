@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 const GUEST_CHAT_SECRET =
   process.env.GUEST_CHAT_SECRET?.trim() ||
   process.env.ADMIN_EMAIL_ALLOWLIST?.trim() ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+  process.env.APP_CLOUD_SUPABASE_SECRET_KEY?.trim() ||
   "ndjc_guest_chat_secret";
 
 function signPayload(payload: string) {

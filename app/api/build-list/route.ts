@@ -66,9 +66,9 @@ export async function GET(request: NextRequest) {
     }
 
     const appCloudUrl = process.env.APP_CLOUD_SUPABASE_URL;
-    const appCloudServiceRoleKey = process.env.APP_CLOUD_SUPABASE_SERVICE_ROLE_KEY;
+    const appCloudSecretKey = process.env.APP_CLOUD_SUPABASE_SECRET_KEY;
 
-    if (!appCloudUrl || !appCloudServiceRoleKey) {
+    if (!appCloudUrl || !appCloudSecretKey) {
       return NextResponse.json(result, { status: 200 });
     }
 
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
 
     const appCloudSupabase = createSupabaseClient(
       appCloudUrl,
-      appCloudServiceRoleKey,
+      appCloudSecretKey,
       {
         auth: {
           persistSession: false,

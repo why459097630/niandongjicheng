@@ -75,8 +75,8 @@ export async function POST(request: NextRequest) {
     }
 
     const stripeSecretKey = getRequiredEnv("STRIPE_SECRET_KEY");
-    const supabaseUrl = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
-    const supabaseServiceRoleKey = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseUrl = getRequiredEnv("WEB_SUPABASE_URL");
+    const supabaseSecretKey = getRequiredEnv("WEB_SUPABASE_SERVICE_ROLE_KEY");
 
     const stripe = new Stripe(stripeSecretKey);
     const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
 
     const serviceSupabase = createSupabaseClient(
       supabaseUrl,
-      supabaseServiceRoleKey,
+      supabaseSecretKey,
       {
         auth: {
           persistSession: false,
