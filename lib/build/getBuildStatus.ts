@@ -296,6 +296,7 @@ function mergeStatus(
 export async function getBuildStatus(
   supabase: SupabaseClient,
   runId: string,
+  options?: { isPaidFlow?: boolean; requestStartTime?: number },
 ): Promise<BuildStatusResponse> {
   const localRecord = await getBuildRecordByRunId(supabase, runId);
   const remoteStatus = await readRemoteStatusFile(runId);
@@ -380,12 +381,30 @@ const synced = await updateBuildRecordByRunId(supabase, runId, {
     return merged;
   }
 
-  if (!localRecord) {
+if (!localRecord) {
+  const isPaidFlow = options?.isPaidFlow === true;
+  const requestStartTime = options?.requestStartTime || Date.now();
+  const now = Date.now();
+
+  const elapsed = now - requestStartTime;
+
+  // 10秒容错窗口
+  if (isPaidFlow && elapsed < 10000) {
     return {
-      ok: false,
-      error: "Build record not found.",
+      ok: true,
+      status: "queued",
+      stage: "queued",
+      message: "Preparing build...",
+      queueAheadCount: 0,
     };
   }
+
+  // 超过10秒才真正报错
+  return {
+    ok: false,
+    error: "Build initialization timeout",
+  };
+}
 
   const queueMeta = await getBuildQueueMeta(supabase, localRecord);
 

@@ -42,7 +42,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const result = await getBuildStatus(supabase, runId);
+    const paid = searchParams.get("paid") === "1";
+
+const result = await getBuildStatus(supabase, runId, {
+  isPaidFlow: paid,
+  requestStartTime: Number(searchParams.get("t") || Date.now()),
+});
 
     if (!result.ok) {
       return NextResponse.json(result, { status: 404 });

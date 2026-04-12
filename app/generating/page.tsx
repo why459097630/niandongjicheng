@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { CheckCircle2, Circle, Clock3, House, LoaderCircle, RotateCcw, TriangleAlert } from "lucide-react";
 import SiteHeader from "@/components/layout/SiteHeader";
 
@@ -136,7 +136,8 @@ export default function GeneratingPage() {
   const [downloadUrl, setDownloadUrl] = useState("");
   const [queueAheadCount, setQueueAheadCount] = useState<number | null>(null);
   const [failedStep, setFailedStep] = useState<StepKey | undefined>(undefined);
-  const [hasLoggedPollOpen, setHasLoggedPollOpen] = useState(false);
+const [hasLoggedPollOpen, setHasLoggedPollOpen] = useState(false);
+const startTimeRef = useRef(Date.now());
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -152,12 +153,15 @@ export default function GeneratingPage() {
     const fetchStatus = async () => {
       try {
         const pollEvent = hasLoggedPollOpen ? "" : "&event=poll";
-        const response = await fetch(
-          `/api/build-status?runId=${encodeURIComponent(runId)}${pollEvent}`,
-          {
-            cache: "no-store",
-          },
-        );
+const params = new URLSearchParams(window.location.search);
+const paid = params.get("paid") === "1";
+
+const response = await fetch(
+  `/api/build-status?runId=${encodeURIComponent(runId)}${pollEvent}&paid=${paid ? "1" : "0"}&t=${startTimeRef.current}`,
+  {
+    cache: "no-store",
+  },
+);
 
         const data: BuildStatusResponse = await response.json();
 
