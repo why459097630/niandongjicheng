@@ -3,7 +3,7 @@ import Stripe from "stripe";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { provisionStore } from "@/lib/build/provisionStore";
 import { startBuild } from "@/lib/build/startBuild";
-import { getBuildRecordByRunId, updateBuildRecordByRunId } from "@/lib/build/storage";
+import { getBuildRecordByRunId } from "@/lib/build/storage";
 import type { BuildRequest } from "@/lib/build/types";
 
 export const runtime = "nodejs";
@@ -133,27 +133,6 @@ export async function POST(request: NextRequest) {
       }
 
       storeId = provisionResult.storeId;
-
-      await updateBuildRecordByRunId(supabase, runId, {
-        storeId,
-        status: "queued",
-        stage: "queued",
-        message: "Payment confirmed. Build request is being prepared.",
-        error: null,
-        failedStep: null,
-        completedAt: null,
-        statusSource: "local_api",
-      });
-    } else {
-      await updateBuildRecordByRunId(supabase, runId, {
-        status: "queued",
-        stage: "queued",
-        message: "Payment confirmed. Build request is being prepared.",
-        error: null,
-        failedStep: null,
-        completedAt: null,
-        statusSource: "local_api",
-      });
     }
 
     const buildResult = await startBuild(supabase, {
