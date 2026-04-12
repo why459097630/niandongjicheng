@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
         },
       ],
       customer_email: user.email || undefined,
-      success_url: `${siteUrl}/generating?runId=${encodeURIComponent(runId)}&paid=1`,
+      success_url: `${siteUrl}/generating?runId=${encodeURIComponent(runId)}&paid=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/checkout?canceled=1`,
       metadata: {
         kind: "generate",

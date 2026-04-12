@@ -138,6 +138,7 @@ export default function GeneratingPage() {
   const [failedStep, setFailedStep] = useState<StepKey | undefined>(undefined);
 const [hasLoggedPollOpen, setHasLoggedPollOpen] = useState(false);
 const startTimeRef = useRef(Date.now());
+const hasConfirmedPaidBuildRef = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -150,18 +151,46 @@ const startTimeRef = useRef(Date.now());
 
     let cancelled = false;
 
+    const confirmPaidBuild = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const paid = params.get("paid") === "1";
+      const sessionId = params.get("session_id") || "";
+
+      if (!paid) return;
+      if (!sessionId) return;
+      if (hasConfirmedPaidBuildRef.current) return;
+
+      hasConfirmedPaidBuildRef.current = true;
+
+      try {
+        await fetch("/api/stripe/confirm-paid-build", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          cache: "no-store",
+          body: JSON.stringify({
+            runId,
+            sessionId,
+          }),
+        });
+      } catch (error) {
+        console.error("NDJC generating: confirm paid build failed", error);
+      }
+    };
+
     const fetchStatus = async () => {
       try {
         const pollEvent = hasLoggedPollOpen ? "" : "&event=poll";
-const params = new URLSearchParams(window.location.search);
-const paid = params.get("paid") === "1";
+        const params = new URLSearchParams(window.location.search);
+        const paid = params.get("paid") === "1";
 
-const response = await fetch(
-  `/api/build-status?runId=${encodeURIComponent(runId)}${pollEvent}&paid=${paid ? "1" : "0"}&t=${startTimeRef.current}`,
-  {
-    cache: "no-store",
-  },
-);
+        const response = await fetch(
+          `/api/build-status?runId=${encodeURIComponent(runId)}${pollEvent}&paid=${paid ? "1" : "0"}&t=${startTimeRef.current}`,
+          {
+            cache: "no-store",
+          },
+        );
 
         const data: BuildStatusResponse = await response.json();
 
@@ -194,7 +223,12 @@ const response = await fetch(
       }
     };
 
-    fetchStatus();
+    const bootstrap = async () => {
+      await confirmPaidBuild();
+      await fetchStatus();
+    };
+
+    void bootstrap();
     const timer = window.setInterval(fetchStatus, 2000);
 
     return () => {
