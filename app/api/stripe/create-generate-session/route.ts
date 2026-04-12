@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
-import { insertBuildRecord, insertOperationLog } from "@/lib/build/storage";
+import { insertOperationLog } from "@/lib/build/storage";
 import type { BuildRequest } from "@/lib/build/types";
 
 const GENERATE_PRICE_ID = "price_1TL0LSADTfAordt3iO9jk18v";
@@ -103,26 +103,6 @@ export async function POST(request: NextRequest) {
     }
 
     const runId = createRunId();
-
-    await insertBuildRecord(supabase, {
-      userId: user.id,
-      runId,
-      appName,
-      moduleName,
-      uiPackName,
-      plan,
-      storeId: null,
-      status: "pending_payment",
-      stage: "pending_payment",
-      message: "Waiting for payment confirmation from Stripe.",
-      workflowRunId: null,
-      workflowUrl: null,
-      artifactUrl: null,
-      downloadUrl: null,
-      error: null,
-      statusSource: "local_api",
-      lastSyncedAt: null,
-    });
 
     await insertOperationLog(supabase, {
       userId: user.id,
