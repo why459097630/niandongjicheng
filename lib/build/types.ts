@@ -1,4 +1,5 @@
 export type BuildStage =
+  | "configuring_build"
   | "queued"
   | "preparing_request"
   | "processing_identity"

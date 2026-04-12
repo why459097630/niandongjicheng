@@ -47,6 +47,7 @@ function normalizeRemoteStage(value: unknown): BuildStage | undefined {
 
   const stage = value.trim();
 
+  if (stage === "configuring_build") return "configuring_build";
   if (stage === "queued") return "queued";
   if (stage === "preparing_request") return "preparing_request";
   if (stage === "processing_identity") return "processing_identity";
@@ -69,6 +70,7 @@ function normalizeRemoteStatus(
   if (value === "success") return "success";
   if (value === "failed") return "failed";
 
+  if (stage === "configuring_build") return "running";
   if (stage === "queued") return "queued";
   if (stage === "success") return "success";
   if (stage === "failed") return "failed";
@@ -293,6 +295,8 @@ function mergeStatus(
   };
 }
 
+const PAID_BUILD_INITIALIZATION_TIMEOUT_MS = 180000;
+
 export async function getBuildStatus(
   supabase: SupabaseClient,
   runId: string,
@@ -385,21 +389,28 @@ if (!localRecord) {
   const isPaidFlow = options?.isPaidFlow === true;
   const requestStartTime = options?.requestStartTime || Date.now();
   const now = Date.now();
-
   const elapsed = now - requestStartTime;
 
-  if (isPaidFlow && elapsed < 10000) {
+  if (isPaidFlow && elapsed < PAID_BUILD_INITIALIZATION_TIMEOUT_MS) {
     return {
       ok: true,
-      stage: "queued",
-      message: "Preparing build...",
+      runId,
+      stage: "configuring_build",
+      message: "We’re confirming payment and preparing your build.",
       queueAheadCount: 0,
+    };
+  }
+
+  if (isPaidFlow) {
+    return {
+      ok: false,
+      error: "Build setup did not complete in time.",
     };
   }
 
   return {
     ok: false,
-    error: "Build initialization timeout",
+    error: "Build record not found.",
   };
 }
 
