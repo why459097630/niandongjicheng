@@ -5,6 +5,7 @@ import { CheckCircle2, Circle, Clock3, House, LoaderCircle, RotateCcw, TriangleA
 import SiteHeader from "@/components/layout/SiteHeader";
 
 type BuildStage =
+  | "configuring_build"
   | "queued"
   | "preparing_request"
   | "processing_identity"
@@ -67,7 +68,7 @@ function mapStageToSteps(stage: BuildStage | undefined, failedStep?: StepKey) {
     building_apk: 5,
   };
 
-  if (!stage || stage === "queued") {
+  if (!stage || stage === "configuring_build" || stage === "queued") {
     return STEP_ORDER.map((step) => ({
       ...step,
       status: "pending" as StepStatus,
@@ -136,9 +137,10 @@ export default function GeneratingPage() {
   const [downloadUrl, setDownloadUrl] = useState("");
   const [queueAheadCount, setQueueAheadCount] = useState<number | null>(null);
   const [failedStep, setFailedStep] = useState<StepKey | undefined>(undefined);
-const [hasLoggedPollOpen, setHasLoggedPollOpen] = useState(false);
-const startTimeRef = useRef(Date.now());
-const hasConfirmedPaidBuildRef = useRef(false);
+  const [hasLoggedPollOpen, setHasLoggedPollOpen] = useState(false);
+  const startTimeRef = useRef(Date.now());
+  const paidBuildConfirmedRef = useRef(false);
+  const confirmPaidBuildInFlightRef = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -158,12 +160,13 @@ const hasConfirmedPaidBuildRef = useRef(false);
 
       if (!paid) return;
       if (!sessionId) return;
-      if (hasConfirmedPaidBuildRef.current) return;
+      if (paidBuildConfirmedRef.current) return;
+      if (confirmPaidBuildInFlightRef.current) return;
 
-      hasConfirmedPaidBuildRef.current = true;
+      confirmPaidBuildInFlightRef.current = true;
 
       try {
-        await fetch("/api/stripe/confirm-paid-build", {
+        const response = await fetch("/api/stripe/confirm-paid-build", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -174,16 +177,42 @@ const hasConfirmedPaidBuildRef = useRef(false);
             sessionId,
           }),
         });
+
+        const data = (await response.json()) as {
+          ok?: boolean;
+          alreadyStarted?: boolean;
+          started?: boolean;
+          error?: string;
+        };
+
+        if (cancelled) return;
+
+        if (response.ok && data.ok) {
+          paidBuildConfirmedRef.current = true;
+        } else {
+          console.error(
+            "NDJC generating: confirm paid build did not complete",
+            data.error || "unknown_error",
+          );
+        }
       } catch (error) {
+        if (cancelled) return;
         console.error("NDJC generating: confirm paid build failed", error);
+      } finally {
+        confirmPaidBuildInFlightRef.current = false;
       }
     };
 
     const fetchStatus = async () => {
       try {
-        const pollEvent = hasLoggedPollOpen ? "" : "&event=poll";
         const params = new URLSearchParams(window.location.search);
         const paid = params.get("paid") === "1";
+
+        if (paid) {
+          await confirmPaidBuild();
+        }
+
+        const pollEvent = hasLoggedPollOpen ? "" : "&event=poll";
 
         const response = await fetch(
           `/api/build-status?runId=${encodeURIComponent(runId)}${pollEvent}&paid=${paid ? "1" : "0"}&t=${startTimeRef.current}`,
@@ -202,6 +231,10 @@ const hasConfirmedPaidBuildRef = useRef(false);
           setQueueAheadCount(null);
           setFailedStep(undefined);
           return;
+        }
+
+        if (data.stage && data.stage !== "configuring_build") {
+          paidBuildConfirmedRef.current = true;
         }
 
         setStage(data.stage);
@@ -223,13 +256,10 @@ const hasConfirmedPaidBuildRef = useRef(false);
       }
     };
 
-    const bootstrap = async () => {
-      await confirmPaidBuild();
-      await fetchStatus();
-    };
-
-    void bootstrap();
-    const timer = window.setInterval(fetchStatus, 2000);
+    void fetchStatus();
+    const timer = window.setInterval(() => {
+      void fetchStatus();
+    }, 2000);
 
     return () => {
       cancelled = true;
@@ -259,10 +289,11 @@ const hasConfirmedPaidBuildRef = useRef(false);
   }, [stage, runId]);
 
   const currentActivity = useMemo(() => {
+    if (effectiveStage === "configuring_build") return "Configuring your app";
     if (effectiveStage === "queued") return "Waiting in build queue";
     if (effectiveStage === "success") return "Build completed";
     if (effectiveStage === "failed") {
-      return effectiveFailedStep ? `${ACTIVE_LABEL[effectiveFailedStep]} failed` : "Build failed";
+      return effectiveFailedStep ? ACTIVE_LABEL[effectiveFailedStep] : "Build failed";
     }
     if (!effectiveStage) return "Preparing build request";
     return ACTIVE_LABEL[effectiveStage as StepKey] || "Generating";
@@ -293,19 +324,50 @@ const hasConfirmedPaidBuildRef = useRef(false);
 
         <>
           {effectiveStage !== "success" ? (
-            effectiveStage === "queued" ? (
+            effectiveStage === "configuring_build" ? (
               <div className="mt-6 overflow-hidden rounded-[28px] border border-white/60 bg-white/75 p-5 text-center shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl md:p-6">
-                <div className="mx-auto mb-4 h-px w-24 bg-gradient-to-r from-transparent via-sky-300/80 to-transparent" />
+                <div className="mx-auto mb-5 h-px w-28 bg-gradient-to-r from-transparent via-cyan-300/80 to-transparent" />
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Build setup</div>
+                <div className="mt-3 flex items-center justify-center gap-3">
+                  <LoaderCircle className="h-5 w-5 animate-spin text-cyan-500" />
+                  <div className="text-2xl font-bold tracking-[-0.03em]">{currentActivity}</div>
+                </div>
+                <div className="mt-3 text-sm leading-7 text-slate-500">
+                  {effectiveMessage || "We’re confirming payment and preparing your build."}
+                </div>
+
+                <div className="mt-6 rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-5">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    What’s happening now
+                  </div>
+                  <div className="mt-3 text-sm leading-7 text-slate-500">
+                    We’re confirming your payment, provisioning your store, and creating the build record. Once this setup is complete, this page will switch to the queue or build progress automatically.
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-slate-600">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-400" />
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-sky-300 [animation-delay:180ms]" />
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-indigo-300 [animation-delay:360ms]" />
+                  <span className="ml-1">We’ll move to the build queue automatically.</span>
+                </div>
+              </div>
+            ) : effectiveStage === "queued" ? (
+              <div className="mt-6 overflow-hidden rounded-[28px] border border-white/60 bg-white/75 p-5 text-center shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl md:p-6">
+                <div className="mx-auto mb-5 h-px w-28 bg-gradient-to-r from-transparent via-sky-300/80 to-transparent" />
                 <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Build queue</div>
                 <div className="mt-3 flex items-center justify-center gap-3">
                   <Clock3 className="h-5 w-5 text-sky-500" />
                   <div className="text-2xl font-bold tracking-[-0.03em]">{currentActivity}</div>
                 </div>
-                <div className="mt-2 text-xs text-slate-400">Your build has been accepted and will start automatically.</div>
+                <div className="mt-3 text-sm leading-7 text-slate-500">{effectiveMessage}</div>
 
-                <div className="mx-auto mt-5 flex max-w-[420px] items-center justify-center gap-3">
-                  <div className="min-w-0 text-left">
-                    <div className="flex items-end gap-2">
+                <div className="mt-6 rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-5">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    Queue position
+                  </div>
+                  <div className="mt-3">
+                    <div className="flex items-end justify-center gap-3">
                       <span className="text-4xl font-extrabold tracking-[-0.06em] text-slate-950">
                         {typeof effectiveQueueAheadCount === "number" ? effectiveQueueAheadCount : "--"}
                       </span>
@@ -427,58 +489,60 @@ const hasConfirmedPaidBuildRef = useRef(false);
           ) : null}
         </>
 
-        <div className="mt-14 space-y-5">
-          {steps.map((step, index) => (
-            <div
-              key={step.title}
-              className={`flex items-center gap-4 rounded-[24px] border p-5 shadow-[0_8px_18px_rgba(15,23,42,0.03)] transition-all ${
-                step.status === "done"
-                  ? "border-emerald-200/80 bg-emerald-50/60"
-                  : step.status === "active"
-                    ? "scale-[1.01] border-fuchsia-200/80 ring-1 ring-fuchsia-200/70 bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(255,255,255,0.98))] shadow-[0_20px_40px_rgba(217,70,239,0.12)]"
-                    : step.status === "failed"
-                      ? "border-red-200 bg-red-50/70"
-                      : "border-slate-200/80 bg-white/85"
-              }`}
-            >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white to-slate-100 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
-                {step.status === "done" && <CheckCircle2 className="h-5 w-5 text-green-500" />}
-                {step.status === "active" && <LoaderCircle className="h-5 w-5 animate-spin text-purple-500" />}
-                {step.status === "pending" && <Circle className="h-5 w-5 text-slate-300" />}
-                {step.status === "failed" && <TriangleAlert className="h-5 w-5 text-red-400" />}
-              </div>
-
-              <div className="flex-1">
-                <div className={`text-sm font-semibold ${step.status === "active" ? "text-[#0f172a]" : "text-[#111827]"}`}>
-                  {index + 1}. {step.title}
-                </div>
-                {step.status === "active" ? (
-                  <div className="mt-1 text-xs leading-6 text-slate-500">Currently processing this stage in the NDJC build pipeline.</div>
-                ) : null}
-              </div>
-
+        {effectiveStage !== "configuring_build" ? (
+          <div className="mt-14 space-y-5">
+            {steps.map((step, index) => (
               <div
-                className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                key={step.title}
+                className={`flex items-center gap-4 rounded-[24px] border p-5 shadow-[0_8px_18px_rgba(15,23,42,0.03)] transition-all ${
                   step.status === "done"
-                    ? "bg-emerald-100 text-emerald-600"
+                    ? "border-emerald-200/80 bg-emerald-50/60"
                     : step.status === "active"
-                      ? "bg-fuchsia-100 text-fuchsia-600"
+                      ? "scale-[1.01] border-fuchsia-200/80 ring-1 ring-fuchsia-200/70 bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(255,255,255,0.98))] shadow-[0_20px_40px_rgba(217,70,239,0.12)]"
                       : step.status === "failed"
-                        ? "bg-red-100 text-red-500"
-                        : "bg-slate-100 text-slate-400"
+                        ? "border-red-200 bg-red-50/70"
+                        : "border-slate-200/80 bg-white/85"
                 }`}
               >
-                {step.status === "done"
-                  ? "Done"
-                  : step.status === "active"
-                    ? "Running"
-                    : step.status === "failed"
-                      ? "Failed"
-                      : "Pending"}
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white to-slate-100 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
+                  {step.status === "done" && <CheckCircle2 className="h-5 w-5 text-green-500" />}
+                  {step.status === "active" && <LoaderCircle className="h-5 w-5 animate-spin text-purple-500" />}
+                  {step.status === "pending" && <Circle className="h-5 w-5 text-slate-300" />}
+                  {step.status === "failed" && <TriangleAlert className="h-5 w-5 text-red-400" />}
+                </div>
+
+                <div className="flex-1">
+                  <div className={`text-sm font-semibold ${step.status === "active" ? "text-[#0f172a]" : "text-[#111827]"}`}>
+                    {index + 1}. {step.title}
+                  </div>
+                  {step.status === "active" ? (
+                    <div className="mt-1 text-xs leading-6 text-slate-500">Currently processing this stage in the NDJC build pipeline.</div>
+                  ) : null}
+                </div>
+
+                <div
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                    step.status === "done"
+                      ? "bg-emerald-100 text-emerald-600"
+                      : step.status === "active"
+                        ? "bg-fuchsia-100 text-fuchsia-600"
+                        : step.status === "failed"
+                          ? "bg-red-100 text-red-500"
+                          : "bg-slate-100 text-slate-400"
+                  }`}
+                >
+                  {step.status === "done"
+                    ? "Done"
+                    : step.status === "active"
+                      ? "Running"
+                      : step.status === "failed"
+                        ? "Failed"
+                        : "Pending"}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : null}
       </section>
     </main>
   );
