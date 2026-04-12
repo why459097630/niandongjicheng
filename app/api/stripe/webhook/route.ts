@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!provisionResult.ok || !provisionResult.storeId) {
-        throw new Error(provisionResult.error || "Failed to provision store after payment.");
+        throw new Error(`Failed to provision store after payment. Result: ${JSON.stringify(provisionResult)}`);
       }
 
       storeId = provisionResult.storeId;
