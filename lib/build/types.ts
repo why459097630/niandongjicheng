@@ -1,5 +1,4 @@
 export type BuildStage =
-  | "pending_payment"
   | "queued"
   | "preparing_request"
   | "processing_identity"
@@ -12,7 +11,7 @@ export type BuildStage =
 
 export type BuildMode = "Free Trial" | "Paid Purchase";
 
-export type BuildStatusValue = "pending_payment" | "queued" | "running" | "success" | "failed";
+export type BuildStatusValue = "queued" | "running" | "success" | "failed";
 
 export type StepKey =
   | "preparing_request"
