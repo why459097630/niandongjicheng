@@ -3,13 +3,19 @@ import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { insertOperationLog } from "@/lib/build/storage";
 import type { BuildRequest } from "@/lib/build/types";
+import {
+  attachStripeSessionToOrder,
+  createGenerateOrder,
+} from "@/lib/stripe/orders";
 
-const GENERATE_PRICE_ID = "price_1TL0LSADTfAordt3iO9jk18v";
+function getGeneratePriceId(): string {
+  const value =
+    (process.env.STRIPE_PRICE_ID_GENERATE_PRO || "").trim() ||
+    (process.env.STRIPE_PRICE_ID_GENERATE || "").trim() ||
+    "price_1TL0LSADTfAordt3iO9jk18v";
 
-type CreateGenerateSessionBody = Pick<
-  BuildRequest,
-  "appName" | "module" | "uiPack" | "plan" | "adminName" | "adminPassword" | "iconDataUrl"
->;
+  return value;
+}
 
 function createRunId(): string {
   const now = new Date();
@@ -17,6 +23,11 @@ function createRunId(): string {
   const random = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `ndjc-${iso}-${random}`;
 }
+
+type CreateGenerateSessionBody = Pick<
+  BuildRequest,
+  "appName" | "module" | "uiPack" | "plan" | "adminName" | "adminPassword" | "iconDataUrl"
+>;
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,7 +38,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "STRIPE_SECRET_KEY is required.",
+          error: "Payment is temporarily unavailable.",
         },
         { status: 500 },
       );
@@ -48,13 +59,23 @@ export async function POST(request: NextRequest) {
     const appName = String(body?.appName || "").trim();
     const moduleName = String(body?.module || "feature-showcase").trim();
     const uiPackName = String(body?.uiPack || "ui-pack-showcase-greenpink").trim();
-    const plan = String(body?.plan || "pro").trim();
+    const plan = String(body?.plan || "pro").trim().toLowerCase();
     const adminName = String(body?.adminName || "").trim();
     const adminPassword = String(body?.adminPassword || "");
     const iconDataUrl =
       typeof body?.iconDataUrl === "string" && body.iconDataUrl.trim().length > 0
         ? body.iconDataUrl
         : null;
+
+    if (plan !== "pro") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Only paid Pro builds can create a Stripe generate session.",
+        },
+        { status: 400 },
+      );
+    }
 
     if (!appName) {
       return NextResponse.json(
@@ -104,13 +125,10 @@ export async function POST(request: NextRequest) {
 
     const runId = createRunId();
 
-    await insertOperationLog(supabase, {
+    const order = await createGenerateOrder({
       userId: user.id,
       runId,
-      eventName: "build_started",
-      pagePath: "/api/stripe/create-generate-session",
-      metadata: {
-        kind: "stripe_generate_pending",
+      payload: {
         appName,
         module: moduleName,
         uiPack: uiPackName,
@@ -121,27 +139,45 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    await insertOperationLog(supabase, {
+      userId: user.id,
+      runId,
+      eventName: "build_started",
+      pagePath: "/api/stripe/create-generate-session",
+      metadata: {
+        kind: "stripe_generate_checkout_created",
+        orderId: order.id,
+        appName,
+        module: moduleName,
+        uiPack: uiPackName,
+        plan,
+        adminName,
+        hasIcon: Boolean(iconDataUrl),
+      },
+    });
+
     const stripe = new Stripe(stripeSecretKey);
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [
         {
-          price: GENERATE_PRICE_ID,
+          price: getGeneratePriceId(),
           quantity: 1,
         },
       ],
       customer_email: user.email || undefined,
-      success_url: `${siteUrl}/generating?runId=${encodeURIComponent(runId)}&paid=1&session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${siteUrl}/generating?runId=${encodeURIComponent(runId)}&paid=1`,
       cancel_url: `${siteUrl}/checkout?canceled=1`,
       metadata: {
         kind: "generate",
+        orderId: order.id,
         userId: user.id,
         runId,
       },
     });
 
-    if (!session.url) {
+    if (!session.id || !session.url) {
       return NextResponse.json(
         {
           ok: false,
@@ -151,16 +187,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    await attachStripeSessionToOrder(order.id, session.id);
+
     return NextResponse.json({
       ok: true,
       url: session.url,
       runId,
     });
   } catch (error) {
+    console.error("NDJC create-generate-session error", error);
+
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Failed to create Stripe checkout session.",
+        error: "Failed to create Stripe checkout session.",
       },
       { status: 500 },
     );

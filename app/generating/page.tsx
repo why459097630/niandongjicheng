@@ -139,8 +139,6 @@ export default function GeneratingPage() {
   const [failedStep, setFailedStep] = useState<StepKey | undefined>(undefined);
   const [hasLoggedPollOpen, setHasLoggedPollOpen] = useState(false);
   const startTimeRef = useRef(Date.now());
-  const paidBuildConfirmedRef = useRef(false);
-  const confirmPaidBuildInFlightRef = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -153,65 +151,18 @@ export default function GeneratingPage() {
 
     let cancelled = false;
 
-    const confirmPaidBuild = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const paid = params.get("paid") === "1";
-      const sessionId = params.get("session_id") || "";
-
-      if (!paid) return;
-      if (!sessionId) return;
-      if (paidBuildConfirmedRef.current) return;
-      if (confirmPaidBuildInFlightRef.current) return;
-
-      confirmPaidBuildInFlightRef.current = true;
-
-      try {
-        const response = await fetch("/api/stripe/confirm-paid-build", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          cache: "no-store",
-          body: JSON.stringify({
-            runId,
-            sessionId,
-          }),
-        });
-
-        const data = (await response.json()) as {
-          ok?: boolean;
-          alreadyStarted?: boolean;
-          started?: boolean;
-          error?: string;
-        };
-
-        if (cancelled) return;
-
-        if (response.ok && data.ok) {
-          paidBuildConfirmedRef.current = true;
-        } else {
-          console.error(
-            "NDJC generating: confirm paid build did not complete",
-            data.error || "unknown_error",
-          );
-        }
-      } catch (error) {
-        if (cancelled) return;
-        console.error("NDJC generating: confirm paid build failed", error);
-      } finally {
-        confirmPaidBuildInFlightRef.current = false;
-      }
-    };
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("session_id")) {
+      params.delete("session_id");
+      const nextQuery = params.toString();
+      const nextUrl = nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname;
+      window.history.replaceState({}, "", nextUrl);
+    }
 
     const fetchStatus = async () => {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const paid = params.get("paid") === "1";
-
-        if (paid) {
-          await confirmPaidBuild();
-        }
-
+        const liveParams = new URLSearchParams(window.location.search);
+        const paid = liveParams.get("paid") === "1";
         const pollEvent = hasLoggedPollOpen ? "" : "&event=poll";
 
         const response = await fetch(
@@ -231,10 +182,6 @@ export default function GeneratingPage() {
           setQueueAheadCount(null);
           setFailedStep(undefined);
           return;
-        }
-
-        if (data.stage && data.stage !== "configuring_build") {
-          paidBuildConfirmedRef.current = true;
         }
 
         setStage(data.stage);

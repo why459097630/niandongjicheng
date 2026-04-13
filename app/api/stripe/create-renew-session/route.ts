@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
+import {
+  attachStripeSessionToOrder,
+  createRenewOrder,
+} from "@/lib/stripe/orders";
 
-const RENEW_PRICE_MAP: Record<string, string> = {
-  "30d": "price_1TL0NqADTfAordt3ClNQzKCZ",
-  "90d": "price_1TL1nsADTfAordt3aihIfddI",
-  "180d": "price_1TL1oqADTfAordt3NQhDZox1",
-};
+function getRenewPriceMap(): Record<string, string> {
+  return {
+    "30d":
+      (process.env.STRIPE_PRICE_ID_RENEW_30D || "").trim() ||
+      "price_1TL0NqADTfAordt3ClNQzKCZ",
+    "90d":
+      (process.env.STRIPE_PRICE_ID_RENEW_90D || "").trim() ||
+      "price_1TL1nsADTfAordt3aihIfddI",
+    "180d":
+      (process.env.STRIPE_PRICE_ID_RENEW_180D || "").trim() ||
+      "price_1TL1oqADTfAordt3NQhDZox1",
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "STRIPE_SECRET_KEY is required.",
+          error: "Payment is temporarily unavailable.",
         },
         { status: 500 },
       );
@@ -52,7 +64,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const storeId = String(body?.storeId || "").trim();
     const renewId = String(body?.renewId || "").trim();
-    const priceId = RENEW_PRICE_MAP[renewId];
+    const priceMap = getRenewPriceMap();
+    const priceId = priceMap[renewId];
 
     if (!storeId) {
       return NextResponse.json(
@@ -74,6 +87,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const { data: ownedBuild, error: ownedBuildError } = await supabase
+      .from("builds")
+      .select("store_id")
+      .eq("user_id", user.id)
+      .eq("store_id", storeId)
+      .limit(1)
+      .maybeSingle();
+
+    if (ownedBuildError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Failed to verify store ownership.",
+        },
+        { status: 500 },
+      );
+    }
+
+    if (!ownedBuild) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "This store does not belong to the current user.",
+        },
+        { status: 403 },
+      );
+    }
+
+    const order = await createRenewOrder({
+      userId: user.id,
+      storeId,
+      renewId,
+      payload: {
+        storeId,
+        renewId,
+      },
+    });
+
     const stripe = new Stripe(stripeSecretKey);
 
     const session = await stripe.checkout.sessions.create({
@@ -85,17 +136,18 @@ export async function POST(request: NextRequest) {
         },
       ],
       customer_email: user.email || undefined,
-      success_url: `${siteUrl}/renew-cloud?stripeSuccess=1&session_id={CHECKOUT_SESSION_ID}&storeId=${encodeURIComponent(storeId)}`,
+      success_url: `${siteUrl}/renew-cloud?stripeSuccess=1&storeId=${encodeURIComponent(storeId)}&renewId=${encodeURIComponent(renewId)}`,
       cancel_url: `${siteUrl}/renew-cloud?storeId=${encodeURIComponent(storeId)}&canceled=1`,
       metadata: {
         kind: "renew_cloud",
+        orderId: order.id,
         userId: user.id,
         storeId,
         renewId,
       },
     });
 
-    if (!session.url) {
+    if (!session.id || !session.url) {
       return NextResponse.json(
         {
           ok: false,
@@ -105,15 +157,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    await attachStripeSessionToOrder(order.id, session.id);
+
     return NextResponse.json({
       ok: true,
       url: session.url,
     });
   } catch (error) {
+    console.error("NDJC create-renew-session error", error);
+
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Failed to create Stripe renewal session.",
+        error: "Failed to create Stripe renewal session.",
       },
       { status: 500 },
     );

@@ -110,6 +110,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (plan !== "free") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Paid builds must go through Stripe checkout.",
+        },
+        { status: 403 },
+      );
+    }
+
     const provisionResult = await provisionStore({
       module: moduleId,
       plan,

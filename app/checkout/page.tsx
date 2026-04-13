@@ -55,7 +55,6 @@ export default function CheckoutPage() {
       "";
 
     const nextAdminPassword =
-      params.get("adminPassword") ||
       sessionStorage.getItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY) ||
       "";
 
@@ -373,6 +372,7 @@ export default function CheckoutPage() {
                           throw new Error(data?.error || "Failed to create Stripe checkout session.");
                         }
 
+                        sessionStorage.removeItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY);
                         window.location.href = data.url;
                       } catch (error) {
                         setSubmitError(error instanceof Error ? error.message : "Failed to continue to payment.");
@@ -409,7 +409,6 @@ export default function CheckoutPage() {
                         uiPack: uiPackName,
                         plan,
                         adminName,
-                        adminPassword,
                       });
                       window.location.href = `/builder?${params.toString()}`;
                     }}

@@ -15,7 +15,6 @@ type BuildStatusResponse = {
   moduleName?: string;
   uiPackName?: string;
   adminName?: string;
-  adminPassword?: string;
   error?: string;
 };
 
@@ -32,7 +31,6 @@ export default function ResultPage() {
   const [moduleName, setModuleName] = useState("feature-showcase");
   const [uiPackName, setUiPackName] = useState("ui-pack-showcase-greenpink");
   const [adminName, setAdminName] = useState("");
-  const [adminPassword, setAdminPassword] = useState("");
   const [downloadUrl, setDownloadUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -53,8 +51,7 @@ export default function ResultPage() {
     const storedModuleName = window.sessionStorage.getItem(CHECKOUT_MODULE_STORAGE_KEY) || "";
     const storedUiPackName = window.sessionStorage.getItem(CHECKOUT_UI_PACK_STORAGE_KEY) || "";
     const storedAdminName = window.sessionStorage.getItem(CHECKOUT_ADMIN_NAME_STORAGE_KEY) || "";
-    const storedAdminPassword =
-      window.sessionStorage.getItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY) || "";
+    window.sessionStorage.removeItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY);
 
     const resultOpenKey = `ndjc_result_opened_${currentRunId}`;
     const shouldLogOpen =
@@ -79,7 +76,6 @@ export default function ResultPage() {
         setModuleName(data.moduleName || storedModuleName || "feature-showcase");
         setUiPackName(data.uiPackName || storedUiPackName || "ui-pack-showcase-greenpink");
         setAdminName(data.adminName || storedAdminName || "");
-        setAdminPassword(data.adminPassword || storedAdminPassword || "");
         setDownloadUrl(data.downloadUrl || "");
 
         if (shouldLogOpen && typeof window !== "undefined") {
@@ -197,9 +193,6 @@ export default function ResultPage() {
           </div>
           <div className="mt-2 text-sm text-slate-500">
             Admin: {adminName || "Not set"}
-          </div>
-          <div className="mt-1 text-sm text-slate-500">
-            Password: {adminPassword || "Not set"}
           </div>
         </div>
       </section>

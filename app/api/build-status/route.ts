@@ -143,7 +143,7 @@ const result = await getBuildStatus(supabase, runId, {
       }
 
       return new NextResponse(
-        `NDJC build package is not ready\nrunId=${result.runId}\nappName=${result.appName || ""}\nmodule=${result.moduleName || ""}\nuiPack=${result.uiPackName || ""}\nplan=${result.plan || ""}\nadminName=${result.adminName || ""}\nstoreId=${result.storeId || ""}\n`,
+        `NDJC build package is not ready\nrunId=${result.runId}\nappName=${result.appName || ""}\nmodule=${result.moduleName || ""}\nuiPack=${result.uiPackName || ""}\nplan=${result.plan || ""}\nstoreId=${result.storeId || ""}\n`,
         {
           status: 409,
           headers: {

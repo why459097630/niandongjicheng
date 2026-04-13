@@ -11,6 +11,7 @@ import {
   InternalBuildRecord,
   StepKey,
 } from "./types";
+import { getOrderByRunId } from "@/lib/stripe/orders";
 
 function getRequiredEnv(name: string): string {
   const value = (process.env[name] || "").trim();
@@ -182,7 +183,6 @@ function mapRecordToResponse(
   record: InternalBuildRecord,
   extra?: {
     adminName?: string;
-    adminPassword?: string;
     workflowStatus?: string | null;
     workflowConclusion?: string | null;
     failedStep?: StepKey;
@@ -201,17 +201,17 @@ function mapRecordToResponse(
     error: record.error,
     appName: record.appName,
     adminName: extra?.adminName,
-    adminPassword: extra?.adminPassword,
     storeId: record.storeId ?? null,
     moduleName: record.moduleName,
     uiPackName: record.uiPackName,
     plan: record.plan,
     mode: record.mode,
     createdAt: record.createdAt,
-    requestPath: record.requestPath ?? `requests/${record.runId}/status.json`,
+    requestPath: record.requestPath ?? null,
     workflowRunId: record.workflowRunId ?? null,
     workflowStatus: extra?.workflowStatus ?? record.workflowStatus ?? null,
-    workflowConclusion: extra?.workflowConclusion ?? record.workflowConclusion ?? null,
+    workflowConclusion:
+      extra?.workflowConclusion ?? record.workflowConclusion ?? null,
     workflowUrl: record.workflowUrl ?? null,
     failedStep: extra?.failedStep ?? record.failedStep ?? undefined,
     queueAheadCount: extra?.queueAheadCount,
@@ -251,8 +251,6 @@ function mergeStatus(
     adminName:
       (typeof remote.adminName === "string" ? remote.adminName : "") ||
       localRecord?.adminName,
-    adminPassword:
-      typeof remote.adminPassword === "string" ? remote.adminPassword : undefined,
     storeId:
       (typeof remote.storeId === "string" ? remote.storeId : "") ||
       localRecord?.storeId,
@@ -372,7 +370,6 @@ const synced = await updateBuildRecordByRunId(supabase, runId, {
 
       return mapRecordToResponse(synced, {
         adminName: merged.adminName,
-        adminPassword: merged.adminPassword,
         workflowStatus: merged.workflowStatus ?? null,
         workflowConclusion: merged.workflowConclusion ?? null,
         failedStep: merged.failedStep,
@@ -391,17 +388,46 @@ if (!localRecord) {
   const now = Date.now();
   const elapsed = now - requestStartTime;
 
-  if (isPaidFlow && elapsed < PAID_BUILD_INITIALIZATION_TIMEOUT_MS) {
-    return {
-      ok: true,
-      runId,
-      stage: "configuring_build",
-      message: "We’re confirming payment and preparing your build.",
-      queueAheadCount: 0,
-    };
-  }
-
   if (isPaidFlow) {
+    const order = await getOrderByRunId(runId);
+
+    if (order?.status === "failed") {
+      return {
+        ok: false,
+        error: order.error || "Paid build failed.",
+      };
+    }
+
+    if (
+      order &&
+      (order.status === "created" ||
+        order.status === "checkout_created" ||
+        order.status === "paid" ||
+        order.status === "processing" ||
+        order.status === "processed")
+    ) {
+      return {
+        ok: true,
+        runId,
+        stage: "configuring_build",
+        message:
+          order.status === "processed"
+            ? "Payment confirmed. Waiting for build status to sync."
+            : "Payment received. Securely preparing your build.",
+        queueAheadCount: 0,
+      };
+    }
+
+    if (elapsed < PAID_BUILD_INITIALIZATION_TIMEOUT_MS) {
+      return {
+        ok: true,
+        runId,
+        stage: "configuring_build",
+        message: "Waiting for secure payment confirmation.",
+        queueAheadCount: 0,
+      };
+    }
+
     return {
       ok: false,
       error: "Build setup did not complete in time.",

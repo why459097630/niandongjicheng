@@ -108,7 +108,6 @@ export type BuildStatusResponse = {
   error?: string | null;
   appName?: string;
   adminName?: string;
-  adminPassword?: string;
   storeId?: string | null;
   moduleName?: string;
   uiPackName?: string;

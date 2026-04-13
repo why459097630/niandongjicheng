@@ -363,7 +363,6 @@ export default function BuilderPage() {
       uiPack: buildParams.uiPack,
       plan: buildParams.plan,
       adminName: buildParams.adminName,
-      adminPassword: buildParams.adminPassword,
     });
     window.location.href = `/checkout?${params.toString()}`;
   };

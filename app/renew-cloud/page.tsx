@@ -93,20 +93,16 @@ export default function CloudRenewPage() {
 
     const params = new URLSearchParams(window.location.search);
     const stripeSuccess = params.get("stripeSuccess");
-    const sessionId = params.get("session_id");
+    const renewIdFromUrl = params.get("renewId") || selectedRenewId;
 
-    if (stripeSuccess !== "1" || !sessionId) {
-      return;
-    }
-
-    const dedupeKey = `ndjc_renew_session_done_${sessionId}`;
-    if (sessionStorage.getItem(dedupeKey) === "1") {
+    if (stripeSuccess !== "1") {
       return;
     }
 
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const verifyRenewPayment = async () => {
+    const pollRenewStatus = async () => {
       try {
         setIsVerifyingPayment(true);
         setSubmitError("");
@@ -117,23 +113,28 @@ export default function CloudRenewPage() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            sessionId,
+            sessionId: params.get("session_id") || "",
             storeId,
-            renewId: selectedRenewId,
+            renewId: renewIdFromUrl,
           }),
         });
 
         const data = await response.json();
 
+        if (cancelled) return;
+
         if (!response.ok || !data?.ok) {
-          throw new Error(data?.error || "Failed to verify cloud renewal payment.");
+          throw new Error(data?.error || "Failed to check cloud renewal payment.");
         }
 
-        sessionStorage.setItem(dedupeKey, "1");
-
-        if (!cancelled) {
-          window.location.href = `/history?renewed=1&storeId=${encodeURIComponent(storeId)}&renewPlan=${encodeURIComponent(selectedRenewId)}`;
+        if (data.processed) {
+          window.location.href = `/history?renewed=1&storeId=${encodeURIComponent(storeId)}&renewPlan=${encodeURIComponent(renewIdFromUrl)}`;
+          return;
         }
+
+        timer = setTimeout(() => {
+          void pollRenewStatus();
+        }, 1500);
       } catch (error) {
         if (!cancelled) {
           setSubmitError(error instanceof Error ? error.message : "Failed to renew cloud access.");
@@ -145,10 +146,13 @@ export default function CloudRenewPage() {
       }
     };
 
-    void verifyRenewPayment();
+    void pollRenewStatus();
 
     return () => {
       cancelled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
     };
   }, [isPageReady, selectedRenewId, storeId]);
 

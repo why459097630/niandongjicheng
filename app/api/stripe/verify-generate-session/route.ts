@@ -1,21 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
+import { getOrderBySessionId } from "@/lib/stripe/orders";
 
 export async function POST(request: NextRequest) {
   try {
-    const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
-
-    if (!stripeSecretKey) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "STRIPE_SECRET_KEY is required.",
-        },
-        { status: 500 },
-      );
-    }
-
     const supabase = await createClient();
     const {
       data: { user },
@@ -45,58 +33,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const stripe = new Stripe(stripeSecretKey);
+    const order = await getOrderBySessionId(sessionId);
 
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-
-    if (!session || session.mode !== "payment") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Invalid Stripe checkout session.",
-        },
-        { status: 400 },
-      );
+    if (!order) {
+      return NextResponse.json({
+        ok: true,
+        processed: false,
+        status: "checkout_created",
+      });
     }
 
-    if (session.payment_status !== "paid") {
+    if (order.user_id !== user.id) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Stripe payment is not completed.",
-        },
-        { status: 400 },
-      );
-    }
-
-    if (session.metadata?.kind !== "generate") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Stripe session kind mismatch.",
-        },
-        { status: 400 },
-      );
-    }
-
-    if ((session.metadata?.userId || "") !== user.id) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Stripe session user mismatch.",
+          error: "This payment session does not belong to the current user.",
         },
         { status: 403 },
       );
     }
 
+    if (order.status === "failed") {
+      return NextResponse.json(
+        {
+          ok: false,
+          processed: false,
+          status: order.status,
+          error: order.error || "Paid build failed.",
+        },
+        { status: 409 },
+      );
+    }
+
     return NextResponse.json({
       ok: true,
+      processed: order.status === "processed",
+      status: order.status,
+      runId: order.run_id,
     });
   } catch (error) {
+    console.error("NDJC verify-generate-session error", error);
+
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Failed to verify Stripe payment.",
+        error: "Failed to check paid build status.",
       },
       { status: 500 },
     );
