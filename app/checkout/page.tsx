@@ -58,6 +58,8 @@ export default function CheckoutPage() {
       sessionStorage.getItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY) ||
       "";
 
+    sessionStorage.removeItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY);
+
     setAppName(nextAppName);
     setModuleName(nextModuleName);
     setUiPackName(nextUiPackName);
@@ -322,6 +324,10 @@ export default function CheckoutPage() {
                       try {
                         setIsSubmitting(true);
                         setSubmitError("");
+
+                        if (!adminPassword) {
+                          throw new Error("Admin password has expired for security reasons. Please go back to Builder and enter it again.");
+                        }
 
                         if (plan === "free") {
                           const response = await fetch("/api/start-build", {

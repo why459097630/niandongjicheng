@@ -8,6 +8,7 @@ import type { BuildRequest } from "@/lib/build/types";
 import type { StripeOrderRecord } from "@/lib/stripe/orders";
 import {
   claimOrderForProcessing,
+  clearOrderPayload,
   completeOrder,
   failOrder,
   getOrderById,
@@ -361,6 +362,7 @@ const paidOrder = await markOrderPaidBySession({
           existingRecord.status === "running" ||
           existingRecord.status === "success")
       ) {
+        await clearOrderPayload(claimedOrder.id);
         await completeOrder(claimedOrder.id);
         return NextResponse.json({ ok: true });
       }
@@ -402,6 +404,7 @@ const paidOrder = await markOrderPaidBySession({
         throw new Error(buildResult.error || "Failed to start paid build.");
       }
 
+      await clearOrderPayload(claimedOrder.id);
       await completeOrder(claimedOrder.id);
 
       return NextResponse.json({ ok: true });

@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 
 const ICON_DATA_URL_STORAGE_KEY = "ndjc_builder_icon_data_url";
 const ICON_FILE_NAME_STORAGE_KEY = "ndjc_builder_icon_file_name";
+const BUILDER_DRAFT_STORAGE_KEY = "ndjc_builder_draft";
 const CHECKOUT_APP_NAME_STORAGE_KEY = "ndjc_checkout_app_name";
 const CHECKOUT_MODULE_STORAGE_KEY = "ndjc_checkout_module";
 const CHECKOUT_UI_PACK_STORAGE_KEY = "ndjc_checkout_ui_pack";
@@ -35,6 +36,31 @@ const EMPTY_VALIDATION_ERRORS: ValidationErrors = {
   adminPassword: false,
   plan: false,
 };
+type BuilderDraft = {
+  appName: string;
+  module: string;
+  uiPack: string;
+  plan: string;
+  adminName: string;
+  iconDataUrl: string | null;
+  iconFileName: string;
+};
+
+function loadBuilderDraft(): BuilderDraft | null {
+  try {
+    const raw = sessionStorage.getItem(BUILDER_DRAFT_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as BuilderDraft;
+  } catch {
+    return null;
+  }
+}
+
+function saveBuilderDraft(draft: BuilderDraft) {
+  try {
+    sessionStorage.setItem(BUILDER_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  } catch {}
+}
 
 async function fileToDataUrl(file: File): Promise<string> {
   return await new Promise((resolve, reject) => {
@@ -57,6 +83,19 @@ async function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+function isValidAdminEmail(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.length >= 5 &&
+    normalized.length <= 100 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
+  );
+}
+
+function isValidAdminPassword(value: string): boolean {
+  return value.length >= 6 && value.length <= 64;
+}
+
 export default function BuilderPage() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
   const [activePreview, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
@@ -72,6 +111,7 @@ export default function BuilderPage() {
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState(false);
+  const [isDraftHydrated, setIsDraftHydrated] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(EMPTY_VALIDATION_ERRORS);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const appNameSectionRef = useRef<HTMLDivElement | null>(null);
@@ -160,8 +200,8 @@ export default function BuilderPage() {
     appIcon: !iconDataUrl,
     logicModule: moduleName.trim().length === 0,
     uiPack: uiPackName.trim().length === 0,
-    adminName: adminName.trim().length === 0,
-    adminPassword: adminPassword.trim().length === 0,
+    adminName: !isValidAdminEmail(adminName),
+    adminPassword: !isValidAdminPassword(adminPassword),
     plan: planRef.current.trim().length === 0,
   });
 
@@ -239,23 +279,57 @@ export default function BuilderPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const nextPlan = (params.get("plan") || "pro").toLowerCase();
+    const draft = loadBuilderDraft();
 
-    setAppName(params.get("appName") || "");
-    setModuleName(params.get("module") || "feature-showcase");
-    setUiPackName(params.get("uiPack") || "ui-pack-showcase-greenpink");
+    const nextAppName =
+      params.get("appName") ||
+      draft?.appName ||
+      "";
+
+    const nextModuleName =
+      params.get("module") ||
+      draft?.module ||
+      "feature-showcase";
+
+    const nextUiPackName =
+      params.get("uiPack") ||
+      draft?.uiPack ||
+      "ui-pack-showcase-greenpink";
+
+    const nextPlan = (
+      params.get("plan") ||
+      draft?.plan ||
+      "pro"
+    ).toLowerCase();
+
+    const nextAdminName =
+      params.get("adminName") ||
+      draft?.adminName ||
+      "";
+
+    setAppName(nextAppName);
+    setModuleName(nextModuleName);
+    setUiPackName(nextUiPackName);
     setPlan(nextPlan);
     planRef.current = nextPlan;
-    setAdminName(params.get("adminName") || "");
-    setAdminPassword(params.get("adminPassword") || "");
+    setAdminName(nextAdminName);
+    setAdminPassword("");
 
-    const storedIconDataUrl = sessionStorage.getItem(ICON_DATA_URL_STORAGE_KEY);
-    const storedIconFileName = sessionStorage.getItem(ICON_FILE_NAME_STORAGE_KEY) || "";
+    const storedIconDataUrl =
+      draft?.iconDataUrl ||
+      sessionStorage.getItem(ICON_DATA_URL_STORAGE_KEY);
+
+    const storedIconFileName =
+      draft?.iconFileName ||
+      sessionStorage.getItem(ICON_FILE_NAME_STORAGE_KEY) ||
+      "";
 
     if (storedIconDataUrl) {
       setIconDataUrl(storedIconDataUrl);
       setIconFileName(storedIconFileName);
     }
+
+    setIsDraftHydrated(true);
   }, []);
 
   useEffect(() => {
@@ -289,6 +363,21 @@ export default function BuilderPage() {
       subscription.unsubscribe();
     };
   }, [supabase]);
+  useEffect(() => {
+    if (!isDraftHydrated) {
+      return;
+    }
+
+    saveBuilderDraft({
+      appName,
+      module: moduleName,
+      uiPack: uiPackName,
+      plan: planRef.current,
+      adminName: adminName.trim(),
+      iconDataUrl,
+      iconFileName,
+    });
+  }, [isDraftHydrated, appName, moduleName, uiPackName, adminName, iconDataUrl, iconFileName]);
 
   const selectedModuleClass =
     "rounded-full border border-indigo-400 bg-[linear-gradient(135deg,rgba(224,231,255,0.95),rgba(238,242,255,0.98))] px-4 py-2 text-indigo-700 shadow-[0_0_0_2px_rgba(99,102,241,0.12),0_10px_24px_rgba(99,102,241,0.12)] transition hover:-translate-y-0.5";
@@ -323,14 +412,25 @@ export default function BuilderPage() {
 
     const currentPlan = planRef.current;
 
+    saveBuilderDraft({
+      appName: buildParams.appName,
+      module: buildParams.module,
+      uiPack: buildParams.uiPack,
+      plan: buildParams.plan,
+      adminName: buildParams.adminName,
+      iconDataUrl: buildParams.iconDataUrl,
+      iconFileName,
+    });
+
     sessionStorage.setItem(CHECKOUT_APP_NAME_STORAGE_KEY, buildParams.appName);
     sessionStorage.setItem(CHECKOUT_MODULE_STORAGE_KEY, buildParams.module);
     sessionStorage.setItem(CHECKOUT_UI_PACK_STORAGE_KEY, buildParams.uiPack);
     sessionStorage.setItem(CHECKOUT_PLAN_STORAGE_KEY, buildParams.plan);
     sessionStorage.setItem(CHECKOUT_ADMIN_NAME_STORAGE_KEY, buildParams.adminName);
-    sessionStorage.setItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY, buildParams.adminPassword);
 
     if (currentPlan === "free") {
+      sessionStorage.removeItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY);
+
       try {
         setIsSubmitting(true);
 
@@ -356,6 +456,11 @@ export default function BuilderPage() {
 
       return;
     }
+
+    sessionStorage.setItem(
+      CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY,
+      buildParams.adminPassword,
+    );
 
     const params = new URLSearchParams({
       appName: buildParams.appName,
@@ -537,10 +642,10 @@ export default function BuilderPage() {
 
                   <div ref={adminNameSectionRef} className="space-y-2">
                     <div className="flex justify-between">
-                      <label className="text-sm font-semibold">Admin Name</label>
+                      <label className="text-sm font-semibold">Admin Email</label>
                       <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
                     </div>
-                    <p className="text-xs text-slate-400">Used as your merchant login email inside the app. It cannot be changed after creation.</p>
+                    <p className="text-xs text-slate-400">Used as your merchant login email inside the app. The same email can be reused across multiple apps. It cannot be changed after creation.</p>
                     <div
                       className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
                         validationErrors.adminName
@@ -549,6 +654,10 @@ export default function BuilderPage() {
                       }`}
                     >
                       <input
+                        type="email"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
                         value={adminName}
                         onChange={(e) => {
                           setAdminName(e.target.value);
@@ -559,7 +668,7 @@ export default function BuilderPage() {
                       />
                     </div>
                     {validationErrors.adminName ? (
-                      <p className="text-xs font-medium text-rose-500">Admin name is required.</p>
+                      <p className="text-xs font-medium text-rose-500">Enter a valid admin email between 5 and 100 characters.</p>
                     ) : null}
                   </div>
 
@@ -568,7 +677,7 @@ export default function BuilderPage() {
                       <label className="text-sm font-semibold">Admin Password</label>
                       <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
                     </div>
-                    <p className="text-xs text-slate-400">Used for merchant login inside the app. You can change this password later inside the app.</p>
+                    <p className="text-xs text-slate-400">Used for merchant login inside the app. Use 6 to 64 characters. You can change this password later inside the app.</p>
                     <div
                       className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
                         validationErrors.adminPassword
@@ -588,7 +697,7 @@ export default function BuilderPage() {
                       />
                     </div>
                     {validationErrors.adminPassword ? (
-                      <p className="text-xs font-medium text-rose-500">Admin password is required.</p>
+                      <p className="text-xs font-medium text-rose-500">Enter an admin password between 6 and 64 characters.</p>
                     ) : null}
                   </div>
 

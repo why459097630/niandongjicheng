@@ -17,6 +17,19 @@ async function fileToDataUrl(file: File): Promise<string> {
   return `data:${mimeType};base64,${bytes.toString('base64')}`;
 }
 
+function isValidAdminEmail(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.length >= 5 &&
+    normalized.length <= 100 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
+  );
+}
+
+function isValidAdminPassword(value: string): boolean {
+  return value.length >= 6 && value.length <= 64;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -60,7 +73,7 @@ export async function POST(request: NextRequest) {
       uiPackId = String(formData.get('uiPack') || 'ui-pack-showcase-greenpink').trim();
       plan = String(formData.get('plan') || 'pro').trim();
       iconUrl = String(formData.get('iconUrl') || '').trim() || null;
-      adminName = String(formData.get('adminName') || '').trim();
+      adminName = String(formData.get('adminName') || '').trim().toLowerCase();
       adminPassword = String(formData.get('adminPassword') || '');
 
       const iconFile = formData.get('iconFile');
@@ -76,7 +89,7 @@ export async function POST(request: NextRequest) {
       plan = (body.plan || 'pro').trim();
       iconUrl = body.iconUrl || null;
       iconDataUrl = body.iconDataUrl || null;
-      adminName = (body.adminName || '').trim();
+      adminName = (body.adminName || '').trim().toLowerCase();
       adminPassword = body.adminPassword || '';
     }
 
@@ -100,11 +113,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!isValidAdminEmail(adminName)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'adminName must be a valid email address between 5 and 100 characters.',
+        },
+        { status: 400 },
+      );
+    }
+
     if (!adminPassword) {
       return NextResponse.json(
         {
           ok: false,
           error: 'adminPassword is required.',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!isValidAdminPassword(adminPassword)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'adminPassword must be between 6 and 64 characters.',
         },
         { status: 400 },
       );

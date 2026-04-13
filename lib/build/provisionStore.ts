@@ -32,8 +32,17 @@ function normalizePlanType(plan: string): 'trial' | 'paid' {
   return 'paid';
 }
 
-function isValidEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+function isValidAdminEmail(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.length >= 5 &&
+    normalized.length <= 100 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
+  );
+}
+
+function isValidAdminPassword(value: string): boolean {
+  return value.length >= 6 && value.length <= 64;
 }
 
 function formatIso(date: Date): string {
@@ -70,6 +79,103 @@ async function safeReadJson(response: Response): Promise<unknown> {
   } catch {
     return text;
   }
+}
+
+function isAuthUserAlreadyExistsError(data: unknown): boolean {
+  if (typeof data === 'string') {
+    const text = data.toLowerCase();
+    return (
+      text.includes('already been registered') ||
+      text.includes('already registered') ||
+      text.includes('user already registered') ||
+      text.includes('email already exists') ||
+      text.includes('duplicate key')
+    );
+  }
+
+  if (typeof data === 'object' && data !== null) {
+    const message = String(
+      (data as { message?: unknown; msg?: unknown; error_description?: unknown }).message ||
+        (data as { message?: unknown; msg?: unknown; error_description?: unknown }).msg ||
+        (data as { message?: unknown; msg?: unknown; error_description?: unknown }).error_description ||
+        '',
+    ).toLowerCase();
+
+    return (
+      message.includes('already been registered') ||
+      message.includes('already registered') ||
+      message.includes('user already registered') ||
+      message.includes('email already exists') ||
+      message.includes('duplicate key')
+    );
+  }
+
+  return false;
+}
+
+async function findExistingAuthUserIdByEmail(params: {
+  supabaseUrl: string;
+  headers: HeadersInit;
+  email: string;
+}): Promise<{ ok: true; authUserId: string } | { ok: false; error: string }> {
+  const { supabaseUrl, headers, email } = params;
+
+  const lookupResponse = await fetch(
+    `${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1000`,
+    {
+      method: 'GET',
+      headers,
+      cache: 'no-store',
+    },
+  );
+
+  const lookupData = (await safeReadJson(lookupResponse)) as
+    | {
+        users?: Array<{
+          id?: string;
+          email?: string;
+        }>;
+        message?: string;
+        msg?: string;
+      }
+    | string
+    | null;
+
+  console.log('NDJC provisionStore: auth users lookup response', {
+    status: lookupResponse.status,
+    ok: lookupResponse.ok,
+    data: lookupData,
+  });
+
+  if (!lookupResponse.ok) {
+    return {
+      ok: false,
+      error:
+        typeof lookupData === 'string'
+          ? lookupData
+          : lookupData?.message || lookupData?.msg || 'Failed to query existing Supabase Auth users.',
+    };
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const authUserId =
+    typeof lookupData === 'object' && lookupData !== null && Array.isArray(lookupData.users)
+      ? String(
+          lookupData.users.find((user) => String(user?.email || '').trim().toLowerCase() === normalizedEmail)?.id || '',
+        ).trim()
+      : '';
+
+  if (!authUserId) {
+    return {
+      ok: false,
+      error: 'Supabase Auth user already exists, but the user id could not be resolved by email.',
+    };
+  }
+
+  return {
+    ok: true,
+    authUserId,
+  };
 }
 
 function extractStoreIdFromRpc(data: unknown): string {
@@ -118,7 +224,7 @@ export async function provisionStore(
 
   const moduleType = normalizeModuleType(input.module);
   const planType = normalizePlanType(input.plan);
-  const adminName = input.adminName.trim();
+  const adminName = input.adminName.trim().toLowerCase();
   const adminPassword = input.adminPassword;
 
   console.log('NDJC provisionStore: start', {
@@ -138,10 +244,10 @@ export async function provisionStore(
     };
   }
 
-  if (!isValidEmail(adminName)) {
+  if (!isValidAdminEmail(adminName)) {
     return {
       ok: false,
-      error: 'adminName must be a valid email address.',
+      error: 'adminName must be a valid email address between 5 and 100 characters.',
     };
   }
 
@@ -152,10 +258,10 @@ export async function provisionStore(
     };
   }
 
-  if (adminPassword.length < 6) {
+  if (!isValidAdminPassword(adminPassword)) {
     return {
       ok: false,
-      error: 'adminPassword must be at least 6 characters.',
+      error: 'adminPassword must be between 6 and 64 characters.',
     };
   }
 
@@ -368,73 +474,153 @@ export async function provisionStore(
     };
   }
 
-  console.log('NDJC provisionStore: creating auth user', {
-    storeId,
+  console.log('NDJC provisionStore: looking up existing store_memberships by login_name', {
     adminName,
   });
 
-  const authResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
-    method: 'POST',
-    headers: commonHeaders,
-    body: JSON.stringify({
-      email: adminName,
-      password: adminPassword,
-      email_confirm: true,
-      user_metadata: {
-        store_id: storeId,
-        module_type: moduleType,
-        plan_type: planType,
-        provision_trace: crypto.randomUUID(),
-      },
-    }),
-    cache: 'no-store',
-  });
+  const existingMembershipResponse = await fetch(
+    `${supabaseUrl}/rest/v1/store_memberships?select=auth_user_id,login_name&login_name=eq.${encodeURIComponent(adminName)}&order=created_at.asc&limit=1`,
+    {
+      method: 'GET',
+      headers: commonHeaders,
+      cache: 'no-store',
+    },
+  );
 
-  const authData = (await safeReadJson(authResponse)) as
-    | {
-        id?: string;
-        user?: {
-          id?: string;
-        };
-        msg?: string;
-        message?: string;
-      }
+  const existingMembershipData = (await safeReadJson(existingMembershipResponse)) as
+    | Array<{
+        auth_user_id?: string | null;
+        login_name?: string | null;
+      }>
     | string
     | null;
 
-  console.log('NDJC provisionStore: auth response', {
-    status: authResponse.status,
-    ok: authResponse.ok,
-    data: authData,
+  console.log('NDJC provisionStore: existing store_memberships lookup response', {
+    status: existingMembershipResponse.status,
+    ok: existingMembershipResponse.ok,
+    data: existingMembershipData,
   });
 
-  if (!authResponse.ok) {
-    console.error('NDJC provisionStore: auth create failed', {
-      status: authResponse.status,
-      data: authData,
-    });
-
+  if (!existingMembershipResponse.ok) {
     return {
       ok: false,
       error:
-        typeof authData === 'string'
-          ? authData
-          : authData?.message ||
-            authData?.msg ||
-            'Failed to create Supabase Auth user.',
+        typeof existingMembershipData === 'string'
+          ? existingMembershipData
+          : 'Failed to query existing store_memberships row.',
     };
   }
 
-  const authUserId =
-    typeof authData === 'object' && authData !== null
-      ? (authData.id || authData.user?.id || '').trim()
+  let authUserId =
+    Array.isArray(existingMembershipData) && existingMembershipData.length > 0
+      ? String(existingMembershipData[0]?.auth_user_id || '').trim()
       : '';
 
   if (!authUserId) {
-    return {
-      ok: false,
-      error: 'Supabase Auth user id is empty.',
-    };
+    console.log('NDJC provisionStore: creating auth user', {
+      storeId,
+      adminName,
+    });
+
+    const authResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: commonHeaders,
+      body: JSON.stringify({
+        email: adminName,
+        password: adminPassword,
+        email_confirm: true,
+        user_metadata: {
+          store_id: storeId,
+          module_type: moduleType,
+          plan_type: planType,
+          provision_trace: crypto.randomUUID(),
+        },
+      }),
+      cache: 'no-store',
+    });
+
+    const authData = (await safeReadJson(authResponse)) as
+      | {
+          id?: string;
+          user?: {
+            id?: string;
+          };
+          msg?: string;
+          message?: string;
+          error_description?: string;
+        }
+      | string
+      | null;
+
+    console.log('NDJC provisionStore: auth response', {
+      status: authResponse.status,
+      ok: authResponse.ok,
+      data: authData,
+    });
+
+    if (!authResponse.ok) {
+      console.error('NDJC provisionStore: auth create failed', {
+        status: authResponse.status,
+        data: authData,
+      });
+
+      if (isAuthUserAlreadyExistsError(authData)) {
+        console.log('NDJC provisionStore: auth user already exists, resolving by email', {
+          storeId,
+          adminName,
+        });
+
+        const existingAuthLookup = await findExistingAuthUserIdByEmail({
+          supabaseUrl,
+          headers: commonHeaders,
+          email: adminName,
+        });
+
+        if (!existingAuthLookup.ok) {
+          return {
+            ok: false,
+            error: existingAuthLookup.error,
+          };
+        }
+
+        authUserId = existingAuthLookup.authUserId;
+
+        console.log('NDJC provisionStore: resolved existing auth user by email', {
+          storeId,
+          adminName,
+          authUserId,
+        });
+      } else {
+        return {
+          ok: false,
+          error:
+            typeof authData === 'string'
+              ? authData
+              : authData?.message ||
+                authData?.msg ||
+                authData?.error_description ||
+                'Failed to create Supabase Auth user.',
+        };
+      }
+    } else {
+      authUserId =
+        typeof authData === 'object' && authData !== null
+          ? (authData.id || authData.user?.id || '').trim()
+          : '';
+
+      if (!authUserId) {
+        return {
+          ok: false,
+          error: 'Supabase Auth user id is empty.',
+        };
+      }
+    }
+  } else {
+    console.log('NDJC provisionStore: reusing existing auth user', {
+      storeId,
+      adminName,
+      authUserId,
+    });
   }
 
   console.log('NDJC provisionStore: upserting store_memberships row', {

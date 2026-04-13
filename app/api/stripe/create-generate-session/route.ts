@@ -32,6 +32,19 @@ type CreateGenerateSessionBody = Pick<
   "appName" | "module" | "uiPack" | "plan" | "adminName" | "adminPassword" | "iconDataUrl"
 >;
 
+function isValidAdminEmail(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.length >= 5 &&
+    normalized.length <= 100 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
+  );
+}
+
+function isValidAdminPassword(value: string): boolean {
+  return value.length >= 6 && value.length <= 64;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
@@ -63,7 +76,7 @@ export async function POST(request: NextRequest) {
     const moduleName = String(body?.module || "feature-showcase").trim();
     const uiPackName = String(body?.uiPack || "ui-pack-showcase-greenpink").trim();
     const plan = String(body?.plan || "pro").trim().toLowerCase();
-    const adminName = String(body?.adminName || "").trim();
+    const adminName = String(body?.adminName || "").trim().toLowerCase();
     const adminPassword = String(body?.adminPassword || "");
     const iconDataUrl =
       typeof body?.iconDataUrl === "string" && body.iconDataUrl.trim().length > 0
@@ -100,11 +113,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!isValidAdminEmail(adminName)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "adminName must be a valid email address between 5 and 100 characters.",
+        },
+        { status: 400 },
+      );
+    }
+
     if (!adminPassword) {
       return NextResponse.json(
         {
           ok: false,
           error: "adminPassword is required.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!isValidAdminPassword(adminPassword)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "adminPassword must be between 6 and 64 characters.",
         },
         { status: 400 },
       );

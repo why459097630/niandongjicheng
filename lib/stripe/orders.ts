@@ -321,6 +321,23 @@ export async function claimOrderForProcessing(
   return (data as StripeOrderRecord | null) || null;
 }
 
+export async function clearOrderPayload(orderId: string): Promise<void> {
+  const supabase = getServiceSupabase();
+
+  const { error } = await supabase
+    .from("web_stripe_orders")
+    .update({
+      payload_ciphertext: null,
+      payload_iv: null,
+      payload_tag: null,
+    })
+    .eq("id", orderId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export async function completeOrder(orderId: string): Promise<void> {
   const supabase = getServiceSupabase();
 
