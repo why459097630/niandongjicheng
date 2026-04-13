@@ -30,14 +30,15 @@ function addDays(value: string, days: number) {
 
 export default function CloudRenewPage() {
   const RENEW_OPTIONS = [
-    { id: "30d", label: "30 days", priceLabel: "$29", days: 30, priceId: "price_1TL0NqADTfAordt3ClNQzKCZ" },
-    { id: "90d", label: "90 days", priceLabel: "$79", days: 90, priceId: "price_1TL1nsADTfAordt3aihIfddI" },
-    { id: "180d", label: "180 days", priceLabel: "$149", days: 180, priceId: "price_1TL1oqADTfAordt3NQhDZox1" },
+    { id: "30d", label: "30 days", priceLabel: "$29", days: 30 },
+    { id: "90d", label: "90 days", priceLabel: "$79", days: 90 },
+    { id: "180d", label: "180 days", priceLabel: "$149", days: 180 },
   ] as const;
-const [appName, setAppName] = useState("");
-const [storeId, setStoreId] = useState("");
-const [cloudStatus, setCloudStatus] = useState("");
-const [cloudExpiresAt, setCloudExpiresAt] = useState("");
+
+  const [appName, setAppName] = useState("");
+  const [storeId, setStoreId] = useState("");
+  const [cloudStatus, setCloudStatus] = useState("");
+  const [cloudExpiresAt, setCloudExpiresAt] = useState("");
   const [isPageReady, setIsPageReady] = useState(false);
   const [isHeaderCompact, setIsHeaderCompact] = useState(false);
   const [selectedRenewId, setSelectedRenewId] = useState<(typeof RENEW_OPTIONS)[number]["id"]>("180d");
@@ -111,8 +112,23 @@ useEffect(() => {
 
   let cancelled = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight = false;
+
+  const scheduleNextPoll = (delayMs: number) => {
+    if (cancelled) return;
+
+    timer = setTimeout(() => {
+      void pollRenewStatus();
+    }, delayMs);
+  };
 
   const pollRenewStatus = async () => {
+    if (inFlight || cancelled) {
+      return;
+    }
+
+    inFlight = true;
+
     try {
       setIsVerifyingPayment(true);
       setSubmitError("");
@@ -164,14 +180,24 @@ useEffect(() => {
         return;
       }
 
-      timer = setTimeout(() => {
-        void pollRenewStatus();
-      }, 1500);
+      if (data.status === "rate_limited") {
+        const retryAfterMs =
+          typeof data?.retryAfterMs === "number" && data.retryAfterMs > 0
+            ? data.retryAfterMs
+            : 1500;
+
+        scheduleNextPoll(retryAfterMs);
+        return;
+      }
+
+      scheduleNextPoll(2000);
     } catch (error) {
       if (!cancelled) {
         setSubmitError(error instanceof Error ? error.message : "Failed to renew cloud access.");
       }
     } finally {
+      inFlight = false;
+
       if (!cancelled) {
         setIsVerifyingPayment(false);
       }

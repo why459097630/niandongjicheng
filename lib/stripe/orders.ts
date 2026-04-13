@@ -196,6 +196,38 @@ export async function getOrderBySessionId(
   return (data as StripeOrderRecord | null) || null;
 }
 
+export async function getRecentActiveRenewOrder(input: {
+  userId: string;
+  storeId: string;
+  windowSeconds?: number;
+}): Promise<StripeOrderRecord | null> {
+  const supabase = getServiceSupabase();
+  const windowSeconds =
+    typeof input.windowSeconds === "number" && input.windowSeconds > 0
+      ? input.windowSeconds
+      : 60;
+
+  const cutoffIso = new Date(Date.now() - windowSeconds * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("web_stripe_orders")
+    .select("*")
+    .eq("order_kind", "renew_cloud")
+    .eq("user_id", input.userId)
+    .eq("store_id", input.storeId)
+    .gte("created_at", cutoffIso)
+    .in("status", ["created", "checkout_created", "paid", "processing"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data as StripeOrderRecord | null) || null;
+}
+
 export async function getOrderById(
   orderId: string,
 ): Promise<StripeOrderRecord | null> {

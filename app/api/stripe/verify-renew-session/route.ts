@@ -2,6 +2,48 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getOrderBySessionId } from "@/lib/stripe/orders";
 
+const RENEW_VERIFY_MIN_INTERVAL_MS = 1200;
+
+async function getLastRenewVerifyAt(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+) {
+  const { data, error } = await supabase
+    .from("user_operation_logs")
+    .select("occurred_at")
+    .eq("user_id", userId)
+    .eq("event_name", "renew_status_polled")
+    .order("occurred_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data?.occurred_at ? new Date(data.occurred_at) : null;
+}
+
+async function insertRenewVerifyLog(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  sessionId: string,
+) {
+  const { error } = await supabase.from("user_operation_logs").insert({
+    user_id: userId,
+    event_name: "renew_status_polled",
+    page_path: "/renew-cloud",
+    metadata: {
+      sessionId,
+    },
+    occurred_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -33,7 +75,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const lastRenewVerifyAt = await getLastRenewVerifyAt(supabase, user.id);
+    const now = Date.now();
+
+    if (lastRenewVerifyAt) {
+      const elapsedMs = now - lastRenewVerifyAt.getTime();
+
+      if (elapsedMs < RENEW_VERIFY_MIN_INTERVAL_MS) {
+        return NextResponse.json(
+          {
+            ok: true,
+            processed: false,
+            status: "rate_limited",
+            retryAfterMs: RENEW_VERIFY_MIN_INTERVAL_MS - elapsedMs,
+          },
+          { status: 200 },
+        );
+      }
+    }
+
     const order = await getOrderBySessionId(sessionId);
+
+    await insertRenewVerifyLog(supabase, user.id, sessionId);
 
     if (!order) {
       return NextResponse.json(

@@ -5,6 +5,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import {
   attachStripeSessionToOrder,
   createRenewOrder,
+  getRecentActiveRenewOrder,
 } from "@/lib/stripe/orders";
 
 function getRequiredEnv(name: string): string {
@@ -151,6 +152,24 @@ export async function POST(request: NextRequest) {
 
     await assertStoreCanBeRenewed(storeId);
 
+    const recentActiveRenewOrder = await getRecentActiveRenewOrder({
+      userId: user.id,
+      storeId,
+      windowSeconds: 60,
+    });
+
+    if (recentActiveRenewOrder) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "A cloud renewal payment is already in progress. Please finish the current payment or wait one minute before trying again.",
+          status: recentActiveRenewOrder.status,
+        },
+        { status: 409 },
+      );
+    }
+
     const order = await createRenewOrder({
       userId: user.id,
       storeId,
@@ -172,8 +191,8 @@ export async function POST(request: NextRequest) {
         },
       ],
       customer_email: user.email || undefined,
-      success_url: `${siteUrl}/renew-cloud?stripeSuccess=1&storeId=${encodeURIComponent(storeId)}&renewId=${encodeURIComponent(renewId)}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/renew-cloud?storeId=${encodeURIComponent(storeId)}&canceled=1`,
+      success_url: `${siteUrl}/renew-cloud?stripeSuccess=1&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${siteUrl}/renew-cloud?canceled=1`,
       metadata: {
         kind: "renew_cloud",
         orderId: order.id,

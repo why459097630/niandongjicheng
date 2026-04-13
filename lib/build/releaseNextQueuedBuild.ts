@@ -38,17 +38,26 @@ function getConcurrencyLimit(): number {
   return 20;
 }
 
-async function countRunningBuilds(supabase: SupabaseClient): Promise<number> {
-  const result = await supabase
-    .from("builds")
-    .select("id", { head: true, count: "exact" })
-    .eq("status", "running");
+async function claimNextQueuedBuild(
+  supabase: SupabaseClient,
+  preferredRunId?: string,
+): Promise<string | null> {
+  const concurrencyLimit = getConcurrencyLimit();
 
-  if (result.error) {
-    throw new Error(result.error.message);
+  const { data, error } = await supabase.rpc("claim_next_queued_build", {
+    p_limit: concurrencyLimit,
+    p_preferred_run_id: preferredRunId ?? null,
+  });
+
+  if (error) {
+    throw new Error(error.message);
   }
 
-  return typeof result.count === "number" ? result.count : 0;
+  if (!Array.isArray(data) || !data[0]?.run_id) {
+    return null;
+  }
+
+  return String(data[0].run_id);
 }
 
 async function triggerBuildWorkflow(runId: string): Promise<void> {
@@ -83,61 +92,13 @@ export async function releaseNextQueuedBuild(
   supabase: SupabaseClient,
   preferredRunId?: string,
 ): Promise<{ released: boolean; runId?: string }> {
-  const concurrencyLimit = getConcurrencyLimit();
-  const runningCount = await countRunningBuilds(supabase);
+  const claimedRunId = await claimNextQueuedBuild(supabase, preferredRunId);
 
-  if (runningCount >= concurrencyLimit) {
+  if (!claimedRunId) {
     return { released: false };
   }
 
-  let targetRunId: string | undefined;
-
-  if (preferredRunId) {
-    targetRunId = preferredRunId;
-  } else {
-    const { data: queuedRow, error: queuedError } = await supabase
-      .from("builds")
-      .select("run_id")
-      .eq("status", "queued")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (queuedError) {
-      throw new Error(queuedError.message);
-    }
-
-    if (!queuedRow?.run_id) {
-      return { released: false };
-    }
-
-    targetRunId = queuedRow.run_id;
-  }
-
-  const { data: claimedRow, error: claimError } = await supabase
-    .from("builds")
-    .update({
-      status: "running",
-      stage: "preparing_request",
-      message: "Build request uploaded. Preparing build request.",
-      error: null,
-      status_source: "local_api",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("run_id", targetRunId)
-    .eq("status", "queued")
-    .select("run_id")
-    .maybeSingle();
-
-  if (claimError) {
-    throw new Error(claimError.message);
-  }
-
-  if (!claimedRow?.run_id) {
-    return { released: false };
-  }
-
-  const claimedRecord = await getBuildRecordByRunId(supabase, claimedRow.run_id);
+  const claimedRecord = await getBuildRecordByRunId(supabase, claimedRunId);
 
   if (!claimedRecord) {
     return { released: false };
