@@ -227,7 +227,7 @@ export async function markOrderPaidBySession(input: {
     .update({
       stripe_payment_intent_id: input.stripePaymentIntentId ?? null,
       stripe_event_id: input.stripeEventId ?? null,
-      status: existing.status === "processed" ? "processed" : "paid",
+      status: "paid",
       error: null,
     })
     .eq("id", existing.id)
