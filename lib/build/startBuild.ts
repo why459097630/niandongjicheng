@@ -284,6 +284,21 @@ export async function startBuild(
 
   const existingRecord = await getBuildRecordByRunId(supabase, runId);
 
+  if (
+    existingRecord &&
+    (existingRecord.status === "queued" ||
+      existingRecord.status === "running" ||
+      existingRecord.status === "success")
+  ) {
+    return {
+      ok: true,
+      runId,
+      stage: existingRecord.stage,
+      message: existingRecord.message,
+      storeId: existingRecord.storeId ?? null,
+    };
+  }
+
   const saved = existingRecord
     ? await updateBuildRecordByRunId(supabase, runId, {
         appName,

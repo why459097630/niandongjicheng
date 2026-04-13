@@ -35,6 +35,91 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
+function getGeneratePriceId(): string {
+  return (
+    (process.env.STRIPE_PRICE_ID_GENERATE_PRO || "").trim() ||
+    getRequiredEnv("STRIPE_PRICE_ID_GENERATE")
+  );
+}
+
+function getRenewPriceId(renewId: string): string {
+  const priceMap: Record<string, string> = {
+    "30d": getRequiredEnv("STRIPE_PRICE_ID_RENEW_30D"),
+    "90d": getRequiredEnv("STRIPE_PRICE_ID_RENEW_90D"),
+    "180d": getRequiredEnv("STRIPE_PRICE_ID_RENEW_180D"),
+  };
+
+  const priceId = priceMap[renewId];
+
+  if (!priceId) {
+    throw new Error("Invalid renewId.");
+  }
+
+  return priceId;
+}
+
+async function assertSessionPricing(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+  order: StripeOrderRecord,
+) {
+  const fullSession = await stripe.checkout.sessions.retrieve(session.id as string, {
+    expand: ["line_items.data.price"],
+  });
+
+  const currency = String(fullSession.currency || "").trim().toLowerCase();
+
+  if (currency !== "usd") {
+    throw new Error(`Unexpected Stripe session currency: ${currency || "empty"}.`);
+  }
+
+  const lineItems = fullSession.line_items?.data || [];
+
+  if (lineItems.length !== 1) {
+    throw new Error(`Unexpected Stripe line item count: ${lineItems.length}.`);
+  }
+
+  const lineItem = lineItems[0];
+  const linePrice = lineItem.price;
+  const actualPriceId =
+    linePrice && typeof linePrice !== "string" ? String(linePrice.id || "").trim() : "";
+  const quantity = Number(lineItem.quantity || 0);
+
+  if (!actualPriceId) {
+    throw new Error("Stripe line item price id is missing.");
+  }
+
+  if (quantity !== 1) {
+    throw new Error(`Unexpected Stripe line item quantity: ${quantity}.`);
+  }
+
+  if (order.order_kind === "generate_app") {
+    const expectedPriceId = getGeneratePriceId();
+
+    if (actualPriceId !== expectedPriceId) {
+      throw new Error(
+        `Stripe generate price mismatch. expected=${expectedPriceId} actual=${actualPriceId}`,
+      );
+    }
+
+    return;
+  }
+
+  if (order.order_kind === "renew_cloud") {
+    const expectedPriceId = getRenewPriceId(order.renew_id || "");
+
+    if (actualPriceId !== expectedPriceId) {
+      throw new Error(
+        `Stripe renew price mismatch. expected=${expectedPriceId} actual=${actualPriceId}`,
+      );
+    }
+
+    return;
+  }
+
+  throw new Error("Unsupported Stripe order kind.");
+}
+
 function addDaysFromBase(base: Date, days: number) {
   const next = new Date(base);
   next.setDate(next.getDate() + days);
@@ -184,20 +269,21 @@ export async function POST(request: NextRequest) {
       throw new Error("Stripe session resolved to two different orders.");
     }
 
-    const baseOrder = orderFromMetadata || orderFromSession;
+const baseOrder = orderFromMetadata || orderFromSession;
 
-    if (!baseOrder) {
-      return NextResponse.json({ ok: true });
-    }
+if (!baseOrder) {
+  return NextResponse.json({ ok: true });
+}
 
-    assertSessionMatchesOrderMetadata(session, baseOrder);
+assertSessionMatchesOrderMetadata(session, baseOrder);
+await assertSessionPricing(stripe, session, baseOrder);
 
-    const paidOrder = await markOrderPaidBySession({
-      stripeSessionId: session.id,
-      stripePaymentIntentId:
-        typeof session.payment_intent === "string" ? session.payment_intent : null,
-      stripeEventId: event.id,
-    });
+const paidOrder = await markOrderPaidBySession({
+  stripeSessionId: session.id,
+  stripePaymentIntentId:
+    typeof session.payment_intent === "string" ? session.payment_intent : null,
+  stripeEventId: event.id,
+});
 
     const claimedOrder = await claimOrderForProcessing(paidOrder.id);
 

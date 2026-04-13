@@ -22,8 +22,6 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const sessionId = String(body?.sessionId || "").trim();
-    const storeId = String(body?.storeId || "").trim();
-    const renewId = String(body?.renewId || "").trim();
 
     if (!sessionId) {
       return NextResponse.json(
@@ -48,6 +46,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (order.order_kind !== "renew_cloud") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "This payment session is not a cloud renewal order.",
+        },
+        { status: 400 },
+      );
+    }
+
     if (order.user_id !== user.id) {
       return NextResponse.json(
         {
@@ -58,26 +66,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (storeId && order.store_id !== storeId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Renew order storeId mismatch.",
-        },
-        { status: 400 },
-      );
-    }
-
-    if (renewId && order.renew_id !== renewId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Renew order renewId mismatch.",
-        },
-        { status: 400 },
-      );
-    }
-
     if (order.status === "failed") {
       return NextResponse.json(
         {
@@ -85,6 +73,8 @@ export async function POST(request: NextRequest) {
           processed: false,
           status: order.status,
           error: order.error || "Cloud renewal failed.",
+          storeId: order.store_id,
+          renewId: order.renew_id,
         },
         { status: 409 },
       );
@@ -94,6 +84,8 @@ export async function POST(request: NextRequest) {
       ok: true,
       processed: order.status === "processed",
       status: order.status,
+      storeId: order.store_id,
+      renewId: order.renew_id,
     });
   } catch (error) {
     console.error("NDJC verify-renew-session error", error);

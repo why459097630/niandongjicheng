@@ -98,7 +98,6 @@ useEffect(() => {
 
   const params = new URLSearchParams(window.location.search);
   const stripeSuccess = params.get("stripeSuccess");
-  const renewIdFromUrl = params.get("renewId") || selectedRenewId;
   const sessionId = params.get("session_id") || "";
 
   if (stripeSuccess !== "1") {
@@ -125,8 +124,6 @@ useEffect(() => {
         },
         body: JSON.stringify({
           sessionId,
-          storeId,
-          renewId: renewIdFromUrl,
         }),
       });
 
@@ -138,8 +135,32 @@ useEffect(() => {
         throw new Error(data?.error || "Failed to check cloud renewal payment.");
       }
 
+      if (typeof data?.storeId === "string" && data.storeId.trim()) {
+        setStoreId(data.storeId.trim());
+      }
+
+      if (
+        data?.renewId === "30d" ||
+        data?.renewId === "90d" ||
+        data?.renewId === "180d"
+      ) {
+        setSelectedRenewId(data.renewId);
+      }
+
       if (data.processed) {
-        window.location.href = `/history?renewed=1&storeId=${encodeURIComponent(storeId)}&renewPlan=${encodeURIComponent(renewIdFromUrl)}`;
+        const finalStoreId =
+          typeof data?.storeId === "string" && data.storeId.trim()
+            ? data.storeId.trim()
+            : storeId;
+
+        const finalRenewId =
+          data?.renewId === "30d" ||
+          data?.renewId === "90d" ||
+          data?.renewId === "180d"
+            ? data.renewId
+            : selectedRenewId;
+
+        window.location.href = `/history?renewed=1&storeId=${encodeURIComponent(finalStoreId)}&renewPlan=${encodeURIComponent(finalRenewId)}`;
         return;
       }
 
