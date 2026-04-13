@@ -138,16 +138,25 @@ export async function attachStripeSessionToOrder(
 ): Promise<void> {
   const supabase = getServiceSupabase();
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("web_stripe_orders")
     .update({
       stripe_session_id: stripeSessionId,
       status: "checkout_created",
+      error: null,
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("status", "created")
+    .is("stripe_session_id", null)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error("Stripe order is not in a state that can attach a checkout session.");
   }
 }
 
@@ -218,7 +227,11 @@ export async function markOrderPaidBySession(input: {
     throw new Error("Stripe order not found for session.");
   }
 
-  if (existing.status === "processed") {
+  if (
+    existing.status === "processed" ||
+    existing.status === "processing" ||
+    (input.stripeEventId && existing.stripe_event_id === input.stripeEventId)
+  ) {
     return existing;
   }
 
@@ -231,11 +244,22 @@ export async function markOrderPaidBySession(input: {
       error: null,
     })
     .eq("id", existing.id)
+    .in("status", ["created", "checkout_created", "failed"])
     .select("*")
-    .single();
+    .maybeSingle();
 
-  if (error || !data) {
-    throw new Error(error?.message || "Failed to mark Stripe order as paid.");
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    const latest = await getOrderById(existing.id);
+
+    if (latest) {
+      return latest;
+    }
+
+    throw new Error("Failed to mark Stripe order as paid.");
   }
 
   return data as StripeOrderRecord;
@@ -250,6 +274,7 @@ export async function claimOrderForProcessing(
     .from("web_stripe_orders")
     .update({
       status: "processing",
+      error: null,
     })
     .eq("id", orderId)
     .eq("status", "paid")
@@ -274,7 +299,8 @@ export async function completeOrder(orderId: string): Promise<void> {
       processed_at: new Date().toISOString(),
       error: null,
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .in("status", ["paid", "processing", "processed"]);
 
   if (error) {
     throw new Error(error.message);
@@ -293,7 +319,8 @@ export async function failOrder(
       status: "failed",
       error: errorMessage,
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .neq("status", "processed");
 
   if (error) {
     throw new Error(error.message);

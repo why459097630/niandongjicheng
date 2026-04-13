@@ -11,8 +11,11 @@ import {
 function getGeneratePriceId(): string {
   const value =
     (process.env.STRIPE_PRICE_ID_GENERATE_PRO || "").trim() ||
-    (process.env.STRIPE_PRICE_ID_GENERATE || "").trim() ||
-    "price_1TL0LSADTfAordt3iO9jk18v";
+    (process.env.STRIPE_PRICE_ID_GENERATE || "").trim();
+
+  if (!value) {
+    throw new Error("STRIPE_PRICE_ID_GENERATE_PRO or STRIPE_PRICE_ID_GENERATE is required.");
+  }
 
   return value;
 }
@@ -158,24 +161,24 @@ export async function POST(request: NextRequest) {
 
     const stripe = new Stripe(stripeSecretKey);
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        {
-          price: getGeneratePriceId(),
-          quantity: 1,
-        },
-      ],
-      customer_email: user.email || undefined,
-      success_url: `${siteUrl}/generating?runId=${encodeURIComponent(runId)}&paid=1`,
-      cancel_url: `${siteUrl}/checkout?canceled=1`,
-      metadata: {
-        kind: "generate",
-        orderId: order.id,
-        userId: user.id,
-        runId,
-      },
-    });
+const session = await stripe.checkout.sessions.create({
+  mode: "payment",
+  line_items: [
+    {
+      price: getGeneratePriceId(),
+      quantity: 1,
+    },
+  ],
+  customer_email: user.email || undefined,
+  success_url: `${siteUrl}/generating?runId=${encodeURIComponent(runId)}&paid=1&session_id={CHECKOUT_SESSION_ID}`,
+  cancel_url: `${siteUrl}/checkout?canceled=1`,
+  metadata: {
+    kind: "generate_app",
+    orderId: order.id,
+    userId: user.id,
+    runId,
+  },
+});
 
     if (!session.id || !session.url) {
       return NextResponse.json(

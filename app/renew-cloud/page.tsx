@@ -34,10 +34,10 @@ export default function CloudRenewPage() {
     { id: "90d", label: "90 days", priceLabel: "$79", days: 90, priceId: "price_1TL1nsADTfAordt3aihIfddI" },
     { id: "180d", label: "180 days", priceLabel: "$149", days: 180, priceId: "price_1TL1oqADTfAordt3NQhDZox1" },
   ] as const;
-  const [appName, setAppName] = useState("Untitled App");
-  const [storeId, setStoreId] = useState("store_showcase_paid_000019");
-  const [cloudStatus, setCloudStatus] = useState("active");
-  const [cloudExpiresAt, setCloudExpiresAt] = useState("2026-04-15T10:32:00.000Z");
+const [appName, setAppName] = useState("");
+const [storeId, setStoreId] = useState("");
+const [cloudStatus, setCloudStatus] = useState("");
+const [cloudExpiresAt, setCloudExpiresAt] = useState("");
   const [isPageReady, setIsPageReady] = useState(false);
   const [isHeaderCompact, setIsHeaderCompact] = useState(false);
   const [selectedRenewId, setSelectedRenewId] = useState<(typeof RENEW_OPTIONS)[number]["id"]>("180d");
@@ -58,103 +58,114 @@ export default function CloudRenewPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
 
-    const nextAppName =
-      params.get("appName") ||
-      sessionStorage.getItem(RENEW_APP_NAME_STORAGE_KEY) ||
-      "Untitled App";
+  const nextAppName =
+    params.get("appName") ||
+    sessionStorage.getItem(RENEW_APP_NAME_STORAGE_KEY) ||
+    "";
 
-    const nextStoreId =
-      params.get("storeId") ||
-      sessionStorage.getItem(RENEW_STORE_ID_STORAGE_KEY) ||
-      "store_showcase_paid_000019";
+  const nextStoreId =
+    params.get("storeId") ||
+    sessionStorage.getItem(RENEW_STORE_ID_STORAGE_KEY) ||
+    "";
 
-    const nextCloudStatus =
-      params.get("cloudStatus") ||
-      sessionStorage.getItem(RENEW_CLOUD_STATUS_STORAGE_KEY) ||
-      "active";
+  const nextCloudStatus =
+    params.get("cloudStatus") ||
+    sessionStorage.getItem(RENEW_CLOUD_STATUS_STORAGE_KEY) ||
+    "";
 
-    const nextCloudExpiresAt =
-      params.get("cloudExpiresAt") ||
-      sessionStorage.getItem(RENEW_CLOUD_EXPIRES_AT_STORAGE_KEY) ||
-      "2026-04-15T10:32:00.000Z";
+  const nextCloudExpiresAt =
+    params.get("cloudExpiresAt") ||
+    sessionStorage.getItem(RENEW_CLOUD_EXPIRES_AT_STORAGE_KEY) ||
+    "";
 
-    setAppName(nextAppName);
-    setStoreId(nextStoreId);
-    setCloudStatus(nextCloudStatus);
-    setCloudExpiresAt(nextCloudExpiresAt);
-    setIsPageReady(true);
-  }, []);
+  const nextRenewId = params.get("renewId");
+  if (nextRenewId === "30d" || nextRenewId === "90d" || nextRenewId === "180d") {
+    setSelectedRenewId(nextRenewId);
+  }
 
-  useEffect(() => {
-    if (!isPageReady) return;
+  setAppName(nextAppName);
+  setStoreId(nextStoreId);
+  setCloudStatus(nextCloudStatus);
+  setCloudExpiresAt(nextCloudExpiresAt);
+  setIsPageReady(true);
+}, []);
 
-    const params = new URLSearchParams(window.location.search);
-    const stripeSuccess = params.get("stripeSuccess");
-    const renewIdFromUrl = params.get("renewId") || selectedRenewId;
+useEffect(() => {
+  if (!isPageReady) return;
 
-    if (stripeSuccess !== "1") {
-      return;
+  const params = new URLSearchParams(window.location.search);
+  const stripeSuccess = params.get("stripeSuccess");
+  const renewIdFromUrl = params.get("renewId") || selectedRenewId;
+  const sessionId = params.get("session_id") || "";
+
+  if (stripeSuccess !== "1") {
+    return;
+  }
+
+  if (!sessionId) {
+    setSubmitError("Missing Stripe session_id in return URL.");
+    return;
+  }
+
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const pollRenewStatus = async () => {
+    try {
+      setIsVerifyingPayment(true);
+      setSubmitError("");
+
+      const response = await fetch("/api/stripe/verify-renew-session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sessionId,
+          storeId,
+          renewId: renewIdFromUrl,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (cancelled) return;
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Failed to check cloud renewal payment.");
+      }
+
+      if (data.processed) {
+        window.location.href = `/history?renewed=1&storeId=${encodeURIComponent(storeId)}&renewPlan=${encodeURIComponent(renewIdFromUrl)}`;
+        return;
+      }
+
+      timer = setTimeout(() => {
+        void pollRenewStatus();
+      }, 1500);
+    } catch (error) {
+      if (!cancelled) {
+        setSubmitError(error instanceof Error ? error.message : "Failed to renew cloud access.");
+      }
+    } finally {
+      if (!cancelled) {
+        setIsVerifyingPayment(false);
+      }
     }
+  };
 
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+  void pollRenewStatus();
 
-    const pollRenewStatus = async () => {
-      try {
-        setIsVerifyingPayment(true);
-        setSubmitError("");
-
-        const response = await fetch("/api/stripe/verify-renew-session", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            sessionId: params.get("session_id") || "",
-            storeId,
-            renewId: renewIdFromUrl,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (cancelled) return;
-
-        if (!response.ok || !data?.ok) {
-          throw new Error(data?.error || "Failed to check cloud renewal payment.");
-        }
-
-        if (data.processed) {
-          window.location.href = `/history?renewed=1&storeId=${encodeURIComponent(storeId)}&renewPlan=${encodeURIComponent(renewIdFromUrl)}`;
-          return;
-        }
-
-        timer = setTimeout(() => {
-          void pollRenewStatus();
-        }, 1500);
-      } catch (error) {
-        if (!cancelled) {
-          setSubmitError(error instanceof Error ? error.message : "Failed to renew cloud access.");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsVerifyingPayment(false);
-        }
-      }
-    };
-
-    void pollRenewStatus();
-
-    return () => {
-      cancelled = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
-    };
-  }, [isPageReady, selectedRenewId, storeId]);
+  return () => {
+    cancelled = true;
+    if (timer) {
+      clearTimeout(timer);
+    }
+  };
+}, [isPageReady, selectedRenewId, storeId]);
 
   const selectedRenewOption =
     RENEW_OPTIONS.find((option) => option.id === selectedRenewId) ?? RENEW_OPTIONS[0];

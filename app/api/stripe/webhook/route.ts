@@ -5,6 +5,7 @@ import { provisionStore } from "@/lib/build/provisionStore";
 import { startBuild } from "@/lib/build/startBuild";
 import { getBuildRecordByRunId } from "@/lib/build/storage";
 import type { BuildRequest } from "@/lib/build/types";
+import type { StripeOrderRecord } from "@/lib/stripe/orders";
 import {
   claimOrderForProcessing,
   completeOrder,
@@ -26,9 +27,11 @@ const RENEW_DAY_MAP: Record<string, number> = {
 
 function getRequiredEnv(name: string): string {
   const value = (process.env[name] || "").trim();
+
   if (!value) {
     throw new Error(`${name} is required.`);
   }
+
   return value;
 }
 
@@ -36,6 +39,50 @@ function addDaysFromBase(base: Date, days: number) {
   const next = new Date(base);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function assertSessionMatchesOrderMetadata(
+  session: Stripe.Checkout.Session,
+  order: StripeOrderRecord,
+) {
+  const metadataKind = String(session.metadata?.kind || "").trim();
+  const metadataOrderId = String(session.metadata?.orderId || "").trim();
+  const metadataUserId = String(session.metadata?.userId || "").trim();
+  const metadataRunId = String(session.metadata?.runId || "").trim();
+  const metadataStoreId = String(session.metadata?.storeId || "").trim();
+  const metadataRenewId = String(session.metadata?.renewId || "").trim();
+
+  if (metadataOrderId && metadataOrderId !== order.id) {
+    throw new Error("Stripe session orderId does not match the stored order.");
+  }
+
+  if (metadataUserId && metadataUserId !== order.user_id) {
+    throw new Error("Stripe session userId does not match the stored order.");
+  }
+
+  if (order.order_kind === "generate_app") {
+    if (metadataKind && metadataKind !== "generate_app") {
+      throw new Error("Stripe session kind mismatch for generate order.");
+    }
+
+    if (metadataRunId && metadataRunId !== (order.run_id || "")) {
+      throw new Error("Stripe session runId does not match the stored order.");
+    }
+  }
+
+  if (order.order_kind === "renew_cloud") {
+    if (metadataKind && metadataKind !== "renew_cloud") {
+      throw new Error("Stripe session kind mismatch for renew order.");
+    }
+
+    if (metadataStoreId && metadataStoreId !== (order.store_id || "")) {
+      throw new Error("Stripe session storeId does not match the stored order.");
+    }
+
+    if (metadataRenewId && metadataRenewId !== (order.renew_id || "")) {
+      throw new Error("Stripe session renewId does not match the stored order.");
+    }
+  }
 }
 
 async function applyRenewalToStore(storeId: string, renewId: string) {
@@ -115,6 +162,14 @@ export async function POST(request: NextRequest) {
 
     const session = event.data.object as Stripe.Checkout.Session;
 
+    if (!session.id) {
+      throw new Error("Stripe checkout session id is missing.");
+    }
+
+    if (session.mode !== "payment") {
+      return NextResponse.json({ ok: true });
+    }
+
     if (session.payment_status !== "paid") {
       return NextResponse.json({ ok: true });
     }
@@ -123,15 +178,19 @@ export async function POST(request: NextRequest) {
     const orderFromMetadata = orderIdFromMetadata
       ? await getOrderById(orderIdFromMetadata)
       : null;
-    const orderFromSession = session.id
-      ? await getOrderBySessionId(session.id)
-      : null;
+    const orderFromSession = await getOrderBySessionId(session.id);
+
+    if (orderFromMetadata && orderFromSession && orderFromMetadata.id !== orderFromSession.id) {
+      throw new Error("Stripe session resolved to two different orders.");
+    }
 
     const baseOrder = orderFromMetadata || orderFromSession;
 
     if (!baseOrder) {
       return NextResponse.json({ ok: true });
     }
+
+    assertSessionMatchesOrderMetadata(session, baseOrder);
 
     const paidOrder = await markOrderPaidBySession({
       stripeSessionId: session.id,
@@ -163,6 +222,11 @@ export async function POST(request: NextRequest) {
       }
 
       const buildPayload = readGenerateOrderPayload(claimedOrder);
+
+      if (buildPayload.plan !== "pro") {
+        throw new Error("Paid generate order plan must be pro.");
+      }
+
       const supabase = createSupabaseClient(supabaseUrl, supabaseSecretKey, {
         auth: {
           persistSession: false,
