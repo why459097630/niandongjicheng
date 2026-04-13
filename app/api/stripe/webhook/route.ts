@@ -84,6 +84,7 @@ async function assertSessionPricing(
   const actualPriceId =
     linePrice && typeof linePrice !== "string" ? String(linePrice.id || "").trim() : "";
   const quantity = Number(lineItem.quantity || 0);
+  const amountTotal = Number(fullSession.amount_total || 0);
 
   if (!actualPriceId) {
     throw new Error("Stripe line item price id is missing.");
@@ -93,6 +94,10 @@ async function assertSessionPricing(
     throw new Error(`Unexpected Stripe line item quantity: ${quantity}.`);
   }
 
+  if (amountTotal <= 0) {
+    throw new Error(`Unexpected Stripe session amount_total: ${amountTotal}.`);
+  }
+
   if (order.order_kind === "generate_app") {
     const expectedPriceId = getGeneratePriceId();
 
@@ -100,6 +105,20 @@ async function assertSessionPricing(
       throw new Error(
         `Stripe generate price mismatch. expected=${expectedPriceId} actual=${actualPriceId}`,
       );
+    }
+
+    if (linePrice && typeof linePrice !== "string") {
+      const expectedUnitAmount = Number(linePrice.unit_amount || 0);
+
+      if (expectedUnitAmount <= 0) {
+        throw new Error(`Unexpected Stripe generate unit_amount: ${expectedUnitAmount}.`);
+      }
+
+      if (amountTotal !== expectedUnitAmount * quantity) {
+        throw new Error(
+          `Stripe generate amount mismatch. expected=${expectedUnitAmount * quantity} actual=${amountTotal}`,
+        );
+      }
     }
 
     return;
@@ -112,6 +131,20 @@ async function assertSessionPricing(
       throw new Error(
         `Stripe renew price mismatch. expected=${expectedPriceId} actual=${actualPriceId}`,
       );
+    }
+
+    if (linePrice && typeof linePrice !== "string") {
+      const expectedUnitAmount = Number(linePrice.unit_amount || 0);
+
+      if (expectedUnitAmount <= 0) {
+        throw new Error(`Unexpected Stripe renew unit_amount: ${expectedUnitAmount}.`);
+      }
+
+      if (amountTotal !== expectedUnitAmount * quantity) {
+        throw new Error(
+          `Stripe renew amount mismatch. expected=${expectedUnitAmount * quantity} actual=${amountTotal}`,
+        );
+      }
     }
 
     return;
