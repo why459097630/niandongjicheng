@@ -39,7 +39,9 @@ export type UserOperationEventName =
   | "download_clicked"
   | "auth_callback_failed"
   | "build_failed"
-  | "download_failed";
+  | "download_failed"
+  | "checkout_opened"
+  | "stripe_session_created";
 
 export type BuildRequest = {
   appName: string;

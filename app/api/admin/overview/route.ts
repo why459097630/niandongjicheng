@@ -271,6 +271,7 @@ type FrontendSnapshot = {
   iconUploadedCount: number;
   buildStartedCount: number;
   checkoutOpenedCount: number;
+  sessionCreatedCount: number;
   historyOpenedCount: number;
   resultOpenedCount: number;
   downloadClickedCount: number;
@@ -1191,7 +1192,7 @@ export async function GET() {
     const unreadMessages = chatMessages.filter((row) => row.is_read === false).length;
     const archivedThreads = chatThreadMeta.filter((row) => row.merchant_archived === true).length;
     const totalSiteMessages = chatMessages.length + (supportChatSnapshot.totalMessages || 0);
-    const sessionCreatedCount = paidCheckoutEligibleOrders.length;
+    const sessionCreatedCount = frontendSnapshot.sessionCreatedCount || 0;
     const avgOrderValueCents =
       successfulRevenueOrders.length > 0 ? totalPaidAmountCents / successfulRevenueOrders.length : 0;
     const arppuCents = realPaidUserCount > 0 ? totalPaidAmountCents / realPaidUserCount : 0;
@@ -1750,7 +1751,7 @@ export async function GET() {
           { title: "上传图标", value: formatCount(frontendSnapshot.iconUploadedCount || 0), hint: "icon_uploaded" },
           { title: "点击 Generate", value: formatCount(frontendSnapshot.buildStartedCount || 0), hint: "build_started" },
           { title: "打开 Checkout", value: formatCount(frontendSnapshot.checkoutOpenedCount || 0), hint: "checkout_opened" },
-          { title: "Session 创建成功", value: formatCount(sessionCreatedCount), hint: "web_stripe_orders status>=checkout_created" },
+          { title: "Session 创建成功", value: formatCount(sessionCreatedCount), hint: "stripe_session_created" },
           { title: "打开 Result", value: formatCount(frontendSnapshot.resultOpenedCount || 0), hint: "result_opened" },
           { title: "点击 Download", value: formatCount(frontendSnapshot.downloadClickedCount || 0), hint: "download_clicked" },
           { title: "Checkout→Paid", value: formatPercent(checkoutToPaidRate), hint: `${formatCount(paidRevenueOrders.length)} / ${formatCount(paidCheckoutEligibleOrders.length)}` },

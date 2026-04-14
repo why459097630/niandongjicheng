@@ -228,6 +228,24 @@ const session = await stripe.checkout.sessions.create({
 
     await attachStripeSessionToOrder(order.id, session.id);
 
+    await insertOperationLog(supabase, {
+      userId: user.id,
+      runId,
+      eventName: "stripe_session_created",
+      pagePath: "/api/stripe/create-generate-session",
+      metadata: {
+        kind: "stripe_generate_session_created",
+        orderId: order.id,
+        sessionId: session.id,
+        appName,
+        module: moduleName,
+        uiPack: uiPackName,
+        plan,
+        adminName,
+        hasIcon: Boolean(iconDataUrl),
+      },
+    });
+
     return NextResponse.json({
       ok: true,
       url: session.url,

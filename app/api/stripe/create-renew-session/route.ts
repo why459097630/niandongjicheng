@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { insertOperationLog } from "@/lib/build/storage";
 import {
   attachStripeSessionToOrder,
   createRenewOrder,
@@ -213,6 +214,21 @@ export async function POST(request: NextRequest) {
     }
 
     await attachStripeSessionToOrder(order.id, session.id);
+
+    await insertOperationLog(supabase, {
+      userId: user.id,
+      runId: null,
+      eventName: "stripe_session_created",
+      pagePath: "/api/stripe/create-renew-session",
+      metadata: {
+        kind: "stripe_renew_session_created",
+        orderId: order.id,
+        sessionId: session.id,
+        storeId,
+        renewId,
+        priceId,
+      },
+    });
 
     return NextResponse.json({
       ok: true,
