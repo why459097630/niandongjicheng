@@ -317,16 +317,10 @@ useEffect(() => {
                       </div>
                       <div className="mt-6 space-y-4">
                         <div>
-                        <div
-                          className="inline-flex max-w-full items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-700 shadow-[0_6px_18px_rgba(56,189,248,0.08),0_0_18px_rgba(56,189,248,0.10)]"
-                          translate="no"
-                        >
+                        <div className="inline-flex max-w-full items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-700 shadow-[0_6px_18px_rgba(56,189,248,0.08),0_0_18px_rgba(56,189,248,0.10)]">
                           Store ID · {storeId}
                         </div>
-                        <div
-                          className="mt-2 border-l-2 border-amber-300 pl-4 pr-2 py-1 text-[13px] leading-6 text-slate-500 whitespace-nowrap"
-                          translate="no"
-                        >
+                        <div className="mt-2 border-l-2 border-amber-300 pl-4 pr-2 py-1 text-[13px] leading-6 text-slate-500 whitespace-nowrap">
                           Please confirm that this Store ID matches the build history entry you want to renew.
                         </div>
                       </div>
@@ -336,10 +330,7 @@ useEffect(() => {
                             Cloud status
                           </div>
 
-                          <div
-                            className={cloudStatusCardClassName}
-                            translate="no"
-                          >
+                          <div className={cloudStatusCardClassName}>
                             <div className="flex flex-wrap items-center gap-2">
                               <div className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${statusBadgeClassName}`}>
                                 {cloudStatusHintLabel}
@@ -375,11 +366,7 @@ useEffect(() => {
                   After renewal
                 </div>
                 <div>
-                  <div
-                    key={`${selectedRenewId}-${nextExpiry}-${cloudExpiresAt}`}
-                    className="notranslate rounded-2xl border border-fuchsia-200 bg-fuchsia-50/80 px-5 py-4 text-sm text-fuchsia-700 shadow-[0_12px_28px_rgba(217,70,239,0.10),0_0_26px_rgba(217,70,239,0.12)]"
-                    translate="no"
-                  >
+                  <div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50/80 px-5 py-4 text-sm text-fuchsia-700 shadow-[0_12px_28px_rgba(217,70,239,0.10),0_0_26px_rgba(217,70,239,0.12)]">
                     <div className="text-[13px] text-slate-500">
                       Full access restored
                     </div>
@@ -435,7 +422,6 @@ useEffect(() => {
                     <button
                       key={option.id}
                       type="button"
-                      translate="no"
                       onClick={() => setSelectedRenewId(option.id)}
                       className={`rounded-[24px] border p-5 text-left transition-all ${
                         isSelected
@@ -482,7 +468,6 @@ useEffect(() => {
 
               <button
                 type="button"
-                translate="no"
                 disabled={isSubmitting || isVerifyingPayment}
                 onClick={async () => {
                   try {
