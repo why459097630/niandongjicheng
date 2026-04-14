@@ -60,6 +60,7 @@ function computeLifecycle(planType: 'trial' | 'paid') {
     deleteAt.setDate(deleteAt.getDate() + 10);
   } else {
     serviceEndAt.setDate(serviceEndAt.getDate() + 30);
+    deleteAt.setTime(serviceEndAt.getTime());
     deleteAt.setDate(deleteAt.getDate() + 60);
   }
 
