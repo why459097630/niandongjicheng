@@ -13,13 +13,13 @@ type BuildItem = {
   stage: "success" | "failed" | "running" | "queued";
   createdAt: string;
   completedAt?: string;
-failedStep?:
-  | "preparing_request"
-  | "processing_identity"
-  | "matching_logic_module"
-  | "applying_ui_pack"
-  | "preparing_services"
-  | "building_apk";
+  failedStep?:
+    | "preparing_request"
+    | "processing_identity"
+    | "matching_logic_module"
+    | "applying_ui_pack"
+    | "preparing_services"
+    | "building_apk";
   cloudStatus?: "active" | "read_only" | "deleted";
   cloudExpiresAt?: string;
   cloudDeletesAt?: string;
@@ -81,7 +81,8 @@ function getStageMeta(stage: BuildItem["stage"]) {
       label: "Running",
       icon: <LoaderCircle className="h-4 w-4 animate-spin text-fuchsia-500" />,
       chipClass: "bg-fuchsia-100 text-fuchsia-600",
-      cardClass: "border-fuchsia-200/80 bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(255,255,255,0.98))] shadow-[0_14px_40px_rgba(217,70,239,0.16)] animate-pulse",
+      cardClass:
+        "border-fuchsia-200/80 bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(255,255,255,0.98))] shadow-[0_14px_40px_rgba(217,70,239,0.16)] animate-pulse",
     };
   }
 
@@ -188,9 +189,7 @@ export default function HistoryPage() {
           typeof window !== "undefined" &&
           window.sessionStorage.getItem(historyOpenKey) !== "1";
 
-        const requestUrl = shouldLogOpen
-          ? "/api/build-list?logOpen=1"
-          : "/api/build-list";
+        const requestUrl = shouldLogOpen ? "/api/build-list?logOpen=1" : "/api/build-list";
 
         const res = await fetch(requestUrl, { cache: "no-store" });
         const data: BuildListResponse = await res.json();
@@ -312,7 +311,7 @@ export default function HistoryPage() {
         ) : null}
 
         {isAuthed && !loading && items.length > 0 ? (
-          <div className="mx-auto w-full max-w-7xl grid gap-5">
+          <div className="mx-auto grid w-full max-w-7xl gap-5">
             {items.map((item) => {
               const meta = getStageMeta(item.stage);
               const cloudMeta = item.stage === "success" ? getCloudStatusMeta(item) : null;
@@ -328,12 +327,20 @@ export default function HistoryPage() {
                   <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="overflow-x-auto overflow-y-hidden">
-                        <div className="flex min-w-max flex-nowrap items-center gap-3">
+                        <div className="flex min-w-max flex-nowrap items-center gap-2">
                           <div className="shrink-0 text-xl font-bold tracking-[-0.03em] text-[#0f172a]">{item.appName}</div>
                           <div className={`inline-flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${meta.chipClass}`}>
                             {meta.icon}
                             {meta.label}
                           </div>
+                          <div className="inline-flex shrink-0 items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-slate-600 shadow-[0_6px_18px_rgba(15,23,42,0.04)] whitespace-nowrap">
+                            Run ID · {item.runId}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 overflow-x-auto overflow-y-hidden">
+                        <div className="flex min-w-max flex-nowrap items-center gap-2">
                           {showInlineCompletedTime ? (
                             <div className="inline-flex shrink-0 items-center rounded-full border border-emerald-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-600 shadow-[0_6px_18px_rgba(16,185,129,0.06)] whitespace-nowrap">
                               Completed · {formatTime(item.completedAt!)}
@@ -344,25 +351,17 @@ export default function HistoryPage() {
                               {FAILED_STEP_LABELS[item.failedStep!]}
                             </div>
                           ) : null}
-                          {cloudMeta || (item.stage === "success" && item.storeId) ? (
-                            <div className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap">
-                              {cloudMeta ? (
-                                <div className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-[11px] font-semibold whitespace-nowrap ${cloudMeta.className}`}>
-                                  {cloudMeta.label}
-                                </div>
-                              ) : null}
-                              {item.stage === "success" && item.storeId ? (
-                                <div className="inline-flex shrink-0 items-center rounded-full border border-sky-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold text-sky-600/80 shadow-[0_6px_18px_rgba(14,165,233,0.04)] whitespace-nowrap">
-                                  Store ID · {item.storeId}
-                                </div>
-                              ) : null}
+                          {cloudMeta ? (
+                            <div className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-[11px] font-semibold whitespace-nowrap ${cloudMeta.className}`}>
+                              {cloudMeta.label}
+                            </div>
+                          ) : null}
+                          {item.stage === "success" && item.storeId ? (
+                            <div className="inline-flex shrink-0 items-center rounded-full border border-sky-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold text-sky-600/80 shadow-[0_6px_18px_rgba(14,165,233,0.04)] whitespace-nowrap">
+                              Store ID · {item.storeId}
                             </div>
                           ) : null}
                         </div>
-                      </div>
-
-                      <div className="mt-3 text-xs uppercase tracking-[0.12em] text-slate-400">
-                        Run ID · {item.runId}
                       </div>
 
                       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -413,37 +412,8 @@ export default function HistoryPage() {
                         </button>
                       ) : null}
 
-                      {item.stage === "success" && item.mode === "Paid Purchase" ? (
-                        <div className="flex flex-col items-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (typeof window !== "undefined") {
-                                window.sessionStorage.setItem("ndjc_renew_app_name", item.appName || "");
-                                window.sessionStorage.setItem("ndjc_renew_store_id", item.storeId || "");
-                                window.sessionStorage.setItem("ndjc_renew_cloud_status", item.cloudStatus || "");
-                                window.sessionStorage.setItem("ndjc_renew_cloud_expires_at", item.cloudExpiresAt || "");
-                              }
-
-                              const params = new URLSearchParams({
-                                appName: item.appName || "",
-                                storeId: item.storeId || "",
-                                cloudStatus: item.cloudStatus || "",
-                                cloudExpiresAt: item.cloudExpiresAt || "",
-                              });
-
-                              window.location.href = `/renew-cloud?${params.toString()}`;
-                            }}
-                            className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-sky-200 bg-gradient-to-r from-sky-100 to-sky-50 px-5 text-sm font-semibold text-sky-700 shadow-[0_8px_18px_rgba(14,165,233,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(14,165,233,0.14)]"
-                          >
-                            <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
-                            Renew Cloud
-                          </button>
-                        </div>
-                      ) : null}
-
                       {showDownloadButton ? (
-                        <div className="flex flex-col items-end gap-1">
+                        <div className="flex flex-col items-end gap-2">
                           <a
                             href={`/api/build-status?runId=${encodeURIComponent(item.runId)}&download=1&event=history_download`}
                             className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(217,70,239,0.20)] transition hover:-translate-y-0.5 hover:opacity-90"
@@ -451,7 +421,33 @@ export default function HistoryPage() {
                             <Download className="h-4 w-4" />
                             Download
                           </a>
-                          <div className="text-[11px] text-slate-400">
+                          {item.stage === "success" && item.mode === "Paid Purchase" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (typeof window !== "undefined") {
+                                  window.sessionStorage.setItem("ndjc_renew_app_name", item.appName || "");
+                                  window.sessionStorage.setItem("ndjc_renew_store_id", item.storeId || "");
+                                  window.sessionStorage.setItem("ndjc_renew_cloud_status", item.cloudStatus || "");
+                                  window.sessionStorage.setItem("ndjc_renew_cloud_expires_at", item.cloudExpiresAt || "");
+                                }
+
+                                const params = new URLSearchParams({
+                                  appName: item.appName || "",
+                                  storeId: item.storeId || "",
+                                  cloudStatus: item.cloudStatus || "",
+                                  cloudExpiresAt: item.cloudExpiresAt || "",
+                                });
+
+                                window.location.href = `/renew-cloud?${params.toString()}`;
+                              }}
+                              className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-sky-200 bg-gradient-to-r from-sky-100 to-sky-50 px-5 text-sm font-semibold text-sky-700 shadow-[0_8px_18px_rgba(14,165,233,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(14,165,233,0.14)]"
+                            >
+                              <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
+                              Renew Cloud
+                            </button>
+                          ) : null}
+                          <div className="w-[164px] text-center text-[11px] text-slate-400">
                             Download available for 90 days
                           </div>
                         </div>
@@ -479,4 +475,4 @@ export default function HistoryPage() {
       </section>
     </main>
   );
-}♀♀♀assistant to=canmore.update_textdocJapgollyjson  天天中彩票是 {
+}
