@@ -393,6 +393,26 @@ function formatDurationMinutes(value: number | null): string {
   return `${Math.round(value)}m`;
 }
 
+function deriveEffectiveStoreStatus(row: AppCloudStoreRow, nowMs: number): AppCloudStoreRow["service_status"] {
+  const deleteAtMs = row.delete_at ? new Date(row.delete_at).getTime() : Number.NaN;
+  if (Number.isFinite(deleteAtMs) && deleteAtMs <= nowMs) {
+    return "deleted";
+  }
+
+  const serviceEndMs = row.service_end_at ? new Date(row.service_end_at).getTime() : Number.NaN;
+  if (Number.isFinite(serviceEndMs) && serviceEndMs <= nowMs) {
+    return "read_only";
+  }
+
+  if (row.service_status === "deleted") return "deleted";
+  if (row.service_status === "read_only") return "read_only";
+  return "active";
+}
+
+function deriveEffectiveStoreWriteAllowed(row: AppCloudStoreRow, nowMs: number): boolean {
+  return deriveEffectiveStoreStatus(row, nowMs) === "active" && row.is_write_allowed !== false;
+}
+
 function pickRevenueOrderTime(row: {
   processed_at: string | null;
   paid_at: string | null;
@@ -1158,13 +1178,19 @@ export async function GET() {
     const runningBuilds = frontendSnapshot.runningBuilds || 0;
     const buildSuccessRate = totalBuilds > 0 ? (successBuilds / totalBuilds) * 100 : 0;
 
-    const effectiveStores = stores.filter((row) => row.service_status !== "deleted").length;
-    const readOnlyStores = stores.filter((row) => row.service_status === "read_only").length;
-    const deletedStores = stores.filter((row) => row.service_status === "deleted").length;
-    const trialStores = stores.filter((row) => row.plan_type === "trial").length;
-    const paidStores = stores.filter((row) => row.plan_type === "paid").length;
+    const normalizedStores = stores.map((row) => ({
+      ...row,
+      service_status: deriveEffectiveStoreStatus(row, nowMs),
+      is_write_allowed: deriveEffectiveStoreWriteAllowed(row, nowMs),
+    }));
 
-    const expiring7dStores = stores.filter(
+    const effectiveStores = normalizedStores.filter((row) => row.service_status !== "deleted").length;
+    const readOnlyStores = normalizedStores.filter((row) => row.service_status === "read_only").length;
+    const deletedStores = normalizedStores.filter((row) => row.service_status === "deleted").length;
+    const trialStores = normalizedStores.filter((row) => row.plan_type === "trial").length;
+    const paidStores = normalizedStores.filter((row) => row.plan_type === "paid").length;
+
+    const expiring7dStores = normalizedStores.filter(
       (row) =>
         !!row.service_end_at &&
         new Date(row.service_end_at).getTime() >= nowMs &&
@@ -1172,7 +1198,7 @@ export async function GET() {
         row.service_status !== "deleted",
     );
 
-    const deleting7dStores = stores.filter(
+    const deleting7dStores = normalizedStores.filter(
       (row) =>
         !!row.delete_at &&
         new Date(row.delete_at).getTime() >= nowMs &&
@@ -1180,7 +1206,7 @@ export async function GET() {
         row.service_status !== "deleted",
     );
 
-    const cloudStateAnomalies = stores.filter(
+    const cloudStateAnomalies = normalizedStores.filter(
       (row) => row.service_status === "read_only" && row.is_write_allowed === true,
     ).length;
 
@@ -1277,7 +1303,7 @@ export async function GET() {
         formatCount(row.view_count || 0),
       ]);
 
-    const storesWithDirectory = stores
+    const storesWithDirectory = normalizedStores
       .slice()
       .sort((a, b) => {
         const aTime = storeDirectoryMap.get(a.store_id)?.latestBuildAt || "";
@@ -1538,7 +1564,7 @@ export async function GET() {
 
       stores: {
         metrics: [
-          { title: "Store 总数", value: formatCount(stores.length), hint: "stores" },
+          { title: "Store 总数", value: formatCount(normalizedStores.length), hint: "stores" },
           { title: "有效 Store", value: formatCount(effectiveStores), hint: "service_status!=deleted" },
           { title: "只读 Store", value: formatCount(readOnlyStores), hint: "service_status=read_only" },
           { title: "已删除 Store", value: formatCount(deletedStores), hint: "service_status=deleted" },
@@ -1620,7 +1646,7 @@ export async function GET() {
           {
             title: "到期 / 删库监控",
             headers: ["Store ID", "App", "用户", "状态", "到期", "删库", "最后输入", "7d写入"],
-            rows: stores
+            rows: normalizedStores
               .filter((row) => row.service_status !== "deleted" && (!!row.service_end_at || !!row.delete_at))
               .slice(0, 30)
               .map((row) => {
@@ -1715,7 +1741,7 @@ export async function GET() {
                 .filter((row) => ["auth_callback_failed", "download_failed"].includes(row.event_name))
                 .slice(0, 8)
                 .map((row) => [row.event_name, row.run_id || row.user_id || "-", formatDateTime(row.occurred_at), "待处理"]),
-              ...stores
+              ...normalizedStores
                 .filter((row) => row.service_status === "read_only" && row.is_write_allowed === true)
                 .slice(0, 8)
                 .map((row) => ["云端状态异常", row.store_id, formatDateTime(row.service_end_at || row.created_at), "待处理"]),

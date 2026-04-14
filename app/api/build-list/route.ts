@@ -13,6 +13,29 @@ type AppCloudStoreRow = {
   delete_at: string | null;
 };
 
+function deriveCloudStatus(store: AppCloudStoreRow | undefined, nowMs: number): CloudServiceStatus | undefined {
+  if (!store) return undefined;
+
+  const deleteAtMs = store.delete_at ? new Date(store.delete_at).getTime() : Number.NaN;
+  if (Number.isFinite(deleteAtMs) && deleteAtMs <= nowMs) {
+    return "deleted";
+  }
+
+  const serviceEndMs = store.service_end_at ? new Date(store.service_end_at).getTime() : Number.NaN;
+  if (Number.isFinite(serviceEndMs) && serviceEndMs <= nowMs) {
+    return "read_only";
+  }
+
+  if (store.service_status === "deleted") return "deleted";
+  if (store.service_status === "read_only") return "read_only";
+  return "active";
+}
+
+function deriveWriteAllowed(store: AppCloudStoreRow | undefined, nowMs: number): boolean | undefined {
+  if (!store) return undefined;
+  return deriveCloudStatus(store, nowMs) === "active" && store.is_write_allowed !== false;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -109,15 +132,17 @@ export async function GET(request: NextRequest) {
       ((stores || []) as AppCloudStoreRow[]).map((row) => [row.store_id, row]),
     );
 
+    const nowMs = Date.now();
+
     const mergedItems: BuildHistoryItem[] = result.items.map((item) => {
       const store = item.storeId ? storeMap.get(item.storeId) : undefined;
 
       return {
         ...item,
-        cloudStatus: store?.service_status,
+        cloudStatus: deriveCloudStatus(store, nowMs),
         cloudExpiresAt: store?.service_end_at ?? null,
         cloudDeletesAt: store?.delete_at ?? null,
-        isWriteAllowed: store?.is_write_allowed,
+        isWriteAllowed: deriveWriteAllowed(store, nowMs),
       };
     });
 
