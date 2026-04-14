@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createServerSupabase } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getAdminRevenueOrders } from "@/lib/stripe/orders";
 
 type FrontendProfileRow = {
   id: string;
@@ -301,6 +302,15 @@ function formatCount(value: number): string {
   return new Intl.NumberFormat("zh-CN").format(value);
 }
 
+function formatMoneyUsdFromCents(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value / 100);
+}
+
 function formatPercent(value: number): string {
   if (!Number.isFinite(value)) return "0%";
   return `${value.toFixed(1)}%`;
@@ -535,7 +545,126 @@ export async function GET() {
       chatRelay = (chatRelayResult.data || []) as ChatRelayRow[];
     }
 
+    const revenueOrders = await getAdminRevenueOrders();
+
     const nowMs = Date.now();
+
+    const paidRevenueOrders = revenueOrders.filter(
+      (row) =>
+        row.status === "paid" ||
+        row.status === "processing" ||
+        row.status === "processed",
+    );
+
+    const successfulRevenueOrders = revenueOrders.filter(
+      (row) => row.status === "processed",
+    );
+
+    const failedRevenueOrders = revenueOrders.filter(
+      (row) => row.status === "failed",
+    );
+
+    const canceledRevenueOrders = revenueOrders.filter(
+      (row) => row.status === "canceled",
+    );
+
+    const processingRevenueOrders = revenueOrders.filter(
+      (row) => row.status === "processing",
+    );
+
+    const checkoutCreatedRevenueOrders = revenueOrders.filter(
+      (row) => row.status === "checkout_created",
+    );
+
+    const generateOrders = revenueOrders.filter(
+      (row) => row.order_kind === "generate_app",
+    );
+
+    const renewOrders = revenueOrders.filter(
+      (row) => row.order_kind === "renew_cloud",
+    );
+
+    const successfulGenerateOrders = successfulRevenueOrders.filter(
+      (row) => row.order_kind === "generate_app",
+    );
+
+    const successfulRenewOrders = successfulRevenueOrders.filter(
+      (row) => row.order_kind === "renew_cloud",
+    );
+
+    const totalPaidAmountCents = successfulRevenueOrders.reduce(
+      (sum, row) => sum + (row.amount_total || 0),
+      0,
+    );
+
+    const generatePaidAmountCents = successfulGenerateOrders.reduce(
+      (sum, row) => sum + (row.amount_total || 0),
+      0,
+    );
+
+    const renewPaidAmountCents = successfulRenewOrders.reduce(
+      (sum, row) => sum + (row.amount_total || 0),
+      0,
+    );
+
+    const revenueByStatusMap = new Map<string, number>();
+    for (const row of revenueOrders) {
+      revenueByStatusMap.set(row.status, (revenueByStatusMap.get(row.status) || 0) + 1);
+    }
+
+    const renewSalesMap = new Map<string, number>();
+    for (const row of successfulRenewOrders) {
+      const renewId = (row.renew_id || "-").trim() || "-";
+      renewSalesMap.set(renewId, (renewSalesMap.get(renewId) || 0) + 1);
+    }
+
+    const revenueByKindMap = new Map<string, { count: number; cents: number }>();
+    for (const row of successfulRevenueOrders) {
+      const key = row.order_kind;
+      const current = revenueByKindMap.get(key) || { count: 0, cents: 0 };
+      current.count += 1;
+      current.cents += row.amount_total || 0;
+      revenueByKindMap.set(key, current);
+    }
+
+    const recentRevenueOrders = revenueOrders.slice(0, 30).map((row) => [
+      formatDateTime(row.created_at),
+      row.order_kind === "generate_app" ? "生成 App" : "云端续费",
+      row.status,
+      formatMoneyUsdFromCents(row.amount_total || 0),
+      row.renew_id || "-",
+      row.store_id || "-",
+      row.run_id || "-",
+      row.price_id || "-",
+    ]);
+
+    const recentSuccessfulRenewRows = successfulRenewOrders
+      .slice()
+      .sort((a, b) => new Date(b.processed_at || b.paid_at || b.created_at).getTime() - new Date(a.processed_at || a.paid_at || a.created_at).getTime())
+      .slice(0, 30)
+      .map((row) => [
+        formatDateTime(row.processed_at || row.paid_at || row.created_at),
+        row.store_id || "-",
+        row.renew_id || "-",
+        formatMoneyUsdFromCents(row.amount_total || 0),
+        row.stripe_session_id || "-",
+      ]);
+
+    const revenueStatusRows = Array.from(revenueByStatusMap.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([status, count]) => [status, formatCount(count)]);
+
+    const renewSalesRows = Array.from(renewSalesMap.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([renewId, count]) => [renewId, formatCount(count)]);
+
+    const revenueKindRows = Array.from(revenueByKindMap.entries())
+      .sort((a, b) => b[1].cents - a[1].cents || a[0].localeCompare(b[0]))
+      .map(([kind, value]) => [
+        kind === "generate_app" ? "生成 App" : "云端续费",
+        formatCount(value.count),
+        formatMoneyUsdFromCents(value.cents),
+      ]);
 
     const storeDirectoryMap = new Map<string, StoreDirectoryRow>(
       (frontendSnapshot.storeDirectory || []).map((row) => [row.storeId, row]),
@@ -916,8 +1045,49 @@ export async function GET() {
       },
 
       revenue: {
-        metrics: [],
-        notes: ["按你的要求，这里先不接订单 / 支付 / 续费统计。"],
+        metrics: [
+          { title: "订单总数", value: formatCount(revenueOrders.length), hint: "web_stripe_orders" },
+          { title: "支付成功", value: formatCount(successfulRevenueOrders.length), hint: "status=processed" },
+          { title: "支付处理中", value: formatCount(processingRevenueOrders.length), hint: "status=processing" },
+          { title: "支付失败", value: formatCount(failedRevenueOrders.length), hint: "status=failed" },
+          { title: "支付取消", value: formatCount(canceledRevenueOrders.length), hint: "status=canceled" },
+          { title: "Checkout 已创建", value: formatCount(checkoutCreatedRevenueOrders.length), hint: "status=checkout_created" },
+          { title: "总收入", value: formatMoneyUsdFromCents(totalPaidAmountCents), hint: `生成 ${formatMoneyUsdFromCents(generatePaidAmountCents)} / 续费 ${formatMoneyUsdFromCents(renewPaidAmountCents)}` },
+          { title: "生成订单", value: formatCount(generateOrders.length), hint: `成功 ${formatCount(successfulGenerateOrders.length)}` },
+          { title: "续费订单", value: formatCount(renewOrders.length), hint: `成功 ${formatCount(successfulRenewOrders.length)}` },
+        ],
+        tables: [
+          {
+            title: "收入按类型汇总",
+            headers: ["类型", "成功订单数", "成功收入"],
+            rows: revenueKindRows,
+          },
+          {
+            title: "支付状态分布",
+            headers: ["状态", "订单数"],
+            rows: revenueStatusRows,
+          },
+          {
+            title: "续费档位销量",
+            headers: ["续费档位", "成功支付数"],
+            rows: renewSalesRows,
+          },
+          {
+            title: "最近订单",
+            headers: ["创建时间", "类型", "状态", "金额", "续费档位", "Store ID", "Run ID", "Price ID"],
+            rows: recentRevenueOrders,
+          },
+          {
+            title: "最近续费成功记录",
+            headers: ["处理时间", "Store ID", "续费档位", "金额", "Stripe Session"],
+            rows: recentSuccessfulRenewRows,
+          },
+        ],
+        notes: [
+          "收入统计来源：public.web_stripe_orders。",
+          "成功收入口径：status=processed 的订单 amount_total 汇总。",
+          "生成 App 与云端续费均为真实 Stripe webhook 落库数据。",
+        ],
       },
 
       stores: {

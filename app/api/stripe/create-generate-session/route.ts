@@ -210,6 +210,9 @@ const session = await stripe.checkout.sessions.create({
     orderId: order.id,
     userId: user.id,
     runId,
+    plan,
+    module: moduleName,
+    uiPack: uiPackName,
   },
 });
 

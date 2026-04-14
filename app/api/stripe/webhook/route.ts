@@ -16,6 +16,7 @@ import {
   markOrderPaidBySession,
   readGenerateOrderPayload,
   readRenewOrderPayload,
+  syncOrderCheckoutSnapshot,
 } from "@/lib/stripe/orders";
 
 export const runtime = "nodejs";
@@ -63,7 +64,15 @@ async function assertSessionPricing(
   stripe: Stripe,
   session: Stripe.Checkout.Session,
   order: StripeOrderRecord,
-) {
+): Promise<{
+  stripePaymentIntentId: string | null;
+  amountSubtotal: number;
+  amountTotal: number;
+  currency: string;
+  priceId: string;
+  checkoutCompletedAt: string;
+  paidAt: string;
+}> {
   const fullSession = await stripe.checkout.sessions.retrieve(session.id as string, {
     expand: ["line_items.data.price"],
   });
@@ -85,7 +94,18 @@ async function assertSessionPricing(
   const actualPriceId =
     linePrice && typeof linePrice !== "string" ? String(linePrice.id || "").trim() : "";
   const quantity = Number(lineItem.quantity || 0);
+  const amountSubtotal = Number(fullSession.amount_subtotal || 0);
   const amountTotal = Number(fullSession.amount_total || 0);
+  const stripePaymentIntentId =
+    typeof fullSession.payment_intent === "string" ? fullSession.payment_intent : null;
+  const checkoutCompletedAt =
+    typeof fullSession.created === "number" && Number.isFinite(fullSession.created)
+      ? new Date(fullSession.created * 1000).toISOString()
+      : new Date().toISOString();
+  const paidAt =
+    typeof fullSession.created === "number" && Number.isFinite(fullSession.created)
+      ? new Date(fullSession.created * 1000).toISOString()
+      : new Date().toISOString();
 
   if (!actualPriceId) {
     throw new Error("Stripe line item price id is missing.");
@@ -122,7 +142,15 @@ async function assertSessionPricing(
       }
     }
 
-    return;
+    return {
+      stripePaymentIntentId,
+      amountSubtotal,
+      amountTotal,
+      currency,
+      priceId: actualPriceId,
+      checkoutCompletedAt,
+      paidAt,
+    };
   }
 
   if (order.order_kind === "renew_cloud") {
@@ -148,7 +176,15 @@ async function assertSessionPricing(
       }
     }
 
-    return;
+    return {
+      stripePaymentIntentId,
+      amountSubtotal,
+      amountTotal,
+      currency,
+      priceId: actualPriceId,
+      checkoutCompletedAt,
+      paidAt,
+    };
   }
 
   throw new Error("Unsupported Stripe order kind.");
@@ -310,13 +346,26 @@ if (!baseOrder) {
 }
 
 assertSessionMatchesOrderMetadata(session, baseOrder);
-await assertSessionPricing(stripe, session, baseOrder);
+
+const pricingSnapshot = await assertSessionPricing(stripe, session, baseOrder);
+
+await syncOrderCheckoutSnapshot({
+  orderId: baseOrder.id,
+  stripeSessionId: session.id,
+  stripePaymentIntentId: pricingSnapshot.stripePaymentIntentId,
+  amountSubtotal: pricingSnapshot.amountSubtotal,
+  amountTotal: pricingSnapshot.amountTotal,
+  currency: pricingSnapshot.currency,
+  priceId: pricingSnapshot.priceId,
+  checkoutCompletedAt: pricingSnapshot.checkoutCompletedAt,
+  paidAt: pricingSnapshot.paidAt,
+});
 
 const paidOrder = await markOrderPaidBySession({
   stripeSessionId: session.id,
-  stripePaymentIntentId:
-    typeof session.payment_intent === "string" ? session.payment_intent : null,
+  stripePaymentIntentId: pricingSnapshot.stripePaymentIntentId,
   stripeEventId: event.id,
+  paidAt: pricingSnapshot.paidAt,
 });
 
     const claimedOrder = await claimOrderForProcessing(paidOrder.id);

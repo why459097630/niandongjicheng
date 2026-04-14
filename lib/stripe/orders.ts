@@ -41,6 +41,14 @@ export type StripeOrderRecord = {
   stripe_payment_intent_id: string | null;
   stripe_event_id: string | null;
   status: StripeOrderStatus;
+  amount_subtotal: number | null;
+  amount_total: number | null;
+  currency: string | null;
+  price_id: string | null;
+  checkout_completed_at: string | null;
+  paid_at: string | null;
+  failed_at: string | null;
+  canceled_at: string | null;
   payload_ciphertext: string | null;
   payload_iv: string | null;
   payload_tag: string | null;
@@ -49,6 +57,30 @@ export type StripeOrderRecord = {
   created_at: string;
   updated_at: string;
 };
+export type AdminRevenueOrderRow = Pick<
+  StripeOrderRecord,
+  | "id"
+  | "order_kind"
+  | "user_id"
+  | "run_id"
+  | "store_id"
+  | "renew_id"
+  | "stripe_session_id"
+  | "stripe_payment_intent_id"
+  | "status"
+  | "amount_subtotal"
+  | "amount_total"
+  | "currency"
+  | "price_id"
+  | "checkout_completed_at"
+  | "paid_at"
+  | "failed_at"
+  | "canceled_at"
+  | "processed_at"
+  | "error"
+  | "created_at"
+  | "updated_at"
+>;
 
 function getRequiredEnv(name: string): string {
   const value = (process.env[name] || "").trim();
@@ -159,7 +191,46 @@ export async function attachStripeSessionToOrder(
     throw new Error("Stripe order is not in a state that can attach a checkout session.");
   }
 }
+export async function syncOrderCheckoutSnapshot(input: {
+  orderId: string;
+  stripeSessionId: string;
+  stripePaymentIntentId?: string | null;
+  amountSubtotal?: number | null;
+  amountTotal?: number | null;
+  currency?: string | null;
+  priceId?: string | null;
+  checkoutCompletedAt?: string | null;
+  paidAt?: string | null;
+}): Promise<void> {
+  const supabase = getServiceSupabase();
 
+  const patch: Record<string, string | number | null> = {
+    stripe_session_id: input.stripeSessionId,
+    stripe_payment_intent_id: input.stripePaymentIntentId ?? null,
+    amount_subtotal:
+      typeof input.amountSubtotal === "number" && Number.isFinite(input.amountSubtotal)
+        ? Math.round(input.amountSubtotal)
+        : null,
+    amount_total:
+      typeof input.amountTotal === "number" && Number.isFinite(input.amountTotal)
+        ? Math.round(input.amountTotal)
+        : null,
+    currency: input.currency ? String(input.currency).trim().toLowerCase() : null,
+    price_id: input.priceId ? String(input.priceId).trim() : null,
+    checkout_completed_at: input.checkoutCompletedAt ?? null,
+    paid_at: input.paidAt ?? null,
+    error: null,
+  };
+
+  const { error } = await supabase
+    .from("web_stripe_orders")
+    .update(patch)
+    .eq("id", input.orderId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
 export async function getOrderByRunId(
   runId: string,
 ): Promise<StripeOrderRecord | null> {
@@ -250,6 +321,7 @@ export async function markOrderPaidBySession(input: {
   stripeSessionId: string;
   stripePaymentIntentId?: string | null;
   stripeEventId?: string | null;
+  paidAt?: string | null;
 }): Promise<StripeOrderRecord> {
   const supabase = getServiceSupabase();
 
@@ -273,6 +345,7 @@ export async function markOrderPaidBySession(input: {
       stripe_payment_intent_id: input.stripePaymentIntentId ?? null,
       stripe_event_id: input.stripeEventId ?? null,
       status: "paid",
+      paid_at: input.paidAt ?? new Date().toISOString(),
       error: null,
     })
     .eq("id", existing.id)
@@ -366,6 +439,7 @@ export async function failOrder(
     .from("web_stripe_orders")
     .update({
       status: "failed",
+      failed_at: new Date().toISOString(),
       error: errorMessage,
     })
     .eq("id", orderId)
@@ -374,6 +448,50 @@ export async function failOrder(
   if (error) {
     throw new Error(error.message);
   }
+}
+export async function getAdminRevenueOrders(): Promise<AdminRevenueOrderRow[]> {
+  const supabase = getServiceSupabase();
+
+  const { data, error } = await supabase
+    .from("web_stripe_orders")
+    .select(
+      [
+        "id",
+        "order_kind",
+        "user_id",
+        "run_id",
+        "store_id",
+        "renew_id",
+        "stripe_session_id",
+        "stripe_payment_intent_id",
+        "status",
+        "amount_subtotal",
+        "amount_total",
+        "currency",
+        "price_id",
+        "checkout_completed_at",
+        "paid_at",
+        "failed_at",
+        "canceled_at",
+        "processed_at",
+        "error",
+        "created_at",
+        "updated_at",
+      ].join(","),
+    )
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return ((data || []) as AdminRevenueOrderRow[]).map((row) => ({
+    ...row,
+    amount_subtotal:
+      typeof row.amount_subtotal === "number" ? row.amount_subtotal : row.amount_subtotal == null ? null : Number(row.amount_subtotal),
+    amount_total:
+      typeof row.amount_total === "number" ? row.amount_total : row.amount_total == null ? null : Number(row.amount_total),
+  }));
 }
 
 export function readGenerateOrderPayload(
