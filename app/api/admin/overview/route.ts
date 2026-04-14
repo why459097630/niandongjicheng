@@ -348,6 +348,40 @@ function formatDurationMinutes(value: number | null): string {
   return `${Math.round(value)}m`;
 }
 
+function pickRevenueOrderTime(row: {
+  processed_at: string | null;
+  paid_at: string | null;
+  checkout_completed_at: string | null;
+  created_at: string;
+}): string {
+  return row.processed_at || row.paid_at || row.checkout_completed_at || row.created_at;
+}
+
+function isRevenueOrderWithinDays(
+  row: {
+    processed_at: string | null;
+    paid_at: string | null;
+    checkout_completed_at: string | null;
+    created_at: string;
+  },
+  days: number,
+  nowMs: number,
+): boolean {
+  const value = pickRevenueOrderTime(row);
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) return false;
+  return time >= nowMs - days * 24 * 60 * 60 * 1000;
+}
+
+function toRevenueDayKey(row: {
+  processed_at: string | null;
+  paid_at: string | null;
+  checkout_completed_at: string | null;
+  created_at: string;
+}): string {
+  return formatDateOnly(pickRevenueOrderTime(row));
+}
+
 function isWithinDays(value: string | null | undefined, days: number, nowMs: number): boolean {
   if (!value) return false;
   const time = new Date(value).getTime();
@@ -627,6 +661,147 @@ export async function GET() {
       revenueByKindMap.set(key, current);
     }
 
+    const successfulPaidUserOrderCountMap = new Map<string, number>();
+    for (const row of successfulRevenueOrders) {
+      const userId = (row.user_id || "").trim();
+      if (!userId) continue;
+      successfulPaidUserOrderCountMap.set(
+        userId,
+        (successfulPaidUserOrderCountMap.get(userId) || 0) + 1,
+      );
+    }
+
+    const successfulGeneratePaidUserSet = new Set<string>();
+    for (const row of successfulGenerateOrders) {
+      const userId = (row.user_id || "").trim();
+      if (!userId) continue;
+      successfulGeneratePaidUserSet.add(userId);
+    }
+
+    const successfulRenewPaidUserSet = new Set<string>();
+    for (const row of successfulRenewOrders) {
+      const userId = (row.user_id || "").trim();
+      if (!userId) continue;
+      successfulRenewPaidUserSet.add(userId);
+    }
+
+    const realPaidUserCount = successfulPaidUserOrderCountMap.size;
+
+    const realRepeatPaidUserCount = Array.from(successfulPaidUserOrderCountMap.values()).filter(
+      (count) => count > 1,
+    ).length;
+
+    const paidCheckoutEligibleOrders = revenueOrders.filter(
+      (row) =>
+        row.status === "checkout_created" ||
+        row.status === "paid" ||
+        row.status === "processing" ||
+        row.status === "processed" ||
+        row.status === "failed" ||
+        row.status === "canceled",
+    );
+
+    const generateCheckoutEligibleOrders = generateOrders.filter(
+      (row) =>
+        row.status === "checkout_created" ||
+        row.status === "paid" ||
+        row.status === "processing" ||
+        row.status === "processed" ||
+        row.status === "failed" ||
+        row.status === "canceled",
+    );
+
+    const renewCheckoutEligibleOrders = renewOrders.filter(
+      (row) =>
+        row.status === "checkout_created" ||
+        row.status === "paid" ||
+        row.status === "processing" ||
+        row.status === "processed" ||
+        row.status === "failed" ||
+        row.status === "canceled",
+    );
+
+    const generatePaidOrLaterOrders = generateOrders.filter(
+      (row) =>
+        row.status === "paid" ||
+        row.status === "processing" ||
+        row.status === "processed",
+    );
+
+    const renewPaidOrLaterOrders = renewOrders.filter(
+      (row) =>
+        row.status === "paid" ||
+        row.status === "processing" ||
+        row.status === "processed",
+    );
+
+    const checkoutToPaidRate =
+      paidCheckoutEligibleOrders.length > 0
+        ? (paidRevenueOrders.length / paidCheckoutEligibleOrders.length) * 100
+        : 0;
+
+    const paidToProcessedRate =
+      paidRevenueOrders.length > 0
+        ? (successfulRevenueOrders.length / paidRevenueOrders.length) * 100
+        : 0;
+
+    const generateCheckoutToPaidRate =
+      generateCheckoutEligibleOrders.length > 0
+        ? (generatePaidOrLaterOrders.length / generateCheckoutEligibleOrders.length) * 100
+        : 0;
+
+    const renewCheckoutToPaidRate =
+      renewCheckoutEligibleOrders.length > 0
+        ? (renewPaidOrLaterOrders.length / renewCheckoutEligibleOrders.length) * 100
+        : 0;
+
+    const paymentFailureRate =
+      paidCheckoutEligibleOrders.length > 0
+        ? (failedRevenueOrders.length / paidCheckoutEligibleOrders.length) * 100
+        : 0;
+
+    const paymentCanceledRate =
+      paidCheckoutEligibleOrders.length > 0
+        ? (canceledRevenueOrders.length / paidCheckoutEligibleOrders.length) * 100
+        : 0;
+
+    const revenueOrders1d = revenueOrders.filter((row) => isRevenueOrderWithinDays(row, 1, nowMs));
+    const revenueOrders7d = revenueOrders.filter((row) => isRevenueOrderWithinDays(row, 7, nowMs));
+    const revenueOrders30d = revenueOrders.filter((row) => isRevenueOrderWithinDays(row, 30, nowMs));
+
+    const successfulRevenueOrders1d = successfulRevenueOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 1, nowMs),
+    );
+    const successfulRevenueOrders7d = successfulRevenueOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 7, nowMs),
+    );
+    const successfulRevenueOrders30d = successfulRevenueOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 30, nowMs),
+    );
+
+    const successfulRenewOrders1d = successfulRenewOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 1, nowMs),
+    );
+    const successfulRenewOrders7d = successfulRenewOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 7, nowMs),
+    );
+    const successfulRenewOrders30d = successfulRenewOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 30, nowMs),
+    );
+
+    const totalPaidAmount1dCents = successfulRevenueOrders1d.reduce(
+      (sum, row) => sum + (row.amount_total || 0),
+      0,
+    );
+    const totalPaidAmount7dCents = successfulRevenueOrders7d.reduce(
+      (sum, row) => sum + (row.amount_total || 0),
+      0,
+    );
+    const totalPaidAmount30dCents = successfulRevenueOrders30d.reduce(
+      (sum, row) => sum + (row.amount_total || 0),
+      0,
+    );
+
     const recentRevenueOrders = revenueOrders.slice(0, 30).map((row) => [
       formatDateTime(row.created_at),
       row.order_kind === "generate_app" ? "生成 App" : "云端续费",
@@ -640,21 +815,37 @@ export async function GET() {
 
     const recentSuccessfulRenewRows = successfulRenewOrders
       .slice()
-      .sort((a, b) => new Date(b.processed_at || b.paid_at || b.created_at).getTime() - new Date(a.processed_at || a.paid_at || a.created_at).getTime())
+      .sort(
+        (a, b) =>
+          new Date(pickRevenueOrderTime(b)).getTime() -
+          new Date(pickRevenueOrderTime(a)).getTime(),
+      )
       .slice(0, 30)
       .map((row) => [
-        formatDateTime(row.processed_at || row.paid_at || row.created_at),
+        formatDateTime(pickRevenueOrderTime(row)),
         row.store_id || "-",
         row.renew_id || "-",
         formatMoneyUsdFromCents(row.amount_total || 0),
         row.stripe_session_id || "-",
       ]);
 
+    const recentPaidUsersRows = Array.from(successfulPaidUserOrderCountMap.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 30)
+      .map(([userId, paidCount]) => [
+        userId,
+        formatCount(paidCount),
+      ]);
+
     const revenueStatusRows = Array.from(revenueByStatusMap.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([status, count]) => [status, formatCount(count)]);
 
-    const renewSalesRows = Array.from(renewSalesMap.entries())
+    const renewSalesRows = Array.from(revenueByStatusMap.entries())
+      .filter(() => false)
+      .map(([status, count]) => [status, formatCount(count)]);
+
+    const realRenewSalesRows = Array.from(renewSalesMap.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([renewId, count]) => [renewId, formatCount(count)]);
 
@@ -665,6 +856,112 @@ export async function GET() {
         formatCount(value.count),
         formatMoneyUsdFromCents(value.cents),
       ]);
+
+    const paymentFunnelRows = [
+      [
+        "全量订单",
+        formatCount(revenueOrders.length),
+        "100.0%",
+      ],
+      [
+        "已创建 Checkout",
+        formatCount(paidCheckoutEligibleOrders.length),
+        revenueOrders.length > 0
+          ? formatPercent((paidCheckoutEligibleOrders.length / revenueOrders.length) * 100)
+          : "0.0%",
+      ],
+      [
+        "进入 paid/processing/processed",
+        formatCount(paidRevenueOrders.length),
+        formatPercent(checkoutToPaidRate),
+      ],
+      [
+        "最终 processed",
+        formatCount(successfulRevenueOrders.length),
+        formatPercent(paidToProcessedRate),
+      ],
+      [
+        "失败",
+        formatCount(failedRevenueOrders.length),
+        formatPercent(paymentFailureRate),
+      ],
+      [
+        "取消",
+        formatCount(canceledRevenueOrders.length),
+        formatPercent(paymentCanceledRate),
+      ],
+    ];
+
+    const paymentWindowRows = [
+      [
+        "今天",
+        formatCount(revenueOrders1d.length),
+        formatCount(successfulRevenueOrders1d.length),
+        formatCount(successfulRenewOrders1d.length),
+        formatMoneyUsdFromCents(totalPaidAmount1dCents),
+      ],
+      [
+        "近 7 天",
+        formatCount(revenueOrders7d.length),
+        formatCount(successfulRevenueOrders7d.length),
+        formatCount(successfulRenewOrders7d.length),
+        formatMoneyUsdFromCents(totalPaidAmount7dCents),
+      ],
+      [
+        "近 30 天",
+        formatCount(revenueOrders30d.length),
+        formatCount(successfulRevenueOrders30d.length),
+        formatCount(successfulRenewOrders30d.length),
+        formatMoneyUsdFromCents(totalPaidAmount30dCents),
+      ],
+    ];
+
+    const dailyRevenueSuccessMap = new Map<string, { orders: number; renews: number; cents: number }>();
+    for (let i = 13; i >= 0; i -= 1) {
+      const baseDate = new Date(nowMs - i * 24 * 60 * 60 * 1000);
+      const year = baseDate.getFullYear();
+      const month = String(baseDate.getMonth() + 1).padStart(2, "0");
+      const day = String(baseDate.getDate()).padStart(2, "0");
+      const key = `${year}-${month}-${day}`;
+      dailyRevenueSuccessMap.set(key, { orders: 0, renews: 0, cents: 0 });
+    }
+
+    for (const row of successfulRevenueOrders) {
+      const dayKey = toRevenueDayKey(row);
+      const current = dailyRevenueSuccessMap.get(dayKey);
+      if (!current) continue;
+      current.orders += 1;
+      current.cents += row.amount_total || 0;
+      if (row.order_kind === "renew_cloud") {
+        current.renews += 1;
+      }
+    }
+
+    const dailyRevenueTrendRows = Array.from(dailyRevenueSuccessMap.entries()).map(
+      ([dayKey, value]) => [
+        dayKey,
+        formatCount(value.orders),
+        formatCount(value.renews),
+        formatMoneyUsdFromCents(value.cents),
+      ],
+    );
+
+    const conversionByKindRows = [
+      [
+        "生成 App",
+        formatCount(generateCheckoutEligibleOrders.length),
+        formatCount(generatePaidOrLaterOrders.length),
+        formatCount(successfulGenerateOrders.length),
+        formatPercent(generateCheckoutToPaidRate),
+      ],
+      [
+        "云端续费",
+        formatCount(renewCheckoutEligibleOrders.length),
+        formatCount(renewPaidOrLaterOrders.length),
+        formatCount(successfulRenewOrders.length),
+        formatPercent(renewCheckoutToPaidRate),
+      ],
+    ];
 
     const storeDirectoryMap = new Map<string, StoreDirectoryRow>(
       (frontendSnapshot.storeDirectory || []).map((row) => [row.storeId, row]),
@@ -1014,9 +1311,29 @@ export async function GET() {
           { title: "登录回调失败", value: formatCount(frontendSnapshot.authCallbackFailedCount || 0), hint: "auth_callback_failed" },
           { title: "构建失败事件", value: formatCount(frontendSnapshot.buildFailedEventCount || 0), hint: "build_failed" },
           { title: "下载失败事件", value: formatCount(frontendSnapshot.downloadFailedCount || 0), hint: "download_failed" },
-          { title: "付费用户近似值", value: formatCount(frontendSnapshot.paidUsers || 0), hint: "按 builds.plan!=free" },
+          { title: "真实付费用户", value: formatCount(realPaidUserCount), hint: "按 web_stripe_orders status=processed 去重 user_id" },
+          { title: "真实复购用户", value: formatCount(realRepeatPaidUserCount), hint: "成功支付次数 > 1" },
+          { title: "生成付费用户", value: formatCount(successfulGeneratePaidUserSet.size), hint: "generate_app processed 去重 user_id" },
+          { title: "续费付费用户", value: formatCount(successfulRenewPaidUserSet.size), hint: "renew_cloud processed 去重 user_id" },
         ],
         tables: [
+          {
+            title: "真实支付用户概览",
+            description: "基于 web_stripe_orders 成功支付订单去重统计。",
+            headers: ["指标", "数值"],
+            rows: [
+              ["真实付费用户", formatCount(realPaidUserCount)],
+              ["真实复购用户", formatCount(realRepeatPaidUserCount)],
+              ["生成付费用户", formatCount(successfulGeneratePaidUserSet.size)],
+              ["续费付费用户", formatCount(successfulRenewPaidUserSet.size)],
+            ],
+          },
+          {
+            title: "支付用户 Top 30",
+            description: "按成功支付订单数倒序。",
+            headers: ["用户 ID", "成功支付订单数"],
+            rows: recentPaidUsersRows,
+          },
           {
             title: "最近用户行为",
             description: "最近用户 + 最近动作。",
@@ -1055,8 +1372,35 @@ export async function GET() {
           { title: "总收入", value: formatMoneyUsdFromCents(totalPaidAmountCents), hint: `生成 ${formatMoneyUsdFromCents(generatePaidAmountCents)} / 续费 ${formatMoneyUsdFromCents(renewPaidAmountCents)}` },
           { title: "生成订单", value: formatCount(generateOrders.length), hint: `成功 ${formatCount(successfulGenerateOrders.length)}` },
           { title: "续费订单", value: formatCount(renewOrders.length), hint: `成功 ${formatCount(successfulRenewOrders.length)}` },
+          { title: "Checkout→Paid 转化率", value: formatPercent(checkoutToPaidRate), hint: `${formatCount(paidRevenueOrders.length)} / ${formatCount(paidCheckoutEligibleOrders.length)}` },
+          { title: "Paid→Processed 转化率", value: formatPercent(paidToProcessedRate), hint: `${formatCount(successfulRevenueOrders.length)} / ${formatCount(paidRevenueOrders.length)}` },
+          { title: "生成支付转化率", value: formatPercent(generateCheckoutToPaidRate), hint: `${formatCount(generatePaidOrLaterOrders.length)} / ${formatCount(generateCheckoutEligibleOrders.length)}` },
+          { title: "续费支付转化率", value: formatPercent(renewCheckoutToPaidRate), hint: `${formatCount(renewPaidOrLaterOrders.length)} / ${formatCount(renewCheckoutEligibleOrders.length)}` },
+          { title: "今日收入", value: formatMoneyUsdFromCents(totalPaidAmount1dCents), hint: `成功订单 ${formatCount(successfulRevenueOrders1d.length)}` },
+          { title: "7天收入", value: formatMoneyUsdFromCents(totalPaidAmount7dCents), hint: `成功订单 ${formatCount(successfulRevenueOrders7d.length)}` },
+          { title: "30天收入", value: formatMoneyUsdFromCents(totalPaidAmount30dCents), hint: `成功订单 ${formatCount(successfulRevenueOrders30d.length)}` },
         ],
         tables: [
+          {
+            title: "支付转化漏斗",
+            headers: ["阶段", "订单数", "转化率"],
+            rows: paymentFunnelRows,
+          },
+          {
+            title: "按类型支付转化",
+            headers: ["类型", "Checkout 数", "Paid/Processing/Processed", "最终 Processed", "Checkout→Paid 转化率"],
+            rows: conversionByKindRows,
+          },
+          {
+            title: "时间窗口汇总",
+            headers: ["时间窗口", "订单总数", "成功支付数", "成功续费数", "收入"],
+            rows: paymentWindowRows,
+          },
+          {
+            title: "最近14天收入趋势",
+            headers: ["日期", "成功支付订单", "成功续费订单", "收入"],
+            rows: dailyRevenueTrendRows,
+          },
           {
             title: "收入按类型汇总",
             headers: ["类型", "成功订单数", "成功收入"],
@@ -1070,7 +1414,7 @@ export async function GET() {
           {
             title: "续费档位销量",
             headers: ["续费档位", "成功支付数"],
-            rows: renewSalesRows,
+            rows: realRenewSalesRows,
           },
           {
             title: "最近订单",
@@ -1086,7 +1430,7 @@ export async function GET() {
         notes: [
           "收入统计来源：public.web_stripe_orders。",
           "成功收入口径：status=processed 的订单 amount_total 汇总。",
-          "生成 App 与云端续费均为真实 Stripe webhook 落库数据。",
+          "真实付费用户 / 真实复购用户 / 支付转化率 / 时间趋势均基于真实订单表计算。",
         ],
       },
 
