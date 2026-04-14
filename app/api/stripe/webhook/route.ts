@@ -296,7 +296,13 @@ export async function POST(request: NextRequest) {
       paidAt: pricingSnapshot.paidAt,
     });
 
-    await processStripeOrderById(paidOrder.id, "initial");
+// ===== 人为制造失败（测试用）=====
+if (paidOrder.run_id && paidOrder.run_id.startsWith("fail_test")) {
+  throw new Error("NDJC_TEST_FORCE_FAIL");
+}
+// =================================
+
+await processStripeOrderById(paidOrder.id, "initial");
 
     return NextResponse.json({ ok: true });
   } catch (error) {
