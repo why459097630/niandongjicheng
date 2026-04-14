@@ -485,12 +485,22 @@ export async function getAdminRevenueOrders(): Promise<AdminRevenueOrderRow[]> {
     throw new Error(error.message);
   }
 
-  return ((data || []) as AdminRevenueOrderRow[]).map((row) => ({
+  const rows = ((data ?? []) as unknown[]) as AdminRevenueOrderRow[];
+
+  return rows.map((row) => ({
     ...row,
     amount_subtotal:
-      typeof row.amount_subtotal === "number" ? row.amount_subtotal : row.amount_subtotal == null ? null : Number(row.amount_subtotal),
+      typeof row.amount_subtotal === "number"
+        ? row.amount_subtotal
+        : row.amount_subtotal == null
+          ? null
+          : Number(row.amount_subtotal),
     amount_total:
-      typeof row.amount_total === "number" ? row.amount_total : row.amount_total == null ? null : Number(row.amount_total),
+      typeof row.amount_total === "number"
+        ? row.amount_total
+        : row.amount_total == null
+          ? null
+          : Number(row.amount_total),
   }));
 }
 
