@@ -279,7 +279,7 @@ async function applyRenewalToStore(storeId: string, renewId: string) {
       : now;
 
   const newServiceEndAt = addDaysFromBase(baseDate, renewDays);
-  const newDeleteAt = addDaysFromBase(newServiceEndAt, 30);
+  const newDeleteAt = addDaysFromBase(newServiceEndAt, 60);
 
   const { error: updateError } = await appCloudSupabase
     .from("stores")
