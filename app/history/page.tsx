@@ -6,6 +6,26 @@ import AuthControls from "@/components/auth/AuthControls";
 import SiteHeader from "@/components/layout/SiteHeader";
 import { createClient } from "@/lib/supabase/client";
 
+type PaymentOrderStatus =
+  | "created"
+  | "checkout_created"
+  | "paid"
+  | "processing"
+  | "processed"
+  | "failed"
+  | "manual_review_required"
+  | "refund_pending"
+  | "refunded"
+  | "canceled";
+
+type PaymentCompensationStatus =
+  | "none"
+  | "pending_retry"
+  | "retrying"
+  | "manual_review_required"
+  | "refund_pending"
+  | "refunded";
+
 type BuildItem = {
   storeId?: string;
   runId: string;
@@ -28,6 +48,20 @@ type BuildItem = {
   uiPackName: string;
   mode: string;
   downloadUrl?: string | null;
+
+  buildOrderStatus?: PaymentOrderStatus | null;
+  buildCompensationStatus?: PaymentCompensationStatus | null;
+  buildCompensationNote?: string | null;
+  buildNextRetryAt?: string | null;
+  buildManualReviewRequiredAt?: string | null;
+  buildRefundedAt?: string | null;
+
+  renewOrderStatus?: PaymentOrderStatus | null;
+  renewCompensationStatus?: PaymentCompensationStatus | null;
+  renewCompensationNote?: string | null;
+  renewNextRetryAt?: string | null;
+  renewManualReviewRequiredAt?: string | null;
+  renewRefundedAt?: string | null;
 };
 
 type BuildListResponse = {
@@ -121,6 +155,87 @@ function getCloudStatusMeta(item: BuildItem) {
     return {
       label: `Cloud active · ${detail}`,
       className: "border-sky-200/80 bg-white/80 text-sky-700 shadow-[0_6px_18px_rgba(14,165,233,0.06)]",
+    };
+  }
+
+  return null;
+}
+
+function getBuildCompensationMeta(item: BuildItem) {
+  if (item.buildOrderStatus === "refunded" || item.buildRefundedAt) {
+    return {
+      label: item.buildRefundedAt
+        ? `Build refunded · ${formatTime(item.buildRefundedAt)}`
+        : "Build refunded",
+      className: "border-red-200/80 bg-white/80 text-red-600 shadow-[0_6px_18px_rgba(239,68,68,0.06)]",
+    };
+  }
+
+  if (
+    item.buildOrderStatus === "manual_review_required" ||
+    item.buildCompensationStatus === "manual_review_required"
+  ) {
+    return {
+      label: item.buildManualReviewRequiredAt
+        ? `Build manual review · ${formatTime(item.buildManualReviewRequiredAt)}`
+        : "Build manual review",
+      className: "border-amber-200/80 bg-white/80 text-amber-700 shadow-[0_6px_18px_rgba(245,158,11,0.08)]",
+    };
+  }
+
+  if (
+    item.buildCompensationStatus === "pending_retry" ||
+    item.buildCompensationStatus === "retrying"
+  ) {
+    return {
+      label: item.buildNextRetryAt
+        ? `Build auto retry · ${formatTime(item.buildNextRetryAt)}`
+        : "Build auto retry scheduled",
+      className: "border-violet-200/80 bg-white/80 text-violet-700 shadow-[0_6px_18px_rgba(139,92,246,0.08)]",
+    };
+  }
+
+  return null;
+}
+
+function getRenewCompensationMeta(item: BuildItem) {
+  if (item.renewOrderStatus === "refunded" || item.renewRefundedAt) {
+    return {
+      label: item.renewRefundedAt
+        ? `Renewal refunded · ${formatTime(item.renewRefundedAt)}`
+        : "Renewal refunded",
+      className: "border-red-200/80 bg-white/80 text-red-600 shadow-[0_6px_18px_rgba(239,68,68,0.06)]",
+    };
+  }
+
+  if (
+    item.renewOrderStatus === "manual_review_required" ||
+    item.renewCompensationStatus === "manual_review_required"
+  ) {
+    return {
+      label: item.renewManualReviewRequiredAt
+        ? `Renewal manual review · ${formatTime(item.renewManualReviewRequiredAt)}`
+        : "Renewal manual review",
+      className: "border-amber-200/80 bg-white/80 text-amber-700 shadow-[0_6px_18px_rgba(245,158,11,0.08)]",
+    };
+  }
+
+  if (
+    item.renewCompensationStatus === "pending_retry" ||
+    item.renewCompensationStatus === "retrying"
+  ) {
+    return {
+      label: item.renewNextRetryAt
+        ? `Renewal auto retry · ${formatTime(item.renewNextRetryAt)}`
+        : "Renewal auto retry scheduled",
+      className: "border-violet-200/80 bg-white/80 text-violet-700 shadow-[0_6px_18px_rgba(139,92,246,0.08)]",
+    };
+  }
+
+  if (item.renewOrderStatus === "refund_pending") {
+    return {
+      label: "Renewal refund pending",
+      className: "border-rose-200/80 bg-white/80 text-rose-600 shadow-[0_6px_18px_rgba(244,63,94,0.08)]",
     };
   }
 
@@ -315,9 +430,22 @@ export default function HistoryPage() {
             {items.map((item) => {
               const meta = getStageMeta(item.stage);
               const cloudMeta = item.stage === "success" ? getCloudStatusMeta(item) : null;
+              const buildCompensationMeta = getBuildCompensationMeta(item);
+              const renewCompensationMeta = getRenewCompensationMeta(item);
               const showInlineFailedReason = item.stage === "failed" && item.failedStep;
               const showInlineCompletedTime = item.stage === "success" && item.completedAt;
               const showDownloadButton = canDownloadBuild(item);
+              const showFailedContinueButton =
+                item.stage === "failed" && item.buildOrderStatus !== "refunded";
+              const showRenewButton =
+                item.stage === "success" &&
+                item.mode === "Paid Purchase" &&
+                !(
+                  item.renewCompensationStatus === "pending_retry" ||
+                  item.renewCompensationStatus === "retrying" ||
+                  item.renewCompensationStatus === "manual_review_required" ||
+                  item.renewOrderStatus === "refund_pending"
+                );
 
               return (
                 <div
@@ -349,6 +477,16 @@ export default function HistoryPage() {
                           {showInlineFailedReason ? (
                             <div className="inline-flex shrink-0 items-center rounded-full border border-red-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-red-600 shadow-[0_6px_18px_rgba(239,68,68,0.06)] whitespace-nowrap">
                               {FAILED_STEP_LABELS[item.failedStep!]}
+                            </div>
+                          ) : null}
+                          {buildCompensationMeta ? (
+                            <div className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-[11px] font-semibold whitespace-nowrap ${buildCompensationMeta.className}`}>
+                              {buildCompensationMeta.label}
+                            </div>
+                          ) : null}
+                          {renewCompensationMeta ? (
+                            <div className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-[11px] font-semibold whitespace-nowrap ${renewCompensationMeta.className}`}>
+                              {renewCompensationMeta.label}
                             </div>
                           ) : null}
                           {cloudMeta ? (
@@ -385,6 +523,14 @@ export default function HistoryPage() {
                           <div className="mt-2 text-sm font-semibold text-[#0f172a]">{formatTime(item.createdAt)}</div>
                         </div>
                       </div>
+
+                      {item.buildCompensationNote || item.renewCompensationNote ? (
+                        <div className="mt-3 rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm text-slate-600">
+                          {item.buildCompensationNote ? `Build: ${item.buildCompensationNote}` : ""}
+                          {item.buildCompensationNote && item.renewCompensationNote ? " · " : ""}
+                          {item.renewCompensationNote ? `Renewal: ${item.renewCompensationNote}` : ""}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="flex flex-wrap gap-3 lg:justify-end">
@@ -421,39 +567,47 @@ export default function HistoryPage() {
                             <Download className="h-4 w-4" />
                             Download
                           </a>
+
                           {item.stage === "success" && item.mode === "Paid Purchase" ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (typeof window !== "undefined") {
-                                  window.sessionStorage.setItem("ndjc_renew_app_name", item.appName || "");
-                                  window.sessionStorage.setItem("ndjc_renew_store_id", item.storeId || "");
-                                  window.sessionStorage.setItem("ndjc_renew_cloud_status", item.cloudStatus || "");
-                                  window.sessionStorage.setItem("ndjc_renew_cloud_expires_at", item.cloudExpiresAt || "");
-                                }
+                            showRenewButton ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (typeof window !== "undefined") {
+                                    window.sessionStorage.setItem("ndjc_renew_app_name", item.appName || "");
+                                    window.sessionStorage.setItem("ndjc_renew_store_id", item.storeId || "");
+                                    window.sessionStorage.setItem("ndjc_renew_cloud_status", item.cloudStatus || "");
+                                    window.sessionStorage.setItem("ndjc_renew_cloud_expires_at", item.cloudExpiresAt || "");
+                                  }
 
-                                const params = new URLSearchParams({
-                                  appName: item.appName || "",
-                                  storeId: item.storeId || "",
-                                  cloudStatus: item.cloudStatus || "",
-                                  cloudExpiresAt: item.cloudExpiresAt || "",
-                                });
+                                  const params = new URLSearchParams({
+                                    appName: item.appName || "",
+                                    storeId: item.storeId || "",
+                                    cloudStatus: item.cloudStatus || "",
+                                    cloudExpiresAt: item.cloudExpiresAt || "",
+                                  });
 
-                                window.location.href = `/renew-cloud?${params.toString()}`;
-                              }}
-                              className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-sky-200 bg-gradient-to-r from-sky-100 to-sky-50 px-5 text-sm font-semibold text-sky-700 shadow-[0_8px_18px_rgba(14,165,233,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(14,165,233,0.14)]"
-                            >
-                              <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
-                              Renew Cloud
-                            </button>
+                                  window.location.href = `/renew-cloud?${params.toString()}`;
+                                }}
+                                className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-sky-200 bg-gradient-to-r from-sky-100 to-sky-50 px-5 text-sm font-semibold text-sky-700 shadow-[0_8px_18px_rgba(14,165,233,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(14,165,233,0.14)]"
+                              >
+                                <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
+                                Renew Cloud
+                              </button>
+                            ) : (
+                              <div className="inline-flex h-[40px] w-[164px] items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-5 text-sm font-semibold text-amber-700 shadow-[0_6px_14px_rgba(245,158,11,0.08)]">
+                                Renewal processing
+                              </div>
+                            )
                           ) : null}
+
                           <div className="w-[164px] text-center text-[11px] text-slate-400">
                             Download available for 90 days
                           </div>
                         </div>
                       ) : null}
 
-                      {item.stage === "failed" ? (
+                      {showFailedContinueButton ? (
                         <button
                           type="button"
                           onClick={() => {

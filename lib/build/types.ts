@@ -28,6 +28,26 @@ export type BuildStatusSource =
   | "manual_fix"
   | "unknown";
 
+export type PaymentOrderStatus =
+  | "created"
+  | "checkout_created"
+  | "paid"
+  | "processing"
+  | "processed"
+  | "failed"
+  | "manual_review_required"
+  | "refund_pending"
+  | "refunded"
+  | "canceled";
+
+export type PaymentCompensationStatus =
+  | "none"
+  | "pending_retry"
+  | "retrying"
+  | "manual_review_required"
+  | "refund_pending"
+  | "refunded";
+
 export type UserOperationEventName =
   | "login_success"
   | "builder_opened"
@@ -41,7 +61,12 @@ export type UserOperationEventName =
   | "build_failed"
   | "download_failed"
   | "checkout_opened"
-  | "stripe_session_created";
+  | "stripe_session_created"
+  | "payment_auto_retry_scheduled"
+  | "payment_manual_review_required"
+  | "payment_manual_retry_started"
+  | "payment_refund_started"
+  | "payment_refunded";
 
 export type BuildRequest = {
   appName: string;
@@ -143,6 +168,20 @@ export type BuildHistoryItem = {
   cloudExpiresAt?: string | null;
   cloudDeletesAt?: string | null;
   isWriteAllowed?: boolean;
+
+  buildOrderStatus?: PaymentOrderStatus | null;
+  buildCompensationStatus?: PaymentCompensationStatus | null;
+  buildCompensationNote?: string | null;
+  buildNextRetryAt?: string | null;
+  buildManualReviewRequiredAt?: string | null;
+  buildRefundedAt?: string | null;
+
+  renewOrderStatus?: PaymentOrderStatus | null;
+  renewCompensationStatus?: PaymentCompensationStatus | null;
+  renewCompensationNote?: string | null;
+  renewNextRetryAt?: string | null;
+  renewManualReviewRequiredAt?: string | null;
+  renewRefundedAt?: string | null;
 };
 
 export type BuildListResponse = {

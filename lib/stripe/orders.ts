@@ -11,6 +11,9 @@ export type StripeOrderStatus =
   | "processing"
   | "processed"
   | "failed"
+  | "manual_review_required"
+  | "refund_pending"
+  | "refunded"
   | "canceled";
 
 export type StripeOrderKind = "generate_app" | "renew_cloud";
@@ -54,6 +57,19 @@ export type StripeOrderRecord = {
   payload_tag: string | null;
   error: string | null;
   processed_at: string | null;
+  retry_count: number | null;
+  manual_retry_count: number | null;
+  next_retry_at: string | null;
+  compensation_status: string | null;
+  compensation_note: string | null;
+  last_retry_at: string | null;
+  admin_notified_at: string | null;
+  manual_review_required_at: string | null;
+  refunded_at: string | null;
+  refund_reason: string | null;
+  stripe_refund_id: string | null;
+  renewal_applied_at: string | null;
+  build_started_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -77,6 +93,19 @@ export type AdminRevenueOrderRow = Pick<
   | "failed_at"
   | "canceled_at"
   | "processed_at"
+  | "retry_count"
+  | "manual_retry_count"
+  | "next_retry_at"
+  | "compensation_status"
+  | "compensation_note"
+  | "last_retry_at"
+  | "admin_notified_at"
+  | "manual_review_required_at"
+  | "refunded_at"
+  | "refund_reason"
+  | "stripe_refund_id"
+  | "renewal_applied_at"
+  | "build_started_at"
   | "error"
   | "created_at"
   | "updated_at"
@@ -474,6 +503,19 @@ export async function getAdminRevenueOrders(): Promise<AdminRevenueOrderRow[]> {
         "failed_at",
         "canceled_at",
         "processed_at",
+        "retry_count",
+        "manual_retry_count",
+        "next_retry_at",
+        "compensation_status",
+        "compensation_note",
+        "last_retry_at",
+        "admin_notified_at",
+        "manual_review_required_at",
+        "refunded_at",
+        "refund_reason",
+        "stripe_refund_id",
+        "renewal_applied_at",
+        "build_started_at",
         "error",
         "created_at",
         "updated_at",
