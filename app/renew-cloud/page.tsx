@@ -286,10 +286,7 @@ useEffect(() => {
   }
 
   return (
-    <main
-      className="notranslate relative min-h-screen bg-[#f8fafc] text-[#0f172a]"
-      translate="no"
-    >
+    <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
       <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
       <SiteHeader compact={isHeaderCompact} navItems={[]} nextPath="/" />
 
@@ -321,13 +318,13 @@ useEffect(() => {
                       <div className="mt-6 space-y-4">
                         <div>
                         <div
-                          className="notranslate inline-flex max-w-full items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-700 shadow-[0_6px_18px_rgba(56,189,248,0.08),0_0_18px_rgba(56,189,248,0.10)]"
+                          className="inline-flex max-w-full items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-700 shadow-[0_6px_18px_rgba(56,189,248,0.08),0_0_18px_rgba(56,189,248,0.10)]"
                           translate="no"
                         >
                           Store ID · {storeId}
                         </div>
                         <div
-                          className="notranslate mt-2 border-l-2 border-amber-300 pl-4 pr-2 py-1 text-[13px] leading-6 text-slate-500 whitespace-nowrap"
+                          className="mt-2 border-l-2 border-amber-300 pl-4 pr-2 py-1 text-[13px] leading-6 text-slate-500 whitespace-nowrap"
                           translate="no"
                         >
                           Please confirm that this Store ID matches the build history entry you want to renew.
@@ -340,7 +337,7 @@ useEffect(() => {
                           </div>
 
                           <div
-                            className={`notranslate ${cloudStatusCardClassName}`}
+                            className={cloudStatusCardClassName}
                             translate="no"
                           >
                             <div className="flex flex-wrap items-center gap-2">
@@ -428,7 +425,7 @@ useEffect(() => {
             </div>
 
             <div className="space-y-5 px-6 py-6">
-              <div className="notranslate grid gap-3" translate="no">
+              <div className="grid gap-3">
                 {RENEW_OPTIONS.map((option) => {
                   const isSelected = option.id === selectedRenewId;
                   const dailyPrice = (Number(option.priceLabel.replace("$", "")) / option.days).toFixed(2);
@@ -516,7 +513,7 @@ useEffect(() => {
                     setIsSubmitting(false);
                   }
                 }}
-                className="notranslate group relative w-full overflow-hidden rounded-[22px] bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-6 py-4 text-sm font-semibold text-white shadow-[0_28px_60px_rgba(236,72,153,0.32)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_35px_80px_rgba(236,72,153,0.45)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70"
+                className="group relative w-full overflow-hidden rounded-[22px] bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-6 py-4 text-sm font-semibold text-white shadow-[0_28px_60px_rgba(236,72,153,0.32)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_35px_80px_rgba(236,72,153,0.45)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70"
               >
                 <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.16)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                 <div className="relative flex items-center justify-center gap-2">
