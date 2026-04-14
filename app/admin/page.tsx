@@ -144,7 +144,7 @@ function SimpleTable({
 
 function EmptyState({ lines }: { lines: string[] }) {
   return (
-    <SectionCard title="当前说明" description="这里只显示当前 Tab 的补充说明。除订单 / 支付 / 续费统计外，其余已尽量接入真实数据。">
+    <SectionCard title="当前说明" description="这里只显示当前 Tab 的补充说明。当前页面优先展示已接入的真实统计数据。">
       <div className="flex flex-wrap gap-3">
         {lines.map((line) => (
           <Pill key={line}>{line}</Pill>
@@ -217,7 +217,7 @@ export default function AdminPage() {
               </div>
               <h1 className="mt-4 text-4xl font-extrabold tracking-[-0.05em] text-slate-950 md:text-5xl">运营数据总后台</h1>
 <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500 md:text-base">
-  单页面 + 顶部切换 Tab。除订单 / 支付 / 续费统计外，当前项目里能直接读取到的前端云端与 App 云端真实数据，已统一接入这个后台页。
+  单页面 + 顶部切换 Tab。当前项目里能直接读取到的前端云端、支付订单与 App 云端真实数据，已统一接入这个后台页。
 </p>
               <div className="mt-3 text-xs uppercase tracking-[0.16em] text-slate-400">
                 {data?.generatedAt ? `Last sync · ${new Date(data.generatedAt).toLocaleString()}` : "Waiting for first load"}
@@ -275,9 +275,7 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {tab === "chat" ? (
-          <AdminChatPanel />
-        ) : loading ? (
+        {loading ? (
           <SectionCard title="正在加载后台数据" description="正在从前端 Supabase、App 云端 Supabase 读取可接数据。">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard title="读取 profiles" value="..." />
@@ -309,6 +307,12 @@ export default function AdminPage() {
               : null}
 
             {activeData.notes && activeData.notes.length > 0 ? <EmptyState lines={activeData.notes} /> : null}
+
+            {tab === "chat" ? (
+              <SectionCard title="聊天操作面板" description="下方保留原站内聊天处理面板，统计与操作同页使用。">
+                <AdminChatPanel />
+              </SectionCard>
+            ) : null}
           </div>
         )}
       </div>

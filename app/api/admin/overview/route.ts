@@ -270,6 +270,7 @@ type FrontendSnapshot = {
   builderOpenedCount: number;
   iconUploadedCount: number;
   buildStartedCount: number;
+  checkoutOpenedCount: number;
   historyOpenedCount: number;
   resultOpenedCount: number;
   downloadClickedCount: number;
@@ -289,6 +290,7 @@ type FrontendSnapshot = {
   topModules: Array<{ name: string; count: number }>;
   topUiPacks: Array<{ name: string; count: number }>;
   channels: UserAcquisitionRow[];
+  adminActionTotal: number;
   adminActions: AdminActionRow[];
   recentOperationLogs: FrontendOperationLogRow[];
   buildFailureStats: BuildFailureStatRow[];
@@ -296,6 +298,48 @@ type FrontendSnapshot = {
   uiPackSuccessStats: SuccessRateRow[];
   pageViewStats: PageViewStatRow[];
   storeDirectory: StoreDirectoryRow[];
+};
+
+type SupportConversationSummaryRow = {
+  id: string;
+  guestSessionId: string;
+  userId: string | null;
+  userEmail: string | null;
+  userName: string | null;
+  status: string;
+  sourcePath: string | null;
+  lastMessagePreview: string | null;
+  lastMessageAt: string | null;
+  adminUnreadCount: number;
+  userUnreadCount: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+type SupportSourceStatRow = {
+  sourcePath: string;
+  count: number;
+};
+
+type SupportChatOverviewSnapshot = {
+  totalConversations: number;
+  openConversations: number;
+  closedConversations: number;
+  totalMessages: number;
+  adminUnreadTotal: number;
+  conversations1d: number;
+  messages1d: number;
+  activeConversations7d: number;
+  guestConversations: number;
+  loggedInConversations: number;
+  withEmailConversations: number;
+  avgFirstReplyMinutes: number;
+  avgReplyMinutes: number;
+  replyCount: number;
+  overdueOpenConversations: number;
+  sourceStats: SupportSourceStatRow[];
+  overdueConversations: SupportConversationSummaryRow[];
+  conversations: SupportConversationSummaryRow[];
 };
 
 function formatCount(value: number): string {
@@ -427,6 +471,16 @@ export async function GET() {
     }
 
     const frontendSnapshot = (frontendSnapshotRaw || {}) as FrontendSnapshot;
+
+    const { data: supportChatSnapshotRaw, error: supportChatSnapshotError } = await authClient.rpc(
+      "admin_support_chat_overview",
+    );
+
+    if (supportChatSnapshotError) {
+      throw new Error(`admin_support_chat_overview rpc failed: ${supportChatSnapshotError.message}`);
+    }
+
+    const supportChatSnapshot = (supportChatSnapshotRaw || {}) as SupportChatOverviewSnapshot;
 
     let stores: AppCloudStoreRow[] = [];
     let storeUsageStats: StoreUsageStatsRow[] = [];
@@ -841,6 +895,16 @@ export async function GET() {
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([status, count]) => [status, formatCount(count)]);
 
+    const revenueErrorMap = new Map<string, number>();
+    for (const row of failedRevenueOrders) {
+      const reason = String(row.error || "unknown").trim() || "unknown";
+      revenueErrorMap.set(reason, (revenueErrorMap.get(reason) || 0) + 1);
+    }
+
+    const revenueErrorRows = Array.from(revenueErrorMap.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([reason, count]) => [reason, formatCount(count)]);
+
     const renewSalesRows = Array.from(revenueByStatusMap.entries())
       .filter(() => false)
       .map(([status, count]) => [status, formatCount(count)]);
@@ -1126,6 +1190,11 @@ export async function GET() {
     );
     const unreadMessages = chatMessages.filter((row) => row.is_read === false).length;
     const archivedThreads = chatThreadMeta.filter((row) => row.merchant_archived === true).length;
+    const totalSiteMessages = chatMessages.length + (supportChatSnapshot.totalMessages || 0);
+    const sessionCreatedCount = paidCheckoutEligibleOrders.length;
+    const avgOrderValueCents =
+      successfulRevenueOrders.length > 0 ? totalPaidAmountCents / successfulRevenueOrders.length : 0;
+    const arppuCents = realPaidUserCount > 0 ? totalPaidAmountCents / realPaidUserCount : 0;
 
     const publishedAnnouncements = announcements.filter(
       (row) => (row.status || "").toLowerCase() === "published",
@@ -1148,6 +1217,30 @@ export async function GET() {
       formatCount(row.views),
       formatCount(row.visitors),
       formatDateTime(row.lastViewedAt),
+    ]);
+
+    const supportChatSourceRows = (supportChatSnapshot.sourceStats || []).map((row) => [
+      row.sourcePath || "-",
+      formatCount(row.count || 0),
+    ]);
+
+    const supportChatRecentRows = (supportChatSnapshot.conversations || []).slice(0, 30).map((row) => [
+      formatDateTime(row.lastMessageAt),
+      row.userEmail || row.userName || row.userId || row.guestSessionId || row.id,
+      row.status || "-",
+      formatCount(row.adminUnreadCount || 0),
+      formatCount(row.userUnreadCount || 0),
+      row.sourcePath || "-",
+      row.lastMessagePreview || "-",
+    ]);
+
+    const supportChatOverdueRows = (supportChatSnapshot.overdueConversations || []).slice(0, 30).map((row) => [
+      formatDateTime(row.lastMessageAt),
+      row.userEmail || row.userName || row.userId || row.guestSessionId || row.id,
+      row.status || "-",
+      formatCount(row.adminUnreadCount || 0),
+      row.sourcePath || "-",
+      row.lastMessagePreview || "-",
     ]);
 
     const topCategoryRows = rankMapEntries(categoryDishCountMap, 20).map(([categoryId, count]) => [
@@ -1224,7 +1317,7 @@ export async function GET() {
           { title: "有效商户", value: formatCount(effectiveStores), hint: `只读 ${formatCount(readOnlyStores)} / 已删 ${formatCount(deletedStores)}` },
           { title: "商品总数", value: formatCount(dishes.length), hint: `分类 ${formatCount(categories.length)} / 图片 ${formatCount(dishImages.length)}` },
           { title: "公告总数", value: formatCount(announcements.length), hint: `已发布 ${formatCount(publishedAnnouncements)} / 草稿 ${formatCount(draftAnnouncements)}` },
-          { title: "消息总数", value: formatCount(chatMessages.length), hint: `未读 ${formatCount(unreadMessages)} / 归档线程 ${formatCount(archivedThreads)}` },
+          { title: "全站消息总数", value: formatCount(totalSiteMessages), hint: `App 云端未读 ${formatCount(unreadMessages)} / 站内聊天 ${formatCount(supportChatSnapshot.totalMessages || 0)}` },
           { title: "线索总数", value: formatCount(leads.length), hint: `7天 ${formatCount(Array.from(leadsByStore7d.values()).reduce((a, b) => a + b, 0))}` },
           { title: "注册设备总数", value: formatCount(totalRegisteredDevices), hint: `受众 ${formatCount(pushAudienceMap.size)} 类` },
           { title: "激活 membership", value: formatCount(activeMemberships), hint: "store_memberships.is_active" },
@@ -1264,6 +1357,7 @@ export async function GET() {
           { title: "失败构建", value: formatCount(failedBuilds) },
           { title: "排队中", value: formatCount(queuedBuilds) },
           { title: "构建中", value: formatCount(runningBuilds) },
+          { title: "平均构建时长", value: formatDurationMinutes(frontendSnapshot.avgBuildMinutes), hint: "builds.completed_at - created_at" },
           { title: "今日失败", value: formatCount(frontendSnapshot.buildFailuresToday || 0) },
           { title: "排队超时", value: formatCount(frontendSnapshot.stalledQueuedBuilds || 0), hint: ">30 分钟 queued" },
           { title: "成功但缺下载", value: formatCount(frontendSnapshot.missingDownloadOnSuccess || 0), hint: "需排查回写" },
@@ -1379,6 +1473,8 @@ export async function GET() {
           { title: "今日收入", value: formatMoneyUsdFromCents(totalPaidAmount1dCents), hint: `成功订单 ${formatCount(successfulRevenueOrders1d.length)}` },
           { title: "7天收入", value: formatMoneyUsdFromCents(totalPaidAmount7dCents), hint: `成功订单 ${formatCount(successfulRevenueOrders7d.length)}` },
           { title: "30天收入", value: formatMoneyUsdFromCents(totalPaidAmount30dCents), hint: `成功订单 ${formatCount(successfulRevenueOrders30d.length)}` },
+          { title: "客单价", value: formatMoneyUsdFromCents(avgOrderValueCents), hint: "成功支付订单平均金额" },
+          { title: "ARPPU", value: formatMoneyUsdFromCents(arppuCents), hint: "真实付费用户平均收入" },
         ],
         tables: [
           {
@@ -1410,6 +1506,11 @@ export async function GET() {
             title: "支付状态分布",
             headers: ["状态", "订单数"],
             rows: revenueStatusRows,
+          },
+          {
+            title: "支付失败原因分布",
+            headers: ["失败原因", "次数"],
+            rows: revenueErrorRows,
           },
           {
             title: "续费档位销量",
@@ -1509,7 +1610,7 @@ export async function GET() {
           { title: "云端状态异常", value: formatCount(cloudStateAnomalies), hint: "read_only 但仍可写" },
           { title: "24h 写入总数", value: formatCount(storeUsageStats.reduce((sum, row) => sum + (row.writes_24h || 0), 0)), hint: "store_usage_stats" },
           { title: "7d 写入总数", value: formatCount(storeUsageStats.reduce((sum, row) => sum + (row.writes_7d || 0), 0)), hint: "store_usage_stats" },
-          { title: "消息总数", value: formatCount(chatMessages.length), hint: `未读 ${formatCount(unreadMessages)}` },
+{ title: "全站消息总数", value: formatCount(totalSiteMessages), hint: `App 云端未读 ${formatCount(unreadMessages)} / 站内聊天 ${formatCount(supportChatSnapshot.totalMessages || 0)}` },
           { title: "会话总数", value: formatCount(chatConversations.length), hint: `归档 ${formatCount(archivedThreads)}` },
           { title: "注册设备总数", value: formatCount(totalRegisteredDevices), hint: "按 store_id + device_install_id / token 去重" },
           { title: "relay 总数", value: formatCount(chatRelay.length), hint: "chat_relay" },
@@ -1625,7 +1726,7 @@ export async function GET() {
 
       actions: {
         metrics: [
-          { title: "后台操作总数", value: formatCount((frontendSnapshot.adminActions || []).length), hint: "admin_action_logs" },
+          { title: "后台操作总数", value: formatCount(frontendSnapshot.adminActionTotal || 0), hint: "admin_action_logs 全量" },
         ],
         tables: [
           {
@@ -1648,13 +1749,16 @@ export async function GET() {
           { title: "打开 Builder", value: formatCount(frontendSnapshot.builderOpenedCount || 0), hint: "builder_opened" },
           { title: "上传图标", value: formatCount(frontendSnapshot.iconUploadedCount || 0), hint: "icon_uploaded" },
           { title: "点击 Generate", value: formatCount(frontendSnapshot.buildStartedCount || 0), hint: "build_started" },
+          { title: "打开 Checkout", value: formatCount(frontendSnapshot.checkoutOpenedCount || 0), hint: "checkout_opened" },
+          { title: "Session 创建成功", value: formatCount(sessionCreatedCount), hint: "web_stripe_orders status>=checkout_created" },
           { title: "打开 Result", value: formatCount(frontendSnapshot.resultOpenedCount || 0), hint: "result_opened" },
           { title: "点击 Download", value: formatCount(frontendSnapshot.downloadClickedCount || 0), hint: "download_clicked" },
-          { title: "页面访问 7 天", value: formatCount(frontendSnapshot.pageViews7d || 0), hint: "page_view_logs" },
+          { title: "Checkout→Paid", value: formatPercent(checkoutToPaidRate), hint: `${formatCount(paidRevenueOrders.length)} / ${formatCount(paidCheckoutEligibleOrders.length)}` },
+          { title: "Paid→Processed", value: formatPercent(paidToProcessedRate), hint: `${formatCount(successfulRevenueOrders.length)} / ${formatCount(paidRevenueOrders.length)}` },
         ],
         tables: [
           {
-            title: "漏斗",
+            title: "前端行为漏斗",
             headers: ["阶段", "次数", "相对上一阶段转化"],
             rows: [
               ["登录成功", formatCount(frontendSnapshot.loginSuccessCount || 0), "100%"],
@@ -1680,10 +1784,31 @@ export async function GET() {
                   : "0%",
               ],
               [
+                "打开 Checkout",
+                formatCount(frontendSnapshot.checkoutOpenedCount || 0),
+                frontendSnapshot.buildStartedCount > 0
+                  ? formatPercent(((frontendSnapshot.checkoutOpenedCount || 0) / frontendSnapshot.buildStartedCount) * 100)
+                  : "0%",
+              ],
+              [
+                "Session 创建成功",
+                formatCount(sessionCreatedCount),
+                (frontendSnapshot.checkoutOpenedCount || 0) > 0
+                  ? formatPercent((sessionCreatedCount / (frontendSnapshot.checkoutOpenedCount || 0)) * 100)
+                  : "0%",
+              ],
+              [
+                "支付成功",
+                formatCount(successfulRevenueOrders.length),
+                sessionCreatedCount > 0
+                  ? formatPercent((successfulRevenueOrders.length / sessionCreatedCount) * 100)
+                  : "0%",
+              ],
+              [
                 "打开 Result",
                 formatCount(frontendSnapshot.resultOpenedCount || 0),
-                frontendSnapshot.buildStartedCount > 0
-                  ? formatPercent(((frontendSnapshot.resultOpenedCount || 0) / frontendSnapshot.buildStartedCount) * 100)
+                successfulRevenueOrders.length > 0
+                  ? formatPercent(((frontendSnapshot.resultOpenedCount || 0) / successfulRevenueOrders.length) * 100)
                   : "0%",
               ],
               [
@@ -1696,10 +1821,59 @@ export async function GET() {
             ],
           },
           {
+            title: "支付漏斗",
+            headers: ["阶段", "订单数", "转化率"],
+            rows: paymentFunnelRows,
+          },
+          {
+            title: "按类型支付转化",
+            headers: ["类型", "Checkout 数", "Paid/Processing/Processed", "最终 Processed", "Checkout→Paid 转化率"],
+            rows: conversionByKindRows,
+          },
+          {
             title: "页面访问排行",
             headers: ["页面", "访问量", "访客数", "最近访问"],
             rows: pageViewRows,
           },
+        ],
+      },
+            chat: {
+        metrics: [
+          { title: "总会话数", value: formatCount(supportChatSnapshot.totalConversations || 0), hint: "support_conversations" },
+          { title: "开放会话", value: formatCount(supportChatSnapshot.openConversations || 0), hint: "status=open" },
+          { title: "已关闭会话", value: formatCount(supportChatSnapshot.closedConversations || 0), hint: "status=closed" },
+          { title: "总消息数", value: formatCount(supportChatSnapshot.totalMessages || 0), hint: "support_messages" },
+          { title: "管理员未读总数", value: formatCount(supportChatSnapshot.adminUnreadTotal || 0), hint: "admin_unread_count 汇总" },
+          { title: "今日新增会话", value: formatCount(supportChatSnapshot.conversations1d || 0), hint: "近 1 天 created_at" },
+          { title: "今日新增消息", value: formatCount(supportChatSnapshot.messages1d || 0), hint: "近 1 天 created_at" },
+          { title: "7天活跃会话", value: formatCount(supportChatSnapshot.activeConversations7d || 0), hint: "近 7 天有消息" },
+          { title: "游客会话", value: formatCount(supportChatSnapshot.guestConversations || 0), hint: "user_id is null" },
+          { title: "登录用户会话", value: formatCount(supportChatSnapshot.loggedInConversations || 0), hint: "user_id is not null" },
+          { title: "留邮箱会话", value: formatCount(supportChatSnapshot.withEmailConversations || 0), hint: "user_email 非空" },
+          { title: "平均首响时长", value: formatDurationMinutes(supportChatSnapshot.avgFirstReplyMinutes || 0), hint: "首次用户消息 → 首次管理员回复" },
+          { title: "平均回复时长", value: formatDurationMinutes(supportChatSnapshot.avgReplyMinutes || 0), hint: `样本 ${formatCount(supportChatSnapshot.replyCount || 0)}` },
+          { title: "超时未回复会话", value: formatCount(supportChatSnapshot.overdueOpenConversations || 0), hint: "open + admin_unread_count>0 + 超过30分钟" },
+        ],
+        tables: [
+          {
+            title: "来源页面分布",
+            headers: ["来源页面", "会话数"],
+            rows: supportChatSourceRows,
+          },
+          {
+            title: "超时未回复会话",
+            headers: ["最后消息时间", "用户", "状态", "管理员未读", "来源页面", "最后消息预览"],
+            rows: supportChatOverdueRows,
+          },
+          {
+            title: "最近会话",
+            headers: ["最后消息时间", "用户", "状态", "管理员未读", "用户未读", "来源页面", "最后消息预览"],
+            rows: supportChatRecentRows,
+          },
+        ],
+        notes: [
+          "站内聊天统计来源：public.admin_support_chat_overview()。",
+          "聊天操作面板仍保留在当前 Tab 下方，统计与操作同页查看。",
         ],
       },
 
@@ -1746,7 +1920,7 @@ export async function GET() {
             ],
           },
         ],
-        notes: ["订单 / 支付 / 续费统计按你的要求未接入。"],
+        notes: ["订单 / 支付 / 续费统计已真实接入（含转化漏斗与收入指标）。"],
       },
     };
 

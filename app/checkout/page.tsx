@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, ShieldCheck, Sparkles } from "lucide-react";
 import SiteHeader from "@/components/layout/SiteHeader";
+import { createClient } from "@/lib/supabase/client";
 
 const ICON_DATA_URL_STORAGE_KEY = "ndjc_builder_icon_data_url";
 const ICON_FILE_NAME_STORAGE_KEY = "ndjc_builder_icon_file_name";
@@ -81,7 +82,48 @@ export default function CheckoutPage() {
     setIsPageReady(true);
   }, []);
 
+  useEffect(() => {
+    if (!isPageReady) return;
 
+    let cancelled = false;
+
+    async function logCheckoutOpened() {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user || cancelled) return;
+
+        const { error } = await supabase.from("user_operation_logs").insert({
+          user_id: user.id,
+          build_id: null,
+          run_id: null,
+          event_name: "checkout_opened",
+          page_path: "/checkout",
+          metadata: {
+            appName,
+            module: moduleName,
+            uiPack: uiPackName,
+            plan,
+          },
+        });
+
+        if (error) {
+          console.error("NDJC checkout: failed to write checkout_opened log", error);
+        }
+      } catch (error) {
+        console.error("NDJC checkout: failed to log checkout_opened", error);
+      }
+    }
+
+    void logCheckoutOpened();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPageReady, appName, moduleName, uiPackName, plan]);
 
   const modeLabel = plan === "free" ? "Free Trial" : "Paid Purchase";
   const planLabel = plan === "free" ? "Free" : "Pro";
