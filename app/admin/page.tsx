@@ -536,7 +536,38 @@ export default function AdminPage() {
       },
       users_core: {
         metrics: pickMetricsFromTabs(sourceTabs, [
+          // 👇 第一层：核心用户价值（只留最关键的6个）
           { tab: "users", title: "注册用户" },
+          { tab: "users", title: "7天活跃用户" },
+          { tab: "users", title: "真实付费用户" },
+          { tab: "users", title: "真实复购用户" },
+          { tab: "stores", title: "有效 Store", alias: "有效商户" },
+          { tab: "cloud", title: "未来 7 天到期", alias: "即将到期" },
+        ]),
+
+        tables: [
+          // 👇 第二层：用户质量（付费用户）
+          ...(sourceTabs.users?.tables?.filter((table) =>
+            ["真实支付用户概览", "支付用户 Top 30"].includes(table.title),
+          ) || []),
+
+          // 👇 第三层：商户结构（store维度）
+          ...(sourceTabs.stores?.tables?.filter((table) =>
+            ["Store 目录（真实 App / 用户映射）"].includes(table.title),
+          ) || []),
+
+          // 👇 第四层：生命周期（到期 / 删库）
+          ...(sourceTabs.cloud?.tables?.filter((table) =>
+            ["到期 / 删库监控"].includes(table.title),
+          ) || []),
+        ],
+
+        notes: [
+          "这一页只保留6个最核心指标（用户规模 / 付费 / 商户 / 到期）。",
+          "其余数据全部下沉到表格层，避免指标区信息爆炸。",
+          "结构分为：用户价值 → 用户质量 → 商户结构 → 生命周期。",
+        ],
+      },
           { tab: "users", title: "7天活跃用户" },
           { tab: "users", title: "真实付费用户" },
           { tab: "users", title: "真实复购用户" },
@@ -669,17 +700,28 @@ export default function AdminPage() {
         tableTitles: [],
       }),
       content: {
-        metrics: [
-          ...mergeMetricsFromTabs(sourceTabs, ["content"]),
-          ...mergeMetricsFromTabs(sourceTabs, ["chat"]),
-        ],
+        metrics: pickMetricsFromTabs(sourceTabs, [
+          // 👇 第一层：内容 + 互动核心指标（只留6个）
+          { tab: "content", title: "商品浏览" },
+          { tab: "content", title: "公告点击" },
+          { tab: "chat", title: "总会话数" },
+          { tab: "chat", title: "总消息数" },
+          { tab: "chat", title: "今日新会话" },
+          { tab: "chat", title: "待回复会话" },
+        ]),
+
         tables: [
-          ...mergeTablesFromTabs(sourceTabs, ["content"]),
-          ...mergeTablesFromTabs(sourceTabs, ["chat"]),
+          // 👇 第二层：内容使用（浏览 / 点击）
+          ...(sourceTabs.content?.tables || []),
+
+          // 👇 第三层：聊天明细（会话 / 消息）
+          ...(sourceTabs.chat?.tables || []),
         ],
+
         notes: [
-          ...mergeNotesFromTabs(sourceTabs, ["content"]),
-          "聊天统计已并入本页；站内聊天 Tab 只保留聊天操作面板。",
+          "这一页只保留6个核心指标（内容浏览 + 聊天互动）。",
+          "结构分为：内容使用 → 聊天互动，避免统计混在一起。",
+          "聊天统计已从 chat 页迁移到这里，chat 页只负责操作。",
         ],
       },
       chat: {
