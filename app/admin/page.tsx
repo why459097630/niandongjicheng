@@ -254,7 +254,45 @@ function Pill({ children }: { children: React.ReactNode }) {
 function SimpleTable({
   headers,
   rows,
+  pageSize = 10,
 }: {
+  headers: string[];
+  rows: string[][];
+  pageSize?: number;
+}) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const pagedRows = rows.slice(startIndex, startIndex + pageSize);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white">
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-slate-50/90 text-slate-500">
+            <tr>
+              {headers.map((header) => (
+                <th key={header} className="px-4 py-3 font-semibold">
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pagedRows.length > 0 ? (
+              pagedRows.map((row, rowIndex) => (
+                <tr key={`${safePage}-${rowIndex}`} className="border-t border-slate-100 text-slate-700">
+                  {row.map((cell, cellIndex) => (
+                    <td key={`${safePage}-${rowIndex}-${cellIndex}`} className="px-4 py-3 whitespace-nowrap">
+                      {cell}
+                    </td>: {
   headers: string[];
   rows: string[][];
 }) {
@@ -1120,33 +1158,4 @@ export default function AdminPage() {
                                     ? "border border-red-200 bg-red-50 text-red-600 shadow-[0_6px_14px_rgba(239,68,68,0.06)] hover:bg-red-100"
                                     : "border border-slate-200 bg-slate-100 text-slate-400"
                                 }`}
-                              >
-                                {actioningOrderId === order.id ? "处理中..." : "Refund"}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                      当前没有需要人工处理的支付异常订单。
-                    </div>
-                  )}
-                </div>
-              </SectionCard>
-            ) : null}
-
-            {tab !== "chat" && activeData.notes && activeData.notes.length > 0 ? <EmptyState lines={activeData.notes} /> : null}
-
-            {tab === "chat" ? (
-              <SectionCard title="聊天操作面板" description="这里只保留站内聊天操作，聊天统计已并入“内容与使用情况”页。">
-                <AdminChatPanel />
-              </SectionCard>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </main>
-  );
-}
+        
