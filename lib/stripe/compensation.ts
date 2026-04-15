@@ -456,6 +456,12 @@ async function executeGenerateOrder(order: StripeOrderRecord): Promise<void> {
     throw new Error("Paid generate order plan must be pro.");
   }
 
+  const appNameForTest = String(buildPayload.appName || "").trim().toLowerCase();
+
+  if (appNameForTest.startsWith("fail_test")) {
+    throw new Error("NDJC_TEST_FORCE_FAIL");
+  }
+
   let storeId = existingRecord?.storeId || "";
 
   if (!storeId) {
