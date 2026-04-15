@@ -369,6 +369,35 @@ function mergeNotesFromTabs(
   return keys.flatMap((key) => sourceTabs[key]?.notes || []);
 }
 
+function filterTabData(
+  tabData: TabData | undefined,
+  options: {
+    metricTitles?: string[];
+    tableTitles?: string[];
+  },
+): TabData {
+  if (!tabData) {
+    return {
+      metrics: [],
+      tables: [],
+      notes: [],
+    };
+  }
+
+  const metricTitles = options.metricTitles || [];
+  const tableTitles = options.tableTitles || [];
+
+  return {
+    ...tabData,
+    metrics: (tabData.metrics || []).filter((item) => !metricTitles.includes(item.title)),
+    tables: (tabData.tables || []).filter((item) => !tableTitles.includes(item.title)),
+  };
+}
+
+function isCoreTab(tab: TabKey) {
+  return ["overview_core", "revenue_core", "users_core", "system_core"].includes(tab);
+}
+
 export default function AdminPage() {
   const [tab, setTab] = useState<TabKey>("overview_core");
   const [loading, setLoading] = useState(true);
@@ -565,8 +594,84 @@ export default function AdminPage() {
     };
   }, [data?.tabs]);
 
-  const activeData = (composedTabs[tab] || data?.tabs?.[tab] || { metrics: [], tables: [], notes: [] }) as TabData;
-  const summaryMetrics = data?.summaryMetrics || [];
+  const filteredLegacyTabs = useMemo<Record<string, TabData>>(() => {
+    const sourceTabs = data?.tabs || {};
+
+    return {
+      ...sourceTabs,
+      revenue: filterTabData(sourceTabs.revenue, {
+        metricTitles: [
+          "今日收入",
+          "7天收入",
+          "30天收入",
+          "订单总数",
+          "支付成功",
+          "总收入",
+          "Checkout→Paid 转化率",
+          "Paid→Processed 转化率",
+          "生成订单",
+          "续费订单",
+          "客单价",
+          "ARPPU",
+        ],
+        tableTitles: (sourceTabs.revenue?.tables || []).map((item) => item.title),
+      }),
+      users: filterTabData(sourceTabs.users, {
+        metricTitles: [
+          "注册用户",
+          "7天活跃用户",
+          "真实付费用户",
+          "真实复购用户",
+          "生成付费用户",
+          "续费付费用户",
+        ],
+        tableTitles: ["真实支付用户概览", "支付用户 Top 30"],
+      }),
+      stores: filterTabData(sourceTabs.stores, {
+        metricTitles: [
+          "Store 总数",
+          "有效 Store",
+          "试用 Store",
+          "付费 Store",
+          "激活 membership",
+        ],
+        tableTitles: ["Store 目录（真实 App / 用户映射）"],
+      }),
+      cloud: filterTabData(sourceTabs.cloud, {
+        metricTitles: ["未来 7 天到期"],
+        tableTitles: ["到期 / 删库监控", "云端活跃概览"],
+      }),
+      builds: filterTabData(sourceTabs.builds, {
+        metricTitles: [
+          "构建总数",
+          "成功构建",
+          "失败构建",
+          "排队中",
+          "构建中",
+          "平均构建时长",
+          "排队超时",
+          "成功但缺下载",
+        ],
+        tableTitles: (sourceTabs.builds?.tables || []).map((item) => item.title),
+      }),
+      alerts: filterTabData(sourceTabs.alerts, {
+        metricTitles: [
+          "今日构建失败",
+          "下载失败",
+          "登录回调失败",
+          "云端状态异常",
+        ],
+        tableTitles: (sourceTabs.alerts?.tables || []).map((item) => item.title),
+      }),
+      conversion: filterTabData(sourceTabs.conversion, {
+        metricTitles: ["Checkout→Paid 转化率", "Paid→Processed 转化率"],
+        tableTitles: [],
+      }),
+    };
+  }, [data?.tabs]);
+
+  const activeData = (composedTabs[tab] || filteredLegacyTabs[tab] || { metrics: [], tables: [], notes: [] }) as TabData;
+  const summaryMetrics = isCoreTab(tab) ? [] : (data?.summaryMetrics || []);
 
   const autoRetryOrders = useMemo(
     () =>
@@ -696,20 +801,22 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              {summaryMetrics.length > 0 ? (
-                summaryMetrics.map((metric) => (
-                  <MetricCard key={metric.title} title={metric.title} value={metric.value} hint={metric.hint} />
-                ))
-              ) : (
-                <>
-                  <MetricCard title="当前排队" value={loading ? "..." : "-"} hint="builds" />
-                  <MetricCard title="有效商户" value={loading ? "..." : "-"} hint="stores" />
-                  <MetricCard title="未来 7 天到期" value={loading ? "..." : "-"} hint="stores.service_end_at" />
-                  <MetricCard title="今日构建失败" value={loading ? "..." : "-"} hint="builds" />
-                </>
-              )}
-            </div>
+            {!isCoreTab(tab) ? (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {summaryMetrics.length > 0 ? (
+                  summaryMetrics.map((metric) => (
+                    <MetricCard key={metric.title} title={metric.title} value={metric.value} hint={metric.hint} />
+                  ))
+                ) : (
+                  <>
+                    <MetricCard title="当前排队" value={loading ? "..." : "-"} hint="builds" />
+                    <MetricCard title="有效商户" value={loading ? "..." : "-"} hint="stores" />
+                    <MetricCard title="未来 7 天到期" value={loading ? "..." : "-"} hint="stores.service_end_at" />
+                    <MetricCard title="今日构建失败" value={loading ? "..." : "-"} hint="builds" />
+                  </>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -807,9 +914,9 @@ export default function AdminPage() {
                 ))
               : null}
 
-            {(tab === "alerts" || tab === "actions") ? (
+            {tab === "actions" ? (
               <SectionCard
-                title={tab === "alerts" ? "支付异常订单面板" : "支付订单人工处理面板"}
+                title="支付订单人工处理面板"
                 description="这里接的是真实 web_stripe_orders。自动补偿中、人工处理中、待退款、已退款都会出现在这里。"
               >
                 <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
