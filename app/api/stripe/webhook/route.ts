@@ -5,6 +5,7 @@ import {
   getOrderById,
   getOrderBySessionId,
   markOrderPaidBySession,
+  readGenerateOrderPayload,
   syncOrderCheckoutSnapshot,
 } from "@/lib/stripe/orders";
 import { processStripeOrderById } from "@/lib/stripe/compensation";
@@ -297,10 +298,15 @@ export async function POST(request: NextRequest) {
     });
 
 // ===== 人为制造失败（测试用）=====
-if (paidOrder.run_id && paidOrder.run_id.startsWith("fail_test")) {
-  throw new Error("NDJC_TEST_FORCE_FAIL");
+if (paidOrder.order_kind === "generate_app") {
+  const generatePayload = readGenerateOrderPayload(paidOrder);
+  const appNameForTest = String(generatePayload.appName || "").trim().toLowerCase();
+
+  if (appNameForTest.startsWith("fail_test")) {
+    throw new Error("NDJC_TEST_FORCE_FAIL");
+  }
 }
-// =================================
+// ================================
 
 await processStripeOrderById(paidOrder.id, "initial");
 
