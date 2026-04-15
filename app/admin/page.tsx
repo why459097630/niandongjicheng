@@ -140,6 +140,20 @@ function formatOrderKind(kind: AdminOrderItem["order_kind"]) {
   return kind === "generate_app" ? "付费构建" : "云端续费";
 }
 
+function getSecondaryIdMeta(order: AdminOrderItem) {
+  if (order.order_kind === "generate_app") {
+    return {
+      label: "RUN ID",
+      value: order.run_id || "-",
+    };
+  }
+
+  return {
+    label: "RENEW ID",
+    value: order.renew_id || "-",
+  };
+}
+
 function getOrderStatusMeta(order: AdminOrderItem) {
   if (order.status === "refunded") {
     return {
@@ -672,6 +686,7 @@ export default function AdminPage() {
                   {actionableOrders.length > 0 ? (
                     actionableOrders.map((order) => {
                       const statusMeta = getOrderStatusMeta(order);
+                      const secondaryIdMeta = getSecondaryIdMeta(order);
                       const canRetry =
                         order.status === "failed" || order.status === "manual_review_required";
                       const canRefund =
@@ -705,28 +720,31 @@ export default function AdminPage() {
                                 </div>
 
                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3">
-                                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Run ID</div>
+                                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">
+                                    {secondaryIdMeta.label}
+                                  </div>
                                   <div className="mt-2 break-all text-sm font-semibold text-slate-900">
-                                    {order.run_id || "-"}
+                                    {secondaryIdMeta.value}
                                   </div>
                                 </div>
 
                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3">
-                                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Store ID</div>
+                                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">STORE ID</div>
                                   <div className="mt-2 break-all text-sm font-semibold text-slate-900">
                                     {order.store_id || "-"}
                                   </div>
                                 </div>
 
                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3">
-                                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">用户</div>
+                                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">ORDER ID</div>
                                   <div className="mt-2 break-all text-sm font-semibold text-slate-900">
-                                    {order.user_id}
+                                    {order.id}
                                   </div>
                                 </div>
                               </div>
 
                               <div className="mt-3 flex flex-wrap gap-2">
+                                <Pill>用户 {order.user_id}</Pill>
                                 <Pill>支付时间 {formatDateTime(order.paid_at)}</Pill>
                                 <Pill>失败时间 {formatDateTime(order.failed_at)}</Pill>
                                 <Pill>重试次数 {String(order.retry_count || 0)}</Pill>
