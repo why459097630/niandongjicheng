@@ -348,6 +348,17 @@ function mergeTablesFromTabs(
   return keys.flatMap((key) => sourceTabs[key]?.tables || []);
 }
 
+function mergeMetricsFromTabs(
+  sourceTabs: Record<string, TabData> | undefined,
+  keys: string[],
+): Metric[] {
+  if (!sourceTabs) {
+    return [];
+  }
+
+  return keys.flatMap((key) => sourceTabs[key]?.metrics || []);
+}
+
 function mergeNotesFromTabs(
   sourceTabs: Record<string, TabData> | undefined,
   keys: string[],
@@ -657,6 +668,25 @@ export default function AdminPage() {
         metricTitles: ["Checkout→Paid 转化率", "Paid→Processed 转化率"],
         tableTitles: [],
       }),
+      content: {
+        metrics: [
+          ...mergeMetricsFromTabs(sourceTabs, ["content"]),
+          ...mergeMetricsFromTabs(sourceTabs, ["chat"]),
+        ],
+        tables: [
+          ...mergeTablesFromTabs(sourceTabs, ["content"]),
+          ...mergeTablesFromTabs(sourceTabs, ["chat"]),
+        ],
+        notes: [
+          ...mergeNotesFromTabs(sourceTabs, ["content"]),
+          "聊天统计已并入本页；站内聊天 Tab 只保留聊天操作面板。",
+        ],
+      },
+      chat: {
+        metrics: [],
+        tables: [],
+        notes: [],
+      },
     };
   }, [data?.tabs]);
 
@@ -883,7 +913,7 @@ export default function AdminPage() {
           </SectionCard>
         ) : (
           <div className="space-y-6">
-            {activeData.metrics.length > 0 ? (
+            {tab !== "chat" && activeData.metrics.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {activeData.metrics.map((metric) => (
                   <MetricCard key={metric.title} title={metric.title} value={metric.value} hint={metric.hint} />
@@ -891,7 +921,7 @@ export default function AdminPage() {
               </div>
             ) : null}
 
-            {activeData.tables && activeData.tables.length > 0
+            {tab !== "chat" && activeData.tables && activeData.tables.length > 0
               ? activeData.tables.map((table) => (
                   <SectionCard key={table.title} title={table.title} description={table.description}>
                     <SimpleTable headers={table.headers} rows={table.rows} />
@@ -1065,10 +1095,10 @@ export default function AdminPage() {
               </SectionCard>
             ) : null}
 
-            {activeData.notes && activeData.notes.length > 0 ? <EmptyState lines={activeData.notes} /> : null}
+            {tab !== "chat" && activeData.notes && activeData.notes.length > 0 ? <EmptyState lines={activeData.notes} /> : null}
 
             {tab === "chat" ? (
-              <SectionCard title="聊天操作面板" description="下方保留原站内聊天处理面板，统计与操作同页使用。">
+              <SectionCard title="聊天操作面板" description="这里只保留站内聊天操作，聊天统计已并入“内容与使用情况”页。">
                 <AdminChatPanel />
               </SectionCard>
             ) : null}
