@@ -1136,4 +1136,36 @@ export default function AdminPage() {
                                 className={`inline-flex h-[40px] w-[180px] items-center justify-center rounded-full px-5 text-sm font-semibold transition ${
                                   canRefund
                                     ? "border border-red-200 bg-red-50 text-red-600 shadow-[0_6px_14px_rgba(239,68,68,0.06)] hover:bg-red-100"
+                                    : "border border-slate-200 bg-slate-100 text-slate-400"
+                                }`}
+                              >
+                                {actioningOrderId === order.id ? "处理中..." : "Refund"}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                      当前没有需要人工处理的支付异常订单。
+                    </div>
+                  )}
+                </div>
+              </SectionCard>
+            ) : null}
+
+            {tab !== "chat" && activeData.notes && activeData.notes.length > 0 ? <EmptyState lines={activeData.notes} /> : null}
+
+            {tab === "chat" ? (
+              <SectionCard title="聊天操作面板" description="这里只保留站内聊天操作，聊天统计已并入“内容与使用情况”页。">
+                <AdminChatPanel />
+              </SectionCard>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
                          
