@@ -679,7 +679,7 @@ export default function AdminPage() {
 
     const timer = window.setInterval(() => {
       void refreshOverviewOnly();
-    }, 15000);
+    }, 6000);
 
     return () => {
       cancelled = true;
