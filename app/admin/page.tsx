@@ -206,16 +206,16 @@ function getOrderStatusMeta(order: AdminOrderItem) {
 function getOrderActionSummary(order: AdminOrderItem) {
   if (order.status === "refunded") {
     return {
-      title: "退款已完成",
-      description: "当前订单流程已结束，无需进一步处理。",
+      title: "订单已结束",
+      description: "当前无需进一步操作。",
       className: "border-red-200 bg-red-50 text-red-700",
     };
   }
 
   if (order.status === "refund_pending") {
     return {
-      title: "退款处理中",
-      description: "退款流程已发起，建议先确认 Stripe 结果，再决定是否再次操作。",
+      title: "等待退款结果",
+      description: "建议先确认 Stripe 退款状态，再决定是否继续操作。",
       className: "border-rose-200 bg-rose-50 text-rose-700",
     };
   }
@@ -226,7 +226,7 @@ function getOrderActionSummary(order: AdminOrderItem) {
   ) {
     return {
       title: "需要人工处理",
-      description: "自动补偿已停止，建议人工确认后执行 Retry 或 Refund。",
+      description: "自动补偿已停止，请人工确认后执行 Retry 或 Refund。",
       className: "border-amber-200 bg-amber-50 text-amber-800",
     };
   }
@@ -236,8 +236,8 @@ function getOrderActionSummary(order: AdminOrderItem) {
     order.compensation_status === "retrying"
   ) {
     return {
-      title: "自动补偿中",
-      description: "系统仍在自动重试，优先等待下一次补偿结果。",
+      title: "等待自动补偿",
+      description: "系统仍在自动重试，当前优先等待下一次补偿结果。",
       className: "border-violet-200 bg-violet-50 text-violet-700",
     };
   }
@@ -245,7 +245,7 @@ function getOrderActionSummary(order: AdminOrderItem) {
   if (order.status === "failed") {
     return {
       title: "待人工确认",
-      description: "当前订单已失败，建议先查看失败原因，再决定 Retry 或 Refund。",
+      description: "请先查看失败原因，再决定 Retry 或 Refund。",
       className: "border-red-200 bg-red-50 text-red-700",
     };
   }
@@ -253,16 +253,37 @@ function getOrderActionSummary(order: AdminOrderItem) {
   if (order.status === "processed") {
     return {
       title: "订单已完成",
-      description: "当前订单已处理成功，无需人工介入。",
+      description: "当前已处理成功，无需人工介入。",
       className: "border-emerald-200 bg-emerald-50 text-emerald-700",
     };
   }
 
   return {
     title: "状态待确认",
-    description: "请结合当前订单状态与错误信息决定下一步操作。",
+    description: "请结合当前状态与错误信息决定下一步操作。",
     className: "border-slate-200 bg-slate-50 text-slate-700",
   };
+}
+
+function shouldShowCompensationNote(order: AdminOrderItem) {
+  const note = order.compensation_note?.trim();
+
+  if (!note) {
+    return false;
+  }
+
+  const normalized = note.toLowerCase();
+
+  if (
+    normalized === "refund completed." ||
+    normalized === "refund completed" ||
+    normalized === "refunded." ||
+    normalized === "refunded"
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function getProgressRows(order: AdminOrderItem) {
@@ -270,8 +291,8 @@ function getProgressRows(order: AdminOrderItem) {
     { label: "失败时间", value: formatDateTime(order.failed_at) },
     { label: "自动重试", value: `${String(order.retry_count || 0)} 次` },
     { label: "人工重试", value: `${String(order.manual_retry_count || 0)} 次` },
-    { label: "下一次自动补偿", value: formatDateTime(order.next_retry_at) },
-    { label: "最近一次重试", value: formatDateTime(order.last_retry_at) },
+    { label: "最近重试", value: formatDateTime(order.last_retry_at) },
+    { label: "下次补偿", value: formatDateTime(order.next_retry_at) },
     { label: "管理员通知", value: formatDateTime(order.admin_notified_at) },
   ];
 }
@@ -1186,6 +1207,7 @@ export default function AdminPage() {
     const secondaryIdMeta = getSecondaryIdMeta(order);
     const actionSummary = getOrderActionSummary(order);
     const progressRows = getProgressRows(order);
+    const showCompensationNote = shouldShowCompensationNote(order);
     const canRetry =
       order.status === "failed" || order.status === "manual_review_required";
     const canRefund =
@@ -1196,12 +1218,12 @@ export default function AdminPage() {
     return (
       <div
         key={order.id}
-        className="rounded-3xl border border-slate-200/80 bg-white/90 p-5 shadow-[0_12px_28px_rgba(15,23,42,0.05)]"
+        className="rounded-[26px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]"
       >
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="text-base font-bold text-slate-900">{formatOrderKind(order.order_kind)}</div>
+              <div className="text-[15px] font-bold text-slate-900">{formatOrderKind(order.order_kind)}</div>
               <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusMeta.className}`}>
                 {statusMeta.label}
               </span>
@@ -1210,33 +1232,33 @@ export default function AdminPage() {
               </span>
             </div>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3">
+            <div className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-2.5">
                 <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">金额</div>
-                <div className="mt-2 text-sm font-semibold text-slate-900">
+                <div className="mt-1.5 text-sm font-semibold text-slate-900">
                   {formatMoney(order.amount_total, order.currency)}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-2.5">
                 <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">
                   {secondaryIdMeta.label}
                 </div>
-                <div className="mt-2 break-all text-sm font-semibold text-slate-900">
+                <div className="mt-1.5 break-all text-sm font-semibold text-slate-900">
                   {secondaryIdMeta.value}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-2.5">
                 <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">STORE ID</div>
-                <div className="mt-2 break-all text-sm font-semibold text-slate-900">
+                <div className="mt-1.5 break-all text-sm font-semibold text-slate-900">
                   {order.store_id || "-"}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-2.5">
                 <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">支付时间</div>
-                <div className="mt-2 text-sm font-semibold text-slate-900">
+                <div className="mt-1.5 text-sm font-semibold text-slate-900">
                   {formatDateTime(order.paid_at)}
                 </div>
               </div>
@@ -1244,13 +1266,12 @@ export default function AdminPage() {
 
             <div className="mt-3 flex flex-wrap gap-2">
               <Pill>用户 {order.user_id}</Pill>
-              <Pill>ORDER ID {order.id}</Pill>
             </div>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-4">
+            <div className="mt-3 grid items-start gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
                 <div className="text-sm font-semibold text-slate-900">处理进度</div>
-                <div className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-2">
+                <div className="mt-2.5 grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
                   {progressRows.map((item) => (
                     <div key={`${order.id}-${item.label}`} className="min-w-0">
                       <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">
@@ -1264,48 +1285,50 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className={`rounded-2xl border px-4 py-4 ${actionSummary.className}`}>
+              <div className={`rounded-2xl border px-4 py-3 ${actionSummary.className}`}>
                 <div className="text-sm font-semibold">{actionSummary.title}</div>
-                <div className="mt-2 text-sm leading-6">{actionSummary.description}</div>
+                <div className="mt-1.5 text-sm leading-6">{actionSummary.description}</div>
               </div>
             </div>
 
-            {order.error ? (
-              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-rose-500">
-                  失败原因 / 错误码
+            {order.error || order.refund_reason || showCompensationNote ? (
+              <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  说明
                 </div>
-                <div className="mt-2 break-all text-sm text-rose-700">{order.error}</div>
-              </div>
-            ) : null}
 
-            {order.refund_reason ? (
-              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-red-500">
-                  退款备注
-                </div>
-                <div className="mt-2 text-sm text-red-700">{order.refund_reason}</div>
-              </div>
-            ) : null}
+                {order.error ? (
+                  <div className="mt-2">
+                    <div className="text-xs font-semibold text-rose-500">失败原因 / 错误码</div>
+                    <div className="mt-1 break-all text-sm text-rose-700">{order.error}</div>
+                  </div>
+                ) : null}
 
-            {order.compensation_note ? (
-              <div className="mt-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-violet-500">
-                  补偿说明
-                </div>
-                <div className="mt-2 text-sm text-violet-700">{order.compensation_note}</div>
+                {order.refund_reason ? (
+                  <div className={order.error ? "mt-3" : "mt-2"}>
+                    <div className="text-xs font-semibold text-red-500">退款备注</div>
+                    <div className="mt-1 text-sm text-red-700">{order.refund_reason}</div>
+                  </div>
+                ) : null}
+
+                {showCompensationNote ? (
+                  <div className={order.error || order.refund_reason ? "mt-3" : "mt-2"}>
+                    <div className="text-xs font-semibold text-violet-500">补偿说明</div>
+                    <div className="mt-1 text-sm text-violet-700">{order.compensation_note}</div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
 
-          <div className="flex flex-wrap gap-3 xl:w-[220px] xl:flex-col">
+          <div className="flex flex-wrap gap-3 xl:w-[200px] xl:flex-col">
             <button
               type="button"
               disabled={!canRetry || actioningOrderId === order.id}
               onClick={() => {
                 void handleRetry(order.id);
               }}
-              className={`inline-flex h-[42px] w-[180px] items-center justify-center rounded-full px-5 text-sm font-semibold transition ${
+              className={`inline-flex h-[40px] w-[170px] items-center justify-center rounded-full px-5 text-sm font-semibold transition ${
                 canRetry
                   ? "border border-sky-200 bg-gradient-to-r from-sky-100 to-sky-50 text-sky-700 shadow-[0_8px_18px_rgba(14,165,233,0.10)] hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(14,165,233,0.14)]"
                   : "border border-slate-200 bg-slate-100 text-slate-400"
@@ -1320,7 +1343,7 @@ export default function AdminPage() {
               onClick={() => {
                 void handleRefund(order.id);
               }}
-              className={`inline-flex h-[42px] w-[180px] items-center justify-center rounded-full px-5 text-sm font-semibold transition ${
+              className={`inline-flex h-[40px] w-[170px] items-center justify-center rounded-full px-5 text-sm font-semibold transition ${
                 canRefund
                   ? "border border-red-200 bg-red-50 text-red-600 shadow-[0_6px_14px_rgba(239,68,68,0.06)] hover:bg-red-100"
                   : "border border-slate-200 bg-slate-100 text-slate-400"
