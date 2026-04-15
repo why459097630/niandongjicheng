@@ -8,18 +8,9 @@ const tabs = [
   { key: "revenue_core", label: "核心收入" },
   { key: "users_core", label: "核心用户" },
   { key: "system_core", label: "核心系统" },
-  { key: "dashboard", label: "总览看板" },
-  { key: "builds", label: "构建统计" },
-  { key: "users", label: "用户统计" },
-  { key: "revenue", label: "订单与收入" },
-  { key: "stores", label: "商户 / Store" },
-  { key: "history", label: "历史记录管理" },
-  { key: "cloud", label: "云端运营监控" },
-  { key: "content", label: "内容与使用情况" },
   { key: "actions", label: "后台管理操作" },
-  { key: "conversion", label: "转化漏斗" },
-  { key: "channels", label: "渠道来源" },
-  { key: "retention", label: "用户留存" },
+  { key: "history", label: "历史记录管理" },
+  { key: "content", label: "内容与使用情况" },
   { key: "chat", label: "站内聊天" },
 ] as const;
 
@@ -822,10 +813,7 @@ export default function AdminPage() {
         <div className="mb-8 flex gap-3 overflow-x-auto pb-1">
           {tabs.map((item) => {
             const isActive = tab === item.key;
-            const badgeCount =
-              item.key === "actions"
-                ? actionBadgeCount
-                : 0;
+            const badgeCount = item.key === "actions" ? actionBadgeCount : 0;
 
             return (
               <button
@@ -857,7 +845,7 @@ export default function AdminPage() {
           <div>
             <h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">{activeTab?.label}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              真实接口模式。上方新增了 4 个核心模块 Tab，直接复用现有 overview 接口返回内容；原有统计项目与原有 Tab 先全部保留不动。
+              真实接口模式。当前后台已收口为 4 个核心模块 + 4 个功能页，只保留当前阶段真正需要使用的统计与操作入口。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
