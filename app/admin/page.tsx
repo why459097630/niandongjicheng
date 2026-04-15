@@ -464,6 +464,12 @@ export default function AdminPage() {
   const [actioningOrderId, setActioningOrderId] = useState<string>("");
   const [actionMessage, setActionMessage] = useState<string>("");
   const [actionError, setActionError] = useState<string>("");
+  const [actionsKindFilter, setActionsKindFilter] = useState<"all" | "generate_app" | "renew_cloud">("all");
+  const [actionsStatusFilter, setActionsStatusFilter] = useState<
+    "all" | "auto_retry" | "manual_review" | "refund_pending" | "refunded" | "failed"
+  >("all");
+  const [actionsPage, setActionsPage] = useState(1);
+  const actionsPageSize = 10;
 
   const loadOverview = useCallback(async () => {
     const response = await fetch("/api/admin/overview", {
@@ -794,6 +800,48 @@ export default function AdminPage() {
   const alertBadgeCount = autoRetryOrders.length + manualReviewOrders.length + refundPendingOrders.length;
   const actionBadgeCount = manualReviewOrders.length + refundPendingOrders.length;
 
+  const filteredActionableOrders = useMemo(() => {
+    return actionableOrders.filter((order) => {
+      const kindMatched =
+        actionsKindFilter === "all" ? true : order.order_kind === actionsKindFilter;
+
+      const statusMatched =
+        actionsStatusFilter === "all"
+          ? true
+          : actionsStatusFilter === "auto_retry"
+            ? order.compensation_status === "pending_retry" || order.compensation_status === "retrying"
+            : actionsStatusFilter === "manual_review"
+              ? order.status === "manual_review_required" || order.compensation_status === "manual_review_required"
+              : actionsStatusFilter === "refund_pending"
+                ? order.status === "refund_pending"
+                : actionsStatusFilter === "refunded"
+                  ? order.status === "refunded"
+                  : actionsStatusFilter === "failed"
+                    ? order.status === "failed"
+                    : true;
+
+      return kindMatched && statusMatched;
+    });
+  }, [actionableOrders, actionsKindFilter, actionsStatusFilter]);
+
+  const actionsTotalPages = Math.max(1, Math.ceil(filteredActionableOrders.length / actionsPageSize));
+  const safeActionsPage = Math.min(actionsPage, actionsTotalPages);
+  const actionsStartIndex = (safeActionsPage - 1) * actionsPageSize;
+  const pagedActionableOrders = filteredActionableOrders.slice(
+    actionsStartIndex,
+    actionsStartIndex + actionsPageSize,
+  );
+
+  useEffect(() => {
+    setActionsPage(1);
+  }, [actionsKindFilter, actionsStatusFilter]);
+
+  useEffect(() => {
+    if (actionsPage > actionsTotalPages) {
+      setActionsPage(actionsTotalPages);
+    }
+  }, [actionsPage, actionsTotalPages]);
+
   async function handleRetry(orderId: string) {
     try {
       setActioningOrderId(orderId);
@@ -1012,6 +1060,33 @@ export default function AdminPage() {
                     刷新异常订单
                   </button>
 
+                  <select
+                    value={actionsKindFilter}
+                    onChange={(e) => setActionsKindFilter(e.target.value as "all" | "generate_app" | "renew_cloud")}
+                    className="h-[40px] rounded-full border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-[0_6px_14px_rgba(15,23,42,0.05)]"
+                  >
+                    <option value="all">全部类型</option>
+                    <option value="generate_app">只看付费构建</option>
+                    <option value="renew_cloud">只看云端续费</option>
+                  </select>
+
+                  <select
+                    value={actionsStatusFilter}
+                    onChange={(e) =>
+                      setActionsStatusFilter(
+                        e.target.value as "all" | "auto_retry" | "manual_review" | "refund_pending" | "refunded" | "failed",
+                      )
+                    }
+                    className="h-[40px] rounded-full border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-[0_6px_14px_rgba(15,23,42,0.05)]"
+                  >
+                    <option value="all">全部状态</option>
+                    <option value="auto_retry">自动补偿中</option>
+                    <option value="manual_review">人工处理中</option>
+                    <option value="refund_pending">退款处理中</option>
+                    <option value="refunded">已退款</option>
+                    <option value="failed">失败待处理</option>
+                  </select>
+
                   {ordersLoading ? (
                     <span className="text-sm text-slate-500">正在刷新订单...</span>
                   ) : null}
@@ -1021,9 +1096,19 @@ export default function AdminPage() {
                   ) : null}
                 </div>
 
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm text-slate-600">
+                  <span>
+                    当前筛选后共 {filteredActionableOrders.length} 条，显示第 {filteredActionableOrders.length === 0 ? 0 : actionsStartIndex + 1}
+                    -{Math.min(actionsStartIndex + actionsPageSize, filteredActionableOrders.length)} 条
+                  </span>
+                  <span>
+                    第 {safeActionsPage} / {actionsTotalPages} 页
+                  </span>
+                </div>
+
                 <div className="space-y-4">
-                  {actionableOrders.length > 0 ? (
-                    actionableOrders.map((order) => {
+                  {pagedActionableOrders.length > 0 ? (
+                    pagedActionableOrders.map((order) => {
                       const statusMeta = getOrderStatusMeta(order);
                       const secondaryIdMeta = getSecondaryIdMeta(order);
                       const canRetry =
@@ -1148,10 +1233,44 @@ export default function AdminPage() {
                     })
                   ) : (
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                      当前没有需要人工处理的支付异常订单。
+                      当前筛选条件下没有需要人工处理的支付异常订单。
                     </div>
                   )}
                 </div>
+
+                {filteredActionableOrders.length > actionsPageSize ? (
+                  <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActionsPage((prev) => Math.max(1, prev - 1))}
+                      disabled={safeActionsPage === 1}
+                      className={`inline-flex h-[36px] items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                        safeActionsPage === 1
+                          ? "border border-slate-200 bg-slate-100 text-slate-400"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      上一页
+                    </button>
+
+                    <span className="min-w-[72px] text-center text-sm text-slate-600">
+                      {safeActionsPage} / {actionsTotalPages}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => setActionsPage((prev) => Math.min(actionsTotalPages, prev + 1))}
+                      disabled={safeActionsPage === actionsTotalPages}
+                      className={`inline-flex h-[36px] items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                        safeActionsPage === actionsTotalPages
+                          ? "border border-slate-200 bg-slate-100 text-slate-400"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      下一页
+                    </button>
+                  </div>
+                ) : null}
               </SectionCard>
             ) : null}
 
