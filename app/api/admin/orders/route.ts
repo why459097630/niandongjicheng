@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { assertAdminAccess } from "@/lib/chat/assertAdminAccess";
+import { runAutoCompensation } from "@/lib/stripe/compensation";
 
 function getRequiredEnv(name: string): string {
   const value = (process.env[name] || "").trim();
@@ -39,6 +40,12 @@ export async function GET() {
     }
 
     const supabase = getServiceSupabase();
+
+    try {
+      await runAutoCompensation(20);
+    } catch (compensationError) {
+      console.error("NDJC admin orders list: failed to run auto compensation", compensationError);
+    }
 
     const { data, error } = await supabase
       .from("web_stripe_orders")

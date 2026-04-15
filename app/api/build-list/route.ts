@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { getBuildList } from "@/lib/build/getBuildList";
 import { insertOperationLogOnce, syncAuthUserProfile } from "@/lib/build/storage";
+import { runAutoCompensation } from "@/lib/stripe/compensation";
 import type {
   BuildHistoryItem,
   CloudServiceStatus,
@@ -153,6 +154,12 @@ export async function GET(request: NextRequest) {
       } catch (logError) {
         console.error("NDJC build-list: failed to write history_opened log", logError);
       }
+    }
+
+    try {
+      await runAutoCompensation(20);
+    } catch (compensationError) {
+      console.error("NDJC build-list: failed to run auto compensation", compensationError);
     }
 
     const result = await getBuildList(supabase, user.id);

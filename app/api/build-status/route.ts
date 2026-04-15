@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getBuildStatus } from "@/lib/build/getBuildStatus";
 import { createClient } from "@/lib/supabase/server";
 import { insertOperationLogOnce, syncAuthUserProfile } from "@/lib/build/storage";
+import { runAutoCompensation } from "@/lib/stripe/compensation";
 
 export async function GET(request: NextRequest) {
   try {
@@ -44,10 +45,18 @@ export async function GET(request: NextRequest) {
 
     const paid = searchParams.get("paid") === "1";
 
-const result = await getBuildStatus(supabase, runId, {
-  isPaidFlow: paid,
-  requestStartTime: Number(searchParams.get("t") || Date.now()),
-});
+    if (paid) {
+      try {
+        await runAutoCompensation(20);
+      } catch (compensationError) {
+        console.error("NDJC build-status: failed to run auto compensation", compensationError);
+      }
+    }
+
+    const result = await getBuildStatus(supabase, runId, {
+      isPaidFlow: paid,
+      requestStartTime: Number(searchParams.get("t") || Date.now()),
+    });
 
     if (!result.ok) {
       return NextResponse.json(result, { status: 404 });
