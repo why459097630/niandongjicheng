@@ -390,6 +390,12 @@ async function applyRenewalToStore(order: StripeOrderRecord) {
   const renewDays = getRenewDays(renewPayload.renewId);
   const appCloudSupabase = getAppCloudSupabase();
 
+  const storeIdForTest = String(renewPayload.storeId || "").trim();
+
+  if (storeIdForTest === "store_showcase_paid_000007") {
+    throw new Error("NDJC_TEST_FORCE_RENEW_FAIL");
+  }
+
   const { data: store, error: storeError } = await appCloudSupabase
     .from("stores")
     .select("store_id, service_end_at")
