@@ -16,7 +16,6 @@ const tabs = [
   { key: "history", label: "历史记录管理" },
   { key: "cloud", label: "云端运营监控" },
   { key: "content", label: "内容与使用情况" },
-  { key: "alerts", label: "异常告警" },
   { key: "actions", label: "后台管理操作" },
   { key: "conversion", label: "转化漏斗" },
   { key: "channels", label: "渠道来源" },
@@ -824,11 +823,9 @@ export default function AdminPage() {
           {tabs.map((item) => {
             const isActive = tab === item.key;
             const badgeCount =
-              item.key === "alerts"
-                ? alertBadgeCount
-                : item.key === "actions"
-                  ? actionBadgeCount
-                  : 0;
+              item.key === "actions"
+                ? actionBadgeCount
+                : 0;
 
             return (
               <button
