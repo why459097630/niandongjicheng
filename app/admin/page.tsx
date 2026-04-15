@@ -663,6 +663,30 @@ export default function AdminPage() {
     };
   }, [loadAdminOrders, loadOverview]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshOverviewOnly() {
+      try {
+        const overview = await loadOverview();
+
+        if (!cancelled) {
+          setData(overview);
+        }
+      } catch {
+      }
+    }
+
+    const timer = window.setInterval(() => {
+      void refreshOverviewOnly();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [loadOverview]);
+
   const activeTab = useMemo(() => tabs.find((item) => item.key === tab), [tab]);
 
   const composedTabs = useMemo<Record<string, TabData>>(() => {
@@ -915,8 +939,8 @@ export default function AdminPage() {
     const sourceChatMetrics = data?.tabs?.chat?.metrics || [];
     const sourceContentMetrics = data?.tabs?.content?.metrics || [];
 
-    const chatCount = getMetricNumber(sourceChatMetrics, "待回复会话");
-    const contentCount = getMetricNumber(sourceContentMetrics, "待回复会话");
+    const chatCount = getMetricNumber(sourceChatMetrics, "管理员未读总数");
+    const contentCount = getMetricNumber(sourceContentMetrics, "管理员未读总数");
 
     return chatCount || contentCount || 0;
   }, [data?.tabs]);
