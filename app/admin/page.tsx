@@ -518,6 +518,23 @@ function mergeNotesFromTabs(
   return keys.flatMap((key) => sourceTabs[key]?.notes || []);
 }
 
+function getMetricNumber(metrics: Metric[] | undefined, title: string) {
+  const metric = (metrics || []).find((item) => item.title === title);
+
+  if (!metric) {
+    return 0;
+  }
+
+  const normalized = String(metric.value || "").replace(/,/g, "").trim();
+  const matched = normalized.match(/\d+/);
+
+  if (!matched) {
+    return 0;
+  }
+
+  return Number(matched[0]) || 0;
+}
+
 function filterTabData(
   tabData: TabData | undefined,
   options: {
@@ -894,6 +911,16 @@ export default function AdminPage() {
   const alertBadgeCount = autoRetryOrders.length + manualReviewOrders.length + refundPendingOrders.length;
   const actionBadgeCount = manualReviewOrders.length + refundPendingOrders.length;
 
+  const chatBadgeCount = useMemo(() => {
+    const sourceChatMetrics = data?.tabs?.chat?.metrics || [];
+    const sourceContentMetrics = data?.tabs?.content?.metrics || [];
+
+    const chatCount = getMetricNumber(sourceChatMetrics, "待回复会话");
+    const contentCount = getMetricNumber(sourceContentMetrics, "待回复会话");
+
+    return chatCount || contentCount || 0;
+  }, [data?.tabs]);
+
   const filteredActionableOrders = useMemo(() => {
     return actionableOrders.filter((order) => {
       const kindMatched =
@@ -1045,7 +1072,14 @@ export default function AdminPage() {
         <div className="mb-8 flex gap-3 overflow-x-auto pb-1">
           {tabs.map((item) => {
             const isActive = tab === item.key;
-            const badgeCount = item.key === "actions" ? actionBadgeCount : 0;
+            const badgeCount =
+              item.key === "actions"
+                ? actionBadgeCount
+                : item.key === "chat"
+                  ? chatBadgeCount
+                  : 0;
+
+            const badgeLabel = badgeCount > 99 ? "99+" : String(badgeCount);
 
             return (
               <button
@@ -1064,7 +1098,7 @@ export default function AdminPage() {
                     <span className={`inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold ${
                       isActive ? "bg-white/15 text-white" : "bg-red-50 text-red-600"
                     }`}>
-                      {badgeCount}
+                      {badgeLabel}
                     </span>
                   ) : null}
                 </span>
