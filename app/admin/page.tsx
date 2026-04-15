@@ -292,30 +292,6 @@ function SimpleTable({
                   {row.map((cell, cellIndex) => (
                     <td key={`${safePage}-${rowIndex}-${cellIndex}`} className="px-4 py-3 whitespace-nowrap">
                       {cell}
-                    </td>: {
-  headers: string[];
-  rows: string[][];
-}) {
-  return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50/90 text-slate-500">
-            <tr>
-              {headers.map((header) => (
-                <th key={header} className="px-4 py-3 font-semibold">
-                  {header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length > 0 ? (
-              rows.map((row, rowIndex) => (
-                <tr key={rowIndex} className="border-t border-slate-100 text-slate-700">
-                  {row.map((cell, cellIndex) => (
-                    <td key={`${rowIndex}-${cellIndex}`} className="px-4 py-3 whitespace-nowrap">
-                      {cell}
                     </td>
                   ))}
                 </tr>
@@ -330,6 +306,46 @@ function SimpleTable({
           </tbody>
         </table>
       </div>
+
+      {rows.length > pageSize ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 bg-slate-50/70 px-4 py-3 text-sm">
+          <div className="text-slate-500">
+            显示第 {startIndex + 1}-{Math.min(startIndex + pageSize, rows.length)} 条，共 {rows.length} 条
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              disabled={safePage === 1}
+              className={`inline-flex h-[34px] items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                safePage === 1
+                  ? "border border-slate-200 bg-slate-100 text-slate-400"
+                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              上一页
+            </button>
+
+            <span className="min-w-[72px] text-center text-slate-600">
+              {safePage} / {totalPages}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={safePage === totalPages}
+              className={`inline-flex h-[34px] items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                safePage === totalPages
+                  ? "border border-slate-200 bg-slate-100 text-slate-400"
+                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -574,7 +590,6 @@ export default function AdminPage() {
       },
       users_core: {
         metrics: pickMetricsFromTabs(sourceTabs, [
-          // 👇 第一层：核心用户价值（只留最关键的6个）
           { tab: "users", title: "注册用户" },
           { tab: "users", title: "7天活跃用户" },
           { tab: "users", title: "真实付费用户" },
@@ -582,56 +597,21 @@ export default function AdminPage() {
           { tab: "stores", title: "有效 Store", alias: "有效商户" },
           { tab: "cloud", title: "未来 7 天到期", alias: "即将到期" },
         ]),
-
         tables: [
-          // 👇 第二层：用户质量（付费用户）
           ...(sourceTabs.users?.tables?.filter((table) =>
             ["真实支付用户概览", "支付用户 Top 30"].includes(table.title),
           ) || []),
-
-          // 👇 第三层：商户结构（store维度）
           ...(sourceTabs.stores?.tables?.filter((table) =>
             ["Store 目录（真实 App / 用户映射）"].includes(table.title),
           ) || []),
-
-          // 👇 第四层：生命周期（到期 / 删库）
           ...(sourceTabs.cloud?.tables?.filter((table) =>
             ["到期 / 删库监控"].includes(table.title),
           ) || []),
         ],
-
         notes: [
           "这一页只保留6个最核心指标（用户规模 / 付费 / 商户 / 到期）。",
           "其余数据全部下沉到表格层，避免指标区信息爆炸。",
           "结构分为：用户价值 → 用户质量 → 商户结构 → 生命周期。",
-        ],
-      },
-          { tab: "users", title: "7天活跃用户" },
-          { tab: "users", title: "真实付费用户" },
-          { tab: "users", title: "真实复购用户" },
-          { tab: "users", title: "生成付费用户" },
-          { tab: "users", title: "续费付费用户" },
-          { tab: "stores", title: "Store 总数", alias: "商户总数" },
-          { tab: "stores", title: "有效 Store", alias: "有效商户" },
-          { tab: "stores", title: "试用 Store", alias: "试用商户" },
-          { tab: "stores", title: "付费 Store", alias: "付费商户" },
-          { tab: "stores", title: "激活 membership", alias: "激活续费" },
-          { tab: "cloud", title: "未来 7 天到期", alias: "即将到期" },
-        ]),
-        tables: [
-          ...(sourceTabs.users?.tables?.filter((table) =>
-            ["真实支付用户概览", "支付用户 Top 30"].includes(table.title),
-          ) || []),
-          ...(sourceTabs.stores?.tables?.filter((table) =>
-            ["Store 目录（真实 App / 用户映射）"].includes(table.title),
-          ) || []),
-          ...(sourceTabs.cloud?.tables?.filter((table) =>
-            ["到期 / 删库监控"].includes(table.title),
-          ) || []),
-        ],
-        notes: [
-          "这个模块只看用户、商户、续费和到期。",
-          "当前先把 users / stores / cloud 里和用户经营相关的数据组合到一起。",
         ],
       },
       system_core: {
@@ -1156,6 +1136,4 @@ export default function AdminPage() {
                                 className={`inline-flex h-[40px] w-[180px] items-center justify-center rounded-full px-5 text-sm font-semibold transition ${
                                   canRefund
                                     ? "border border-red-200 bg-red-50 text-red-600 shadow-[0_6px_14px_rgba(239,68,68,0.06)] hover:bg-red-100"
-                                    : "border border-slate-200 bg-slate-100 text-slate-400"
-                                }`}
-        
+                         
