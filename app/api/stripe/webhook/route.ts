@@ -297,18 +297,7 @@ export async function POST(request: NextRequest) {
       paidAt: pricingSnapshot.paidAt,
     });
 
-// ===== 人为制造失败（测试用）=====
-if (paidOrder.order_kind === "generate_app") {
-  const generatePayload = readGenerateOrderPayload(paidOrder);
-  const appNameForTest = String(generatePayload.appName || "").trim().toLowerCase();
-
-  if (appNameForTest.startsWith("fail_test")) {
-    throw new Error("NDJC_TEST_FORCE_FAIL");
-  }
-}
-// ================================
-
-await processStripeOrderById(paidOrder.id, "initial");
+    await processStripeOrderById(paidOrder.id, "initial");
 
     return NextResponse.json({ ok: true });
   } catch (error) {
