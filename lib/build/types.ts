@@ -150,6 +150,13 @@ export type BuildStatusResponse = {
   queueAheadCount?: number;
   runningCount?: number;
   concurrencyLimit?: number;
+
+  paymentOrderStatus?: PaymentOrderStatus | null;
+  paymentCompensationStatus?: PaymentCompensationStatus | null;
+  paymentCompensationNote?: string | null;
+  paymentNextRetryAt?: string | null;
+  paymentManualReviewRequiredAt?: string | null;
+  paymentRefundedAt?: string | null;
 };
 
 export type BuildHistoryItem = {

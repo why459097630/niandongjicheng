@@ -16,6 +16,26 @@ type BuildStage =
   | "success"
   | "failed";
 
+type PaymentOrderStatus =
+  | "created"
+  | "checkout_created"
+  | "paid"
+  | "processing"
+  | "processed"
+  | "failed"
+  | "manual_review_required"
+  | "refund_pending"
+  | "refunded"
+  | "canceled";
+
+type PaymentCompensationStatus =
+  | "none"
+  | "pending_retry"
+  | "retrying"
+  | "manual_review_required"
+  | "refund_pending"
+  | "refunded";
+
 type BuildStatusResponse = {
   ok: boolean;
   runId?: string;
@@ -28,6 +48,13 @@ type BuildStatusResponse = {
   runningCount?: number;
   concurrencyLimit?: number;
   error?: string;
+
+  paymentOrderStatus?: PaymentOrderStatus | null;
+  paymentCompensationStatus?: PaymentCompensationStatus | null;
+  paymentCompensationNote?: string | null;
+  paymentNextRetryAt?: string | null;
+  paymentManualReviewRequiredAt?: string | null;
+  paymentRefundedAt?: string | null;
 };
 
 type StepKey =
@@ -137,6 +164,12 @@ export default function GeneratingPage() {
   const [downloadUrl, setDownloadUrl] = useState("");
   const [queueAheadCount, setQueueAheadCount] = useState<number | null>(null);
   const [failedStep, setFailedStep] = useState<StepKey | undefined>(undefined);
+  const [paymentOrderStatus, setPaymentOrderStatus] = useState<PaymentOrderStatus | null>(null);
+  const [paymentCompensationStatus, setPaymentCompensationStatus] = useState<PaymentCompensationStatus | null>(null);
+  const [paymentCompensationNote, setPaymentCompensationNote] = useState("");
+  const [paymentNextRetryAt, setPaymentNextRetryAt] = useState("");
+  const [paymentManualReviewRequiredAt, setPaymentManualReviewRequiredAt] = useState("");
+  const [paymentRefundedAt, setPaymentRefundedAt] = useState("");
   const [hasLoggedPollOpen, setHasLoggedPollOpen] = useState(false);
   const startTimeRef = useRef(Date.now());
 
@@ -181,6 +214,12 @@ export default function GeneratingPage() {
           setDownloadUrl("");
           setQueueAheadCount(null);
           setFailedStep(undefined);
+          setPaymentOrderStatus(data.paymentOrderStatus ?? null);
+          setPaymentCompensationStatus(data.paymentCompensationStatus ?? null);
+          setPaymentCompensationNote(data.paymentCompensationNote || "");
+          setPaymentNextRetryAt(data.paymentNextRetryAt || "");
+          setPaymentManualReviewRequiredAt(data.paymentManualReviewRequiredAt || "");
+          setPaymentRefundedAt(data.paymentRefundedAt || "");
           return;
         }
 
@@ -190,6 +229,12 @@ export default function GeneratingPage() {
         setDownloadUrl(data.downloadUrl || "");
         setQueueAheadCount(typeof data.queueAheadCount === "number" ? data.queueAheadCount : null);
         setFailedStep(data.failedStep);
+        setPaymentOrderStatus(data.paymentOrderStatus ?? null);
+        setPaymentCompensationStatus(data.paymentCompensationStatus ?? null);
+        setPaymentCompensationNote(data.paymentCompensationNote || "");
+        setPaymentNextRetryAt(data.paymentNextRetryAt || "");
+        setPaymentManualReviewRequiredAt(data.paymentManualReviewRequiredAt || "");
+        setPaymentRefundedAt(data.paymentRefundedAt || "");
 
         if (!hasLoggedPollOpen) {
           setHasLoggedPollOpen(true);
@@ -200,6 +245,12 @@ export default function GeneratingPage() {
         setDownloadUrl("");
         setQueueAheadCount(null);
         setFailedStep(undefined);
+        setPaymentOrderStatus(null);
+        setPaymentCompensationStatus(null);
+        setPaymentCompensationNote("");
+        setPaymentNextRetryAt("");
+        setPaymentManualReviewRequiredAt("");
+        setPaymentRefundedAt("");
       }
     };
 
@@ -220,6 +271,28 @@ export default function GeneratingPage() {
   const effectiveDownloadUrl = previewMode ? previewDownloadUrl : downloadUrl;
   const effectiveQueueAheadCount = previewMode ? previewQueueAheadCount : queueAheadCount;
   const effectiveFailedStep = previewMode ? undefined : failedStep;
+  const effectivePaymentOrderStatus = previewMode ? null : paymentOrderStatus;
+  const effectivePaymentCompensationStatus = previewMode ? null : paymentCompensationStatus;
+  const effectivePaymentCompensationNote = previewMode ? "" : paymentCompensationNote;
+  const effectivePaymentNextRetryAt = previewMode ? "" : paymentNextRetryAt;
+  const effectivePaymentManualReviewRequiredAt = previewMode ? "" : paymentManualReviewRequiredAt;
+  const effectivePaymentRefundedAt = previewMode ? "" : paymentRefundedAt;
+
+  const isPaymentAutoRetry =
+    effectivePaymentCompensationStatus === "pending_retry" ||
+    effectivePaymentCompensationStatus === "retrying";
+
+  const isPaymentManualReview =
+    effectivePaymentOrderStatus === "manual_review_required" ||
+    effectivePaymentCompensationStatus === "manual_review_required";
+
+  const isPaymentRefundPending =
+    effectivePaymentOrderStatus === "refund_pending" ||
+    effectivePaymentCompensationStatus === "refund_pending";
+
+  const isPaymentRefunded =
+    effectivePaymentOrderStatus === "refunded" ||
+    effectivePaymentCompensationStatus === "refunded";
 
   const steps = useMemo(() => mapStageToSteps(effectiveStage, effectiveFailedStep), [effectiveStage, effectiveFailedStep]);
   useEffect(() => {
@@ -236,6 +309,10 @@ export default function GeneratingPage() {
   }, [stage, runId]);
 
   const currentActivity = useMemo(() => {
+    if (isPaymentAutoRetry) return "Retrying your paid build automatically";
+    if (isPaymentManualReview) return "Manual review in progress";
+    if (isPaymentRefundPending) return "Refund in progress";
+    if (isPaymentRefunded) return "Refund completed";
     if (effectiveStage === "configuring_build") return "Configuring your app";
     if (effectiveStage === "queued") return "Waiting in build queue";
     if (effectiveStage === "success") return "Build completed";
@@ -244,7 +321,14 @@ export default function GeneratingPage() {
     }
     if (!effectiveStage) return "Preparing build request";
     return ACTIVE_LABEL[effectiveStage as StepKey] || "Generating";
-  }, [effectiveStage, effectiveFailedStep]);
+  }, [
+    effectiveStage,
+    effectiveFailedStep,
+    isPaymentAutoRetry,
+    isPaymentManualReview,
+    isPaymentRefundPending,
+    isPaymentRefunded,
+  ]);
 
   return (
     <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
@@ -363,7 +447,98 @@ export default function GeneratingPage() {
             )
           ) : null}
 
-          {effectiveStage === "failed" || effectiveError ? (
+          {isPaymentManualReview ? (
+            <div className="mt-6 rounded-[24px] border border-amber-200 bg-amber-50/80 p-5 shadow-[0_8px_18px_rgba(15,23,42,0.03)]">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5">
+                  <TriangleAlert className="h-5 w-5 text-amber-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-amber-700">Manual review in progress</div>
+                  <div className="mt-2 text-sm leading-7 text-amber-700/90">
+                    {effectivePaymentCompensationNote || effectiveMessage || "Your paid build is under manual review. No action is required from you right now."}
+                  </div>
+                  {effectivePaymentManualReviewRequiredAt ? (
+                    <div className="mt-2 text-xs font-medium uppercase tracking-[0.12em] text-amber-600/80">
+                      Manual review started at: {new Date(effectivePaymentManualReviewRequiredAt).toLocaleString()}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = "/";
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  <House className="h-4 w-4" />
+                  Back to Home
+                </button>
+              </div>
+            </div>
+          ) : isPaymentRefundPending ? (
+            <div className="mt-6 rounded-[24px] border border-rose-200 bg-rose-50/80 p-5 shadow-[0_8px_18px_rgba(15,23,42,0.03)]">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5">
+                  <TriangleAlert className="h-5 w-5 text-rose-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-rose-700">Refund in progress</div>
+                  <div className="mt-2 text-sm leading-7 text-rose-700/90">
+                    {effectivePaymentCompensationNote || effectiveMessage || "Refund is being processed for this paid build order."}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = "/";
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  <House className="h-4 w-4" />
+                  Back to Home
+                </button>
+              </div>
+            </div>
+          ) : isPaymentRefunded ? (
+            <div className="mt-6 rounded-[24px] border border-red-200 bg-red-50/80 p-5 shadow-[0_8px_18px_rgba(15,23,42,0.03)]">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5">
+                  <TriangleAlert className="h-5 w-5 text-red-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-red-700">Order refunded</div>
+                  <div className="mt-2 text-sm leading-7 text-red-600/90">
+                    {effectivePaymentCompensationNote || effectiveMessage || "This paid build order has already been refunded."}
+                  </div>
+                  {effectivePaymentRefundedAt ? (
+                    <div className="mt-2 text-xs font-medium uppercase tracking-[0.12em] text-red-500/80">
+                      Refunded at: {new Date(effectivePaymentRefundedAt).toLocaleString()}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = "/";
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  <House className="h-4 w-4" />
+                  Back to Home
+                </button>
+              </div>
+            </div>
+          ) : effectiveStage === "failed" || effectiveError ? (
             <div className="mt-6 rounded-[24px] border border-red-200 bg-red-50/80 p-5 shadow-[0_8px_18px_rgba(15,23,42,0.03)]">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5">

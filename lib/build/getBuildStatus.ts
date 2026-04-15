@@ -9,6 +9,8 @@ import {
   BuildStatusResponse,
   BuildStatusValue,
   InternalBuildRecord,
+  PaymentCompensationStatus,
+  PaymentOrderStatus,
   StepKey,
 } from "./types";
 import { getOrderByRunId } from "@/lib/stripe/orders";
@@ -293,6 +295,131 @@ function mergeStatus(
   };
 }
 
+function withPaymentState(
+  response: BuildStatusResponse,
+  order: {
+    status?: PaymentOrderStatus | null;
+    compensation_status?: PaymentCompensationStatus | null;
+    compensation_note?: string | null;
+    next_retry_at?: string | null;
+    manual_review_required_at?: string | null;
+    refunded_at?: string | null;
+  } | null,
+): BuildStatusResponse {
+  return {
+    ...response,
+    paymentOrderStatus: order?.status ?? null,
+    paymentCompensationStatus: order?.compensation_status ?? null,
+    paymentCompensationNote: order?.compensation_note ?? null,
+    paymentNextRetryAt: order?.next_retry_at ?? null,
+    paymentManualReviewRequiredAt: order?.manual_review_required_at ?? null,
+    paymentRefundedAt: order?.refunded_at ?? null,
+  };
+}
+
+function getPaidCompensationOverride(
+  runId: string,
+  order:
+    | {
+        status?: PaymentOrderStatus | null;
+        compensation_status?: PaymentCompensationStatus | null;
+        compensation_note?: string | null;
+        next_retry_at?: string | null;
+        manual_review_required_at?: string | null;
+        refunded_at?: string | null;
+      }
+    | null,
+  base?: BuildStatusResponse,
+): BuildStatusResponse | null {
+  if (!order) {
+    return null;
+  }
+
+  if (
+    order.compensation_status === "pending_retry" ||
+    order.compensation_status === "retrying"
+  ) {
+    return withPaymentState(
+      {
+        ok: true,
+        runId,
+        stage: "configuring_build",
+        message:
+          order.compensation_note ||
+          "Your paid build hit a temporary issue. We’re retrying it automatically.",
+        error: null,
+        queueAheadCount: 0,
+      },
+      order,
+    );
+  }
+
+  if (
+    order.status === "manual_review_required" ||
+    order.compensation_status === "manual_review_required"
+  ) {
+    return withPaymentState(
+      {
+        ...(base || {
+          ok: true,
+          runId,
+          stage: "failed",
+        }),
+        stage: "failed",
+        message:
+          order.compensation_note ||
+          "Your paid build is under manual review. No action is required from you right now.",
+        error: null,
+      },
+      order,
+    );
+  }
+
+  if (
+    order.status === "refund_pending" ||
+    order.compensation_status === "refund_pending"
+  ) {
+    return withPaymentState(
+      {
+        ...(base || {
+          ok: true,
+          runId,
+          stage: "failed",
+        }),
+        stage: "failed",
+        message:
+          order.compensation_note ||
+          "Refund is being processed for this paid build order.",
+        error: null,
+      },
+      order,
+    );
+  }
+
+  if (
+    order.status === "refunded" ||
+    order.compensation_status === "refunded"
+  ) {
+    return withPaymentState(
+      {
+        ...(base || {
+          ok: true,
+          runId,
+          stage: "failed",
+        }),
+        stage: "failed",
+        message:
+          order.compensation_note ||
+          "This paid build order has already been refunded.",
+        error: null,
+      },
+      order,
+    );
+  }
+
+  return null;
+}
+
 const PAID_BUILD_INITIALIZATION_TIMEOUT_MS = 180000;
 
 export async function getBuildStatus(
@@ -302,6 +429,7 @@ export async function getBuildStatus(
 ): Promise<BuildStatusResponse> {
   const localRecord = await getBuildRecordByRunId(supabase, runId);
   const remoteStatus = await readRemoteStatusFile(runId);
+  const paidOrder = options?.isPaidFlow ? await getOrderByRunId(runId) : null;
 
   if (remoteStatus) {
     const merged = mergeStatus(runId, localRecord, remoteStatus);
@@ -368,7 +496,7 @@ const synced = await updateBuildRecordByRunId(supabase, runId, {
 
       const queueMeta = await getBuildQueueMeta(supabase, synced);
 
-      return mapRecordToResponse(synced, {
+      const baseResponse = mapRecordToResponse(synced, {
         adminName: merged.adminName,
         workflowStatus: merged.workflowStatus ?? null,
         workflowConclusion: merged.workflowConclusion ?? null,
@@ -377,9 +505,16 @@ const synced = await updateBuildRecordByRunId(supabase, runId, {
         runningCount: queueMeta.runningCount,
         concurrencyLimit: queueMeta.concurrencyLimit,
       });
+
+      const compensationOverride = getPaidCompensationOverride(runId, paidOrder, baseResponse);
+
+      return compensationOverride || withPaymentState(baseResponse, paidOrder);
     }
 
-    return merged;
+    const mergedWithPayment = withPaymentState(merged, paidOrder);
+    const mergedOverride = getPaidCompensationOverride(runId, paidOrder, mergedWithPayment);
+
+    return mergedOverride || mergedWithPayment;
   }
 
 if (!localRecord) {
@@ -389,33 +524,43 @@ if (!localRecord) {
   const elapsed = now - requestStartTime;
 
   if (isPaidFlow) {
-    const order = await getOrderByRunId(runId);
+    const compensationOverride = getPaidCompensationOverride(runId, paidOrder);
 
-    if (order?.status === "failed") {
-      return {
-        ok: false,
-        error: order.error || "Paid build failed.",
-      };
+    if (compensationOverride) {
+      return compensationOverride;
+    }
+
+    if (paidOrder?.status === "failed") {
+      return withPaymentState(
+        {
+          ok: false,
+          error: paidOrder.error || "Paid build failed.",
+        },
+        paidOrder,
+      );
     }
 
     if (
-      order &&
-      (order.status === "created" ||
-        order.status === "checkout_created" ||
-        order.status === "paid" ||
-        order.status === "processing" ||
-        order.status === "processed")
+      paidOrder &&
+      (paidOrder.status === "created" ||
+        paidOrder.status === "checkout_created" ||
+        paidOrder.status === "paid" ||
+        paidOrder.status === "processing" ||
+        paidOrder.status === "processed")
     ) {
-      return {
-        ok: true,
-        runId,
-        stage: "configuring_build",
-        message:
-          order.status === "processed"
-            ? "Payment confirmed. Waiting for build status to sync."
-            : "Payment received. Securely preparing your build.",
-        queueAheadCount: 0,
-      };
+      return withPaymentState(
+        {
+          ok: true,
+          runId,
+          stage: "configuring_build",
+          message:
+            paidOrder.status === "processed"
+              ? "Payment confirmed. Waiting for build status to sync."
+              : "Payment received. Securely preparing your build.",
+          queueAheadCount: 0,
+        },
+        paidOrder,
+      );
     }
 
     if (elapsed < PAID_BUILD_INITIALIZATION_TIMEOUT_MS) {
@@ -442,9 +587,13 @@ if (!localRecord) {
 
   const queueMeta = await getBuildQueueMeta(supabase, localRecord);
 
-  return mapRecordToResponse(localRecord, {
+  const baseResponse = mapRecordToResponse(localRecord, {
     queueAheadCount: queueMeta.queueAheadCount,
     runningCount: queueMeta.runningCount,
     concurrencyLimit: queueMeta.concurrencyLimit,
   });
+
+  const compensationOverride = getPaidCompensationOverride(runId, paidOrder, baseResponse);
+
+  return compensationOverride || withPaymentState(baseResponse, paidOrder);
 }
