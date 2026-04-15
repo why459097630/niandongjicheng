@@ -112,14 +112,14 @@ function getRetryDelayMinutes(
   nextRetryCount: number,
 ): number {
   if (orderKind === "generate_app") {
-    if (nextRetryCount <= 1) return 1;
-    if (nextRetryCount <= 2) return 10;
-    return 30;
+    if (nextRetryCount <= 1) return 0.5;
+    if (nextRetryCount <= 2) return 1.5;
+    return 1.5;
   }
 
-  if (nextRetryCount <= 1) return 1;
-  if (nextRetryCount <= 2) return 5;
-  return 30;
+  if (nextRetryCount <= 1) return 0.25;
+  if (nextRetryCount <= 2) return 0.5;
+  return 1;
 }
 
 async function patchOrder(

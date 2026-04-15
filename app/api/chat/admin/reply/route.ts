@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertAdminAccess } from "@/lib/chat/assertAdminAccess";
+import { cancelConversationAutoReply } from "@/lib/chat/autoReply";
 
 type ReplyBody = {
   conversationId?: string;
@@ -117,6 +118,8 @@ export async function POST(request: Request) {
     if (sendError) {
       throw sendError;
     }
+
+    await cancelConversationAutoReply(supabase, conversationId);
 
     return NextResponse.json({
       ok: true,

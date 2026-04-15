@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyGuestAccessToken } from "@/lib/chat/guestAccess";
+import {
+  processConversationAutoReply,
+  scheduleConversationAutoReply,
+} from "@/lib/chat/autoReply";
 
 type SendMessageBody = {
   conversationId?: string;
@@ -109,6 +113,8 @@ export async function GET(request: NextRequest) {
         { status: 403 }
       );
     }
+
+    await processConversationAutoReply(supabase, conversation.id);
 
     const { data: messages, error: messagesError } = await supabase
       .from("support_messages")
@@ -240,13 +246,22 @@ export async function POST(request: Request) {
       }
     }
 
-    const { error: sendError } = await supabase.rpc("support_send_user_message", {
+    const { data: sendRows, error: sendError } = await supabase.rpc("support_send_user_message", {
       p_conversation_id: conversation.id,
       p_body: messageBody,
     });
 
     if (sendError) {
       throw sendError;
+    }
+
+    const sentMessageId =
+      Array.isArray(sendRows) && sendRows.length > 0 && sendRows[0]?.message_id
+        ? String(sendRows[0].message_id)
+        : "";
+
+    if (sentMessageId) {
+      await scheduleConversationAutoReply(supabase, conversation.id, sentMessageId);
     }
 
     return NextResponse.json({
