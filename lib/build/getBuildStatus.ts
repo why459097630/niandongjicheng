@@ -9,8 +9,6 @@ import {
   BuildStatusResponse,
   BuildStatusValue,
   InternalBuildRecord,
-  PaymentCompensationStatus,
-  PaymentOrderStatus,
   StepKey,
 } from "./types";
 import { getOrderByRunId } from "@/lib/stripe/orders";
@@ -298,18 +296,42 @@ function mergeStatus(
 function withPaymentState(
   response: BuildStatusResponse,
   order: {
-    status?: PaymentOrderStatus | null;
-    compensation_status?: PaymentCompensationStatus | null;
+    status?: string | null;
+    compensation_status?: string | null;
     compensation_note?: string | null;
     next_retry_at?: string | null;
     manual_review_required_at?: string | null;
     refunded_at?: string | null;
   } | null,
 ): BuildStatusResponse {
+  const normalizedStatus =
+    order?.status === "created" ||
+    order?.status === "checkout_created" ||
+    order?.status === "paid" ||
+    order?.status === "processing" ||
+    order?.status === "processed" ||
+    order?.status === "failed" ||
+    order?.status === "manual_review_required" ||
+    order?.status === "refund_pending" ||
+    order?.status === "refunded" ||
+    order?.status === "canceled"
+      ? order.status
+      : null;
+
+  const normalizedCompensationStatus =
+    order?.compensation_status === "none" ||
+    order?.compensation_status === "pending_retry" ||
+    order?.compensation_status === "retrying" ||
+    order?.compensation_status === "manual_review_required" ||
+    order?.compensation_status === "refund_pending" ||
+    order?.compensation_status === "refunded"
+      ? order.compensation_status
+      : null;
+
   return {
     ...response,
-    paymentOrderStatus: order?.status ?? null,
-    paymentCompensationStatus: order?.compensation_status ?? null,
+    paymentOrderStatus: normalizedStatus,
+    paymentCompensationStatus: normalizedCompensationStatus,
     paymentCompensationNote: order?.compensation_note ?? null,
     paymentNextRetryAt: order?.next_retry_at ?? null,
     paymentManualReviewRequiredAt: order?.manual_review_required_at ?? null,
@@ -321,8 +343,8 @@ function getPaidCompensationOverride(
   runId: string,
   order:
     | {
-        status?: PaymentOrderStatus | null;
-        compensation_status?: PaymentCompensationStatus | null;
+        status?: string | null;
+        compensation_status?: string | null;
         compensation_note?: string | null;
         next_retry_at?: string | null;
         manual_review_required_at?: string | null;
