@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CheckCircle2, Clock3, MessageSquare, Search, Send } from "lucide-react";
 
 type ConversationItem = {
@@ -95,6 +95,7 @@ export default function AdminChatPanel() {
   const shouldStickToBottomRef = useRef(true);
   const forceScrollRef = useRef(false);
   const lastSentRef = useRef<{ body: string; at: number } | null>(null);
+  const autoReplyTriggeredRef = useRef<Record<string, string>>({});
 
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState("");
@@ -108,6 +109,9 @@ export default function AdminChatPanel() {
   const [statusChanging, setStatusChanging] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [messageError, setMessageError] = useState<string | null>(null);
+  const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
+  const [autoReplyText, setAutoReplyText] = useState("您好，我们已收到您的消息，会尽快回复您。");
+  const [autoReplyDelay, setAutoReplyDelay] = useState(10);
 
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) || null,
@@ -264,6 +268,77 @@ export default function AdminChatPanel() {
     }
   };
 
+  const sendAutoReply = useCallback(
+    async (conversationId: string, body: string) => {
+      const nextBody = body.trim();
+
+      if (!conversationId || !nextBody) return;
+
+      const response = await fetch("/api/chat/admin/reply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          conversationId,
+          body: nextBody,
+        }),
+      });
+
+      const json = (await response.json()) as MessagesResponse;
+
+      if (!response.ok || !json.ok) {
+        throw new Error(json.error || "Failed to send auto reply.");
+      }
+
+      await Promise.all([
+        loadConversations(true),
+        loadMessages(conversationId, {
+          markRead: true,
+          forceScroll: conversationId === selectedConversationId,
+        }),
+      ]);
+    },
+    [selectedConversationId]
+  );
+
+  useEffect(() => {
+    const storedEnabled = window.localStorage.getItem("ndjc_admin_auto_reply_enabled");
+    const storedText = window.localStorage.getItem("ndjc_admin_auto_reply_text");
+    const storedDelay = window.localStorage.getItem("ndjc_admin_auto_reply_delay");
+
+    if (storedEnabled === "true") {
+      setAutoReplyEnabled(true);
+    }
+
+    if (storedText && storedText.trim()) {
+      setAutoReplyText(storedText);
+    }
+
+    if (storedDelay) {
+      const parsedDelay = Number(storedDelay);
+
+      if (Number.isFinite(parsedDelay) && parsedDelay >= 0) {
+        setAutoReplyDelay(parsedDelay);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "ndjc_admin_auto_reply_enabled",
+      autoReplyEnabled ? "true" : "false"
+    );
+  }, [autoReplyEnabled]);
+
+  useEffect(() => {
+    window.localStorage.setItem("ndjc_admin_auto_reply_text", autoReplyText);
+  }, [autoReplyText]);
+
+  useEffect(() => {
+    window.localStorage.setItem("ndjc_admin_auto_reply_delay", String(autoReplyDelay));
+  }, [autoReplyDelay]);
+
   useEffect(() => {
     void loadConversations(false);
   }, []);
@@ -316,6 +391,48 @@ export default function AdminChatPanel() {
   }, [selectedConversationId]);
 
   useEffect(() => {
+    if (!autoReplyEnabled) return;
+    if (!selectedConversation) return;
+    if (selectedConversation.status !== "open") return;
+    if (messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+
+    if (!lastMessage) return;
+    if (lastMessage.senderRole !== "user") return;
+
+    const autoReplyBody = autoReplyText.trim();
+
+    if (!autoReplyBody) return;
+
+    const createdAtMs = new Date(lastMessage.createdAt).getTime();
+
+    if (Number.isNaN(createdAtMs)) return;
+
+    const now = Date.now();
+
+    if (now - createdAtMs < autoReplyDelay * 1000) return;
+
+    const lastTriggeredMessageId = autoReplyTriggeredRef.current[selectedConversation.id];
+
+    if (lastTriggeredMessageId === lastMessage.id) return;
+
+    autoReplyTriggeredRef.current[selectedConversation.id] = lastMessage.id;
+
+    void sendAutoReply(selectedConversation.id, autoReplyBody).catch((error) => {
+      autoReplyTriggeredRef.current[selectedConversation.id] = "";
+      setMessageError(error instanceof Error ? error.message : "Failed to send auto reply.");
+    });
+  }, [
+    autoReplyDelay,
+    autoReplyEnabled,
+    autoReplyText,
+    messages,
+    selectedConversation,
+    sendAutoReply,
+  ]);
+
+  useEffect(() => {
     previousMessageCountRef.current = messages.length;
   }, [messages]);
 
@@ -365,6 +482,7 @@ export default function AdminChatPanel() {
       }
 
       setReply("");
+      autoReplyTriggeredRef.current[selectedConversationId] = "";
 
       await Promise.all([
         loadConversations(true),
@@ -526,6 +644,56 @@ export default function AdminChatPanel() {
 
         <div className="overflow-hidden rounded-[28px] border border-white/70 bg-white/78 shadow-[0_18px_54px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
           <div className="border-b border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.48))] px-6 py-5">
+            <div className="mb-4 rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-4 shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={autoReplyEnabled}
+                    onChange={(event) => setAutoReplyEnabled(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-fuchsia-600 focus:ring-fuchsia-500"
+                  />
+                  开启自动回复
+                </label>
+
+                <div className="inline-flex items-center gap-2 text-sm text-slate-600">
+                  <span>延迟</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={autoReplyDelay}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+
+                      if (!Number.isFinite(value)) {
+                        setAutoReplyDelay(10);
+                        return;
+                      }
+
+                      setAutoReplyDelay(Math.max(0, Math.min(300, Math.floor(value))));
+                    }}
+                    className="h-[34px] w-[84px] rounded-full border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-fuchsia-300"
+                  />
+                  <span>秒</span>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <textarea
+                  value={autoReplyText}
+                  onChange={(event) => setAutoReplyText(event.target.value.slice(0, MAX_ADMIN_REPLY_LENGTH))}
+                  placeholder="请输入自动回复内容..."
+                  rows={2}
+                  maxLength={MAX_ADMIN_REPLY_LENGTH}
+                  className="w-full resize-none rounded-[16px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-fuchsia-300"
+                />
+                <div className="mt-2 text-xs text-slate-500">
+                  当游客发来新消息且管理员未回复时，系统会在设定秒数后自动发送这条回复。每条游客新消息只触发一次。
+                </div>
+              </div>
+            </div>
+
             {selectedConversation ? (
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
