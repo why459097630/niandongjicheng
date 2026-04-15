@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import AdminChatPanel from "@/components/chat/AdminChatPanel";
 
 const tabs = [
+  { key: "overview_core", label: "核心总览" },
+  { key: "revenue_core", label: "核心收入" },
+  { key: "users_core", label: "核心用户" },
+  { key: "system_core", label: "核心系统" },
   { key: "dashboard", label: "总览看板" },
   { key: "builds", label: "构建统计" },
   { key: "users", label: "用户统计" },
@@ -314,8 +318,59 @@ function EmptyState({ lines }: { lines: string[] }) {
   );
 }
 
+function pickMetricsFromTabs(
+  sourceTabs: Record<string, TabData> | undefined,
+  picks: Array<{
+    tab: string;
+    title: string;
+    alias?: string;
+  }>,
+): Metric[] {
+  if (!sourceTabs) {
+    return [];
+  }
+
+  return picks
+    .map((pick) => {
+      const sourceTab = sourceTabs[pick.tab];
+      const metric = sourceTab?.metrics?.find((item) => item.title === pick.title);
+
+      if (!metric) {
+        return null;
+      }
+
+      return {
+        ...metric,
+        title: pick.alias || metric.title,
+      };
+    })
+    .filter((item): item is Metric => item !== null);
+}
+
+function mergeTablesFromTabs(
+  sourceTabs: Record<string, TabData> | undefined,
+  keys: string[],
+): TableBlock[] {
+  if (!sourceTabs) {
+    return [];
+  }
+
+  return keys.flatMap((key) => sourceTabs[key]?.tables || []);
+}
+
+function mergeNotesFromTabs(
+  sourceTabs: Record<string, TabData> | undefined,
+  keys: string[],
+): string[] {
+  if (!sourceTabs) {
+    return [];
+  }
+
+  return keys.flatMap((key) => sourceTabs[key]?.notes || []);
+}
+
 export default function AdminPage() {
-  const [tab, setTab] = useState<TabKey>("dashboard");
+  const [tab, setTab] = useState<TabKey>("overview_core");
   const [loading, setLoading] = useState(true);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -408,7 +463,109 @@ export default function AdminPage() {
   }, [loadAdminOrders, loadOverview]);
 
   const activeTab = useMemo(() => tabs.find((item) => item.key === tab), [tab]);
-  const activeData = (data?.tabs?.[tab] || { metrics: [], tables: [], notes: [] }) as TabData;
+
+  const composedTabs = useMemo<Record<string, TabData>>(() => {
+    const sourceTabs = data?.tabs || {};
+
+    return {
+      overview_core: {
+        metrics: pickMetricsFromTabs(sourceTabs, [
+          { tab: "revenue", title: "7天收入" },
+          { tab: "users", title: "真实付费用户" },
+          { tab: "revenue", title: "Checkout→Paid 转化率" },
+          { tab: "stores", title: "有效 Store", alias: "有效商户" },
+          { tab: "builds", title: "构建成功率" },
+          { tab: "alerts", title: "今日构建失败", alias: "系统异常数" },
+        ]),
+        tables: [],
+        notes: [
+          "这个模块是老板视角总览，只抽取最核心的 6 个指标。",
+          "数据全部复用现有 overview 接口，不新增后端统计逻辑。",
+        ],
+      },
+      revenue_core: {
+        metrics: pickMetricsFromTabs(sourceTabs, [
+          { tab: "revenue", title: "今日收入" },
+          { tab: "revenue", title: "7天收入" },
+          { tab: "revenue", title: "30天收入" },
+          { tab: "revenue", title: "订单总数" },
+          { tab: "revenue", title: "支付成功" },
+          { tab: "revenue", title: "总收入" },
+          { tab: "revenue", title: "Checkout→Paid 转化率" },
+          { tab: "revenue", title: "Paid→Processed 转化率" },
+          { tab: "revenue", title: "生成订单" },
+          { tab: "revenue", title: "续费订单" },
+          { tab: "revenue", title: "客单价" },
+          { tab: "revenue", title: "ARPPU" },
+        ]),
+        tables: mergeTablesFromTabs(sourceTabs, ["revenue"]),
+        notes: [
+          "这个模块只看钱和支付转化。",
+          "当前先直接复用原 revenue Tab 的现成统计和表格。",
+        ],
+      },
+      users_core: {
+        metrics: pickMetricsFromTabs(sourceTabs, [
+          { tab: "users", title: "注册用户" },
+          { tab: "users", title: "7天活跃用户" },
+          { tab: "users", title: "真实付费用户" },
+          { tab: "users", title: "真实复购用户" },
+          { tab: "users", title: "生成付费用户" },
+          { tab: "users", title: "续费付费用户" },
+          { tab: "stores", title: "Store 总数", alias: "商户总数" },
+          { tab: "stores", title: "有效 Store", alias: "有效商户" },
+          { tab: "stores", title: "试用 Store", alias: "试用商户" },
+          { tab: "stores", title: "付费 Store", alias: "付费商户" },
+          { tab: "stores", title: "激活 membership", alias: "激活续费" },
+          { tab: "cloud", title: "未来 7 天到期", alias: "即将到期" },
+        ]),
+        tables: [
+          ...(sourceTabs.users?.tables?.filter((table) =>
+            ["真实支付用户概览", "支付用户 Top 30"].includes(table.title),
+          ) || []),
+          ...(sourceTabs.stores?.tables?.filter((table) =>
+            ["Store 目录（真实 App / 用户映射）"].includes(table.title),
+          ) || []),
+          ...(sourceTabs.cloud?.tables?.filter((table) =>
+            ["到期 / 删库监控"].includes(table.title),
+          ) || []),
+        ],
+        notes: [
+          "这个模块只看用户、商户、续费和到期。",
+          "当前先把 users / stores / cloud 里和用户经营相关的数据组合到一起。",
+        ],
+      },
+      system_core: {
+        metrics: pickMetricsFromTabs(sourceTabs, [
+          { tab: "builds", title: "构建总数" },
+          { tab: "builds", title: "成功构建" },
+          { tab: "builds", title: "失败构建" },
+          { tab: "builds", title: "排队中" },
+          { tab: "builds", title: "构建中" },
+          { tab: "builds", title: "平均构建时长" },
+          { tab: "builds", title: "排队超时" },
+          { tab: "builds", title: "成功但缺下载" },
+          { tab: "alerts", title: "今日构建失败" },
+          { tab: "alerts", title: "下载失败" },
+          { tab: "alerts", title: "登录回调失败" },
+          { tab: "alerts", title: "云端状态异常" },
+        ]),
+        tables: [
+          ...(sourceTabs.builds?.tables || []),
+          ...(sourceTabs.alerts?.tables || []),
+          ...(sourceTabs.cloud?.tables?.filter((table) =>
+            ["云端活跃概览"].includes(table.title),
+          ) || []),
+        ],
+        notes: [
+          "这个模块只看构建、异常、云端状态和系统稳定性。",
+          "当前先把 builds / alerts / cloud 的系统类统计集中展示。",
+        ],
+      },
+    };
+  }, [data?.tabs]);
+
+  const activeData = (composedTabs[tab] || data?.tabs?.[tab] || { metrics: [], tables: [], notes: [] }) as TabData;
   const summaryMetrics = data?.summaryMetrics || [];
 
   const autoRetryOrders = useMemo(
@@ -596,7 +753,7 @@ export default function AdminPage() {
           <div>
             <h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">{activeTab?.label}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              真实接口模式。当前页面显示的是前端 Supabase + App 云端 Supabase 已接入的真实统计数据。
+              真实接口模式。上方新增了 4 个核心模块 Tab，直接复用现有 overview 接口返回内容；原有统计项目与原有 Tab 先全部保留不动。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
