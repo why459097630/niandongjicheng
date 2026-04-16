@@ -265,7 +265,9 @@ export default function AdminChatPanel() {
 
       if (shouldAutoScroll) {
         window.requestAnimationFrame(() => {
-          bottomRef.current?.scrollIntoView({ behavior: "auto" });
+          if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+          }
           forceScrollRef.current = false;
         });
       }
@@ -512,16 +514,16 @@ export default function AdminChatPanel() {
   };
 
   return (
-    <section className="space-y-6">
+    <section className="min-h-0 space-y-6">
       <div className="grid gap-4 md:grid-cols-3">
         <MetricPill icon={<MessageSquare className="h-4 w-4" />} label="总会话" value={conversations.length} />
         <MetricPill icon={<Clock3 className="h-4 w-4" />} label="未读" value={unreadCount} />
         <MetricPill icon={<CheckCircle2 className="h-4 w-4" />} label="已关闭" value={closedCount} />
       </div>
 
-      <section className="grid min-h-[680px] gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="rounded-[24px] border border-white/70 bg-white/78 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
-          <div className="mb-4 flex items-start justify-between gap-3">
+      <section className="grid h-[min(78vh,900px)] min-h-[680px] gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="flex min-h-0 flex-col rounded-[24px] border border-white/70 bg-white/78 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
+          <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
             <div>
               <h3 className="bg-gradient-to-r from-fuchsia-600 to-purple-600 bg-clip-text text-lg font-bold tracking-[-0.03em] text-transparent">
                 管理员聊天
@@ -536,7 +538,7 @@ export default function AdminChatPanel() {
             </span>
           </div>
 
-          <div className="mb-4 rounded-[18px] border border-white/70 bg-white/78 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+          <div className="mb-4 shrink-0 rounded-[18px] border border-white/70 bg-white/78 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
             <div className="flex items-center gap-3">
               <Search className="h-4 w-4 text-slate-400" />
               <input
@@ -548,77 +550,79 @@ export default function AdminChatPanel() {
             </div>
           </div>
 
-          {loadingList ? (
-            <div className="text-sm text-slate-500">Loading conversations...</div>
-          ) : listError ? (
-            <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {listError}
-            </div>
-          ) : filteredConversations.length === 0 ? (
-            <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              No matching conversations.
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              {filteredConversations.map((conversation) => {
-                const isActive = conversation.id === selectedConversationId;
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            {loadingList ? (
+              <div className="text-sm text-slate-500">Loading conversations...</div>
+            ) : listError ? (
+              <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {listError}
+              </div>
+            ) : filteredConversations.length === 0 ? (
+              <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                No matching conversations.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {filteredConversations.map((conversation) => {
+                  const isActive = conversation.id === selectedConversationId;
 
-                return (
-                  <button
-                    key={conversation.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedConversationId(conversation.id);
-                      forceScrollRef.current = true;
-                    }}
-                    className={`relative w-full overflow-hidden rounded-[16px] border px-4 py-2 text-left transition-all duration-200 hover:translate-x-[2px] hover:shadow-md ${
-                      isActive
-                        ? "border-fuchsia-400 bg-gradient-to-br from-fuchsia-100 to-purple-50 text-slate-900 shadow-[0_20px_45px_rgba(168,85,247,0.25)] ring-1 ring-fuchsia-300/60"
-                        : "border-white/70 bg-white/80 text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.04)] hover:bg-white"
-                    }`}
-                  >
-                    <div className="relative">
-                      {conversation.adminUnreadCount > 0 && (
-                        <span className="absolute right-0 top-0 inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
-                          {conversation.adminUnreadCount}
-                        </span>
-                      )}
-
-                      <div className="pr-8 text-[14px] font-semibold leading-tight break-words text-slate-900">
-                        {conversation.userEmail || conversation.userName || "游客访客"}
-                      </div>
-
-                      <div className="mt-[2px] flex items-center justify-between gap-3 text-[11px] text-slate-500">
-                        <span className="truncate pr-2">{conversation.sourcePath || "未知页面"}</span>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <span className="text-[10px] text-slate-400">
-                            {formatTime(conversation.lastMessageAt)}
+                  return (
+                    <button
+                      key={conversation.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedConversationId(conversation.id);
+                        forceScrollRef.current = true;
+                      }}
+                      className={`relative w-full overflow-hidden rounded-[16px] border px-4 py-2 text-left transition-all duration-200 hover:translate-x-[2px] hover:shadow-md ${
+                        isActive
+                          ? "border-fuchsia-400 bg-gradient-to-br from-fuchsia-100 to-purple-50 text-slate-900 shadow-[0_20px_45px_rgba(168,85,247,0.25)] ring-1 ring-fuchsia-300/60"
+                          : "border-white/70 bg-white/80 text-slate-900 shadow-[0_8px_20px_rgba(15,23,42,0.04)] hover:bg-white"
+                      }`}
+                    >
+                      <div className="relative">
+                        {conversation.adminUnreadCount > 0 && (
+                          <span className="absolute right-0 top-0 inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
+                            {conversation.adminUnreadCount}
                           </span>
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-[4px] text-[10px] font-semibold ${
-                              conversation.status === "open"
-                                ? "bg-emerald-100 text-emerald-700"
-                                : "bg-slate-200 text-slate-600"
-                            }`}
-                          >
-                            {conversation.status === "open" ? "活跃" : "关闭"}
-                          </span>
+                        )}
+
+                        <div className="pr-8 text-[14px] font-semibold leading-tight break-words text-slate-900">
+                          {conversation.userEmail || conversation.userName || "游客访客"}
+                        </div>
+
+                        <div className="mt-[2px] flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                          <span className="truncate pr-2">{conversation.sourcePath || "未知页面"}</span>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="text-[10px] text-slate-400">
+                              {formatTime(conversation.lastMessageAt)}
+                            </span>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-[4px] text-[10px] font-semibold ${
+                                conversation.status === "open"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-slate-200 text-slate-600"
+                              }`}
+                            >
+                              {conversation.status === "open" ? "活跃" : "关闭"}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="mt-1.5 truncate text-[12.5px] text-slate-500">
-                      {conversation.lastMessagePreview || "暂无消息"}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                      <div className="mt-1.5 truncate text-[12.5px] text-slate-500">
+                        {conversation.lastMessagePreview || "暂无消息"}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="overflow-hidden rounded-[28px] border border-white/70 bg-white/78 shadow-[0_18px_54px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
-          <div className="border-b border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.48))] px-6 py-5">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white/78 shadow-[0_18px_54px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
+          <div className="shrink-0 border-b border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.48))] px-6 py-5">
             <div className="mb-4 rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-4 shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
@@ -726,7 +730,7 @@ export default function AdminChatPanel() {
             onScroll={(event) => {
               shouldStickToBottomRef.current = isNearBottom(event.currentTarget);
             }}
-            className="min-h-[520px] overflow-y-auto border-t border-white/40 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.16))] px-6 py-5"
+            className="min-h-0 flex-1 overflow-y-auto border-t border-white/40 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.16))] px-6 py-5"
           >
             {!selectedConversationId ? (
               <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
@@ -775,7 +779,7 @@ export default function AdminChatPanel() {
             ) : null}
           </div>
 
-          <div className="border-t border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),rgba(255,255,255,0.46))] px-6 py-4">
+          <div className="shrink-0 border-t border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),rgba(255,255,255,0.46))] px-6 py-4">
             <div className="relative">
               <textarea
                 value={reply}
