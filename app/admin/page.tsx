@@ -702,8 +702,8 @@ export default function AdminPage() {
           { tab: "dashboard", title: "当天云端续费收入" },
           { tab: "dashboard", title: "当天总收入" },
           { tab: "dashboard", title: "当天30天档云端续费次数" },
-          { tab: "dashboard", title: "当天60天档云端续费次数" },
-          { tab: "dashboard", title: "当天120天档云端续费次数" },
+          { tab: "dashboard", title: "当天90天档云端续费次数" },
+          { tab: "dashboard", title: "当天180天档云端续费次数" },
         ]),
         tables: [],
         notes: [
@@ -719,7 +719,6 @@ export default function AdminPage() {
           { tab: "revenue", title: "当天付费生成次数" },
           { tab: "revenue", title: "订单总数" },
           { tab: "revenue", title: "支付成功" },
-          { tab: "revenue", title: "总收入" },
           { tab: "revenue", title: "Checkout→Paid 转化率" },
           { tab: "revenue", title: "Paid→Processed 转化率" },
           { tab: "revenue", title: "生成订单" },
@@ -867,8 +866,8 @@ export default function AdminPage() {
       content: {
         metrics: pickMetricsFromTabs(sourceTabs, [
           { tab: "content", title: "当天30天档云端续费次数" },
-          { tab: "content", title: "当天60天档云端续费次数" },
-          { tab: "content", title: "当天120天档云端续费次数" },
+          { tab: "content", title: "当天90天档云端续费次数" },
+          { tab: "content", title: "当天180天档云端续费次数" },
           { tab: "chat", title: "总会话数" },
           { tab: "chat", title: "总消息数" },
           { tab: "chat", title: "今日新增会话" },
@@ -881,7 +880,7 @@ export default function AdminPage() {
         ],
 
         notes: [
-          "这一页放你截图里的 30天档 / 60天档 / 120天档 云端续费次数统计。",
+          "这一页放你截图里的 30天档 / 90天档 / 180天档 云端续费次数统计。",
           "云端续费收入放在核心收入页，续费次数结构放在内容与使用情况页。",
         ],
       },
