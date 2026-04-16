@@ -514,7 +514,7 @@ export default function AdminChatPanel() {
   };
 
   return (
-    <section className="min-h-0 space-y-6">
+    <section className="min-h-0">
 
       <section className="grid h-[min(78vh,900px)] min-h-[680px] gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col rounded-[24px] border border-white/70 bg-white/78 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
