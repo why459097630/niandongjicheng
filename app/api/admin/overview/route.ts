@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createServerSupabase } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdminRevenueOrders } from "@/lib/stripe/orders";
 
 type FrontendProfileRow = {
@@ -78,6 +79,22 @@ type PageViewStatRow = {
   views: number;
   visitors: number;
   lastViewedAt: string | null;
+};
+
+type PageViewLogRow = {
+  id: string;
+  user_id: string | null;
+  session_id: string | null;
+  page_path: string | null;
+  viewed_at: string | null;
+};
+
+type BuildStatRow = {
+  id: string;
+  plan: string | null;
+  status: string | null;
+  created_at: string;
+  completed_at: string | null;
 };
 
 type StoreDirectoryRow = {
@@ -502,6 +519,33 @@ export async function GET() {
     }
 
     const supportChatSnapshot = (supportChatSnapshotRaw || {}) as SupportChatOverviewSnapshot;
+
+    const webAdmin = createAdminClient();
+
+    const [
+      pageViewLogsResult,
+      buildStatsResult,
+    ] = await Promise.all([
+      webAdmin
+        .from("page_view_logs")
+        .select("id,user_id,session_id,page_path,viewed_at")
+        .order("viewed_at", { ascending: false }),
+      webAdmin
+        .from("builds")
+        .select("id,plan,status,created_at,completed_at")
+        .order("created_at", { ascending: false }),
+    ]);
+
+    if (pageViewLogsResult.error) {
+      throw new Error(`page_view_logs query failed: ${pageViewLogsResult.error.message}`);
+    }
+
+    if (buildStatsResult.error) {
+      throw new Error(`builds query failed: ${buildStatsResult.error.message}`);
+    }
+
+    const pageViewLogs = (pageViewLogsResult.data || []) as PageViewLogRow[];
+    const buildStatsRows = (buildStatsResult.data || []) as BuildStatRow[];
 
     let stores: AppCloudStoreRow[] = [];
     let storeUsageStats: StoreUsageStatsRow[] = [];
@@ -1223,6 +1267,124 @@ export async function GET() {
       successfulRevenueOrders.length > 0 ? totalPaidAmountCents / successfulRevenueOrders.length : 0;
     const arppuCents = realPaidUserCount > 0 ? totalPaidAmountCents / realPaidUserCount : 0;
 
+    const todayKey = formatDateOnly(new Date().toISOString());
+
+    const todayVisits = pageViewLogs.filter((row) => formatDateOnly(row.viewed_at) === todayKey).length;
+    const visits7d = pageViewLogs.filter((row) => isWithinDays(row.viewed_at, 7, nowMs)).length;
+    const visits30d = pageViewLogs.filter((row) => isWithinDays(row.viewed_at, 30, nowMs)).length;
+    const visitsTotal = pageViewLogs.length;
+
+    const successfulFreeBuildRows = buildStatsRows.filter(
+      (row) => (row.plan || "").trim().toLowerCase() === "free" && row.status === "success",
+    );
+
+    const freeGenerateToday = successfulFreeBuildRows.filter(
+      (row) => formatDateOnly(row.created_at) === todayKey,
+    ).length;
+    const freeGenerate7d = successfulFreeBuildRows.filter((row) =>
+      isWithinDays(row.created_at, 7, nowMs),
+    ).length;
+    const freeGenerate30d = successfulFreeBuildRows.filter((row) =>
+      isWithinDays(row.created_at, 30, nowMs),
+    ).length;
+    const freeGenerateTotal = successfulFreeBuildRows.length;
+
+    const paidGenerateToday = successfulGenerateOrders.filter(
+      (row) => formatDateOnly(pickRevenueOrderTime(row)) === todayKey,
+    ).length;
+    const paidGenerate7d = successfulGenerateOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 7, nowMs),
+    ).length;
+    const paidGenerate30d = successfulGenerateOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 30, nowMs),
+    ).length;
+    const paidGenerateTotal = successfulGenerateOrders.length;
+
+    const paidGenerateIncomeTodayCents = successfulGenerateOrders
+      .filter((row) => formatDateOnly(pickRevenueOrderTime(row)) === todayKey)
+      .reduce((sum, row) => sum + (row.amount_total || 0), 0);
+    const paidGenerateIncome7dCents = successfulGenerateOrders
+      .filter((row) => isRevenueOrderWithinDays(row, 7, nowMs))
+      .reduce((sum, row) => sum + (row.amount_total || 0), 0);
+    const paidGenerateIncome30dCents = successfulGenerateOrders
+      .filter((row) => isRevenueOrderWithinDays(row, 30, nowMs))
+      .reduce((sum, row) => sum + (row.amount_total || 0), 0);
+    const paidGenerateIncomeTotalCents = successfulGenerateOrders.reduce(
+      (sum, row) => sum + (row.amount_total || 0),
+      0,
+    );
+
+    const renew30SuccessOrders = successfulRenewOrders.filter(
+      (row) => (row.renew_id || "").trim() === "30d",
+    );
+    const renew60SuccessOrders = successfulRenewOrders.filter(
+      (row) => (row.renew_id || "").trim() === "90d",
+    );
+    const renew120SuccessOrders = successfulRenewOrders.filter(
+      (row) => (row.renew_id || "").trim() === "180d",
+    );
+
+    const renew30Today = renew30SuccessOrders.filter(
+      (row) => formatDateOnly(pickRevenueOrderTime(row)) === todayKey,
+    ).length;
+    const renew30_7d = renew30SuccessOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 7, nowMs),
+    ).length;
+    const renew30_30d = renew30SuccessOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 30, nowMs),
+    ).length;
+    const renew30Total = renew30SuccessOrders.length;
+
+    const renew60Today = renew60SuccessOrders.filter(
+      (row) => formatDateOnly(pickRevenueOrderTime(row)) === todayKey,
+    ).length;
+    const renew60_7d = renew60SuccessOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 7, nowMs),
+    ).length;
+    const renew60_30d = renew60SuccessOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 30, nowMs),
+    ).length;
+    const renew60Total = renew60SuccessOrders.length;
+
+    const renew120Today = renew120SuccessOrders.filter(
+      (row) => formatDateOnly(pickRevenueOrderTime(row)) === todayKey,
+    ).length;
+    const renew120_7d = renew120SuccessOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 7, nowMs),
+    ).length;
+    const renew120_30d = renew120SuccessOrders.filter((row) =>
+      isRevenueOrderWithinDays(row, 30, nowMs),
+    ).length;
+    const renew120Total = renew120SuccessOrders.length;
+
+    const renewIncomeTodayCents = successfulRenewOrders
+      .filter((row) => formatDateOnly(pickRevenueOrderTime(row)) === todayKey)
+      .reduce((sum, row) => sum + (row.amount_total || 0), 0);
+    const renewIncome7dCents = successfulRenewOrders
+      .filter((row) => isRevenueOrderWithinDays(row, 7, nowMs))
+      .reduce((sum, row) => sum + (row.amount_total || 0), 0);
+    const renewIncome30dCents = successfulRenewOrders
+      .filter((row) => isRevenueOrderWithinDays(row, 30, nowMs))
+      .reduce((sum, row) => sum + (row.amount_total || 0), 0);
+    const renewIncomeTotalCents = successfulRenewOrders.reduce(
+      (sum, row) => sum + (row.amount_total || 0),
+      0,
+    );
+
+    const totalIncomeTodayCents = successfulRevenueOrders
+      .filter((row) => formatDateOnly(pickRevenueOrderTime(row)) === todayKey)
+      .reduce((sum, row) => sum + (row.amount_total || 0), 0);
+    const totalIncome7dCents = successfulRevenueOrders
+      .filter((row) => isRevenueOrderWithinDays(row, 7, nowMs))
+      .reduce((sum, row) => sum + (row.amount_total || 0), 0);
+    const totalIncome30dCents = successfulRevenueOrders
+      .filter((row) => isRevenueOrderWithinDays(row, 30, nowMs))
+      .reduce((sum, row) => sum + (row.amount_total || 0), 0);
+    const totalIncomeTotalCents = successfulRevenueOrders.reduce(
+      (sum, row) => sum + (row.amount_total || 0),
+      0,
+    );
+
     const publishedAnnouncements = announcements.filter(
       (row) => (row.status || "").toLowerCase() === "published",
     ).length;
@@ -1313,42 +1475,39 @@ export async function GET() {
 
     const summaryMetrics: Metric[] = [
       {
-        title: "页面访问 7 天",
-        value: formatCount(frontendSnapshot.pageViews7d || 0),
-        hint: `访客 ${formatCount(frontendSnapshot.pageVisitors7d || 0)}`,
+        title: "当天访问量",
+        value: formatCount(todayVisits),
+        hint: `7天 ${formatCount(visits7d)} / 30天 ${formatCount(visits30d)}`,
       },
       {
-        title: "当前排队",
-        value: formatCount(queuedBuilds),
-        hint: `构建中 ${formatCount(runningBuilds)}`,
+        title: "当天免费生成次数",
+        value: formatCount(freeGenerateToday),
+        hint: `总计 ${formatCount(freeGenerateTotal)}`,
       },
       {
-        title: "有效商户",
-        value: formatCount(effectiveStores),
-        hint: `试用 ${formatCount(trialStores)} / 付费 ${formatCount(paidStores)}`,
+        title: "当天付费生成次数",
+        value: formatCount(paidGenerateToday),
+        hint: `总计 ${formatCount(paidGenerateTotal)}`,
       },
       {
-        title: "未来 7 天到期",
-        value: formatCount(expiring7dStores.length),
-        hint: `删库预警 ${formatCount(deleting7dStores.length)}`,
+        title: "当天总收入",
+        value: formatMoneyUsdFromCents(totalIncomeTodayCents),
+        hint: `总计 ${formatMoneyUsdFromCents(totalIncomeTotalCents)}`,
       },
     ];
 
     const tabs: Record<string, TabData> = {
       dashboard: {
         metrics: [
-          { title: "总用户数", value: formatCount(frontendSnapshot.totalUsers || 0), hint: "profiles" },
-          { title: "页面访问 7 天", value: formatCount(frontendSnapshot.pageViews7d || 0), hint: `访客 ${formatCount(frontendSnapshot.pageVisitors7d || 0)}` },
-          { title: "总构建数", value: formatCount(totalBuilds), hint: "builds" },
-          { title: "构建成功率", value: formatPercent(buildSuccessRate), hint: `成功 ${formatCount(successBuilds)} / 失败 ${formatCount(failedBuilds)}` },
-          { title: "有效商户", value: formatCount(effectiveStores), hint: `只读 ${formatCount(readOnlyStores)} / 已删 ${formatCount(deletedStores)}` },
-          { title: "商品总数", value: formatCount(dishes.length), hint: `分类 ${formatCount(categories.length)} / 图片 ${formatCount(dishImages.length)}` },
-          { title: "公告总数", value: formatCount(announcements.length), hint: `已发布 ${formatCount(publishedAnnouncements)} / 草稿 ${formatCount(draftAnnouncements)}` },
-          { title: "全站消息总数", value: formatCount(totalSiteMessages), hint: `App 云端未读 ${formatCount(unreadMessages)} / 站内聊天 ${formatCount(supportChatSnapshot.totalMessages || 0)}` },
-          { title: "线索总数", value: formatCount(leads.length), hint: `7天 ${formatCount(Array.from(leadsByStore7d.values()).reduce((a, b) => a + b, 0))}` },
-          { title: "注册设备总数", value: formatCount(totalRegisteredDevices), hint: `受众 ${formatCount(pushAudienceMap.size)} 类` },
-          { title: "激活 membership", value: formatCount(activeMemberships), hint: "store_memberships.is_active" },
-          { title: "business_status 类型", value: formatCount(businessStatusMap.size), hint: "store_profiles.business_status" },
+          { title: "当天访问量", value: formatCount(todayVisits), hint: `7天 ${formatCount(visits7d)} / 30天 ${formatCount(visits30d)} / 总计 ${formatCount(visitsTotal)}` },
+          { title: "当天免费生成次数", value: formatCount(freeGenerateToday), hint: `7天 ${formatCount(freeGenerate7d)} / 30天 ${formatCount(freeGenerate30d)} / 总计 ${formatCount(freeGenerateTotal)}` },
+          { title: "当天付费生成次数", value: formatCount(paidGenerateToday), hint: `7天 ${formatCount(paidGenerate7d)} / 30天 ${formatCount(paidGenerate30d)} / 总计 ${formatCount(paidGenerateTotal)}` },
+          { title: "当天付费生成收入", value: formatMoneyUsdFromCents(paidGenerateIncomeTodayCents), hint: `7天 ${formatMoneyUsdFromCents(paidGenerateIncome7dCents)} / 30天 ${formatMoneyUsdFromCents(paidGenerateIncome30dCents)} / 总计 ${formatMoneyUsdFromCents(paidGenerateIncomeTotalCents)}` },
+          { title: "当天云端续费收入", value: formatMoneyUsdFromCents(renewIncomeTodayCents), hint: `7天 ${formatMoneyUsdFromCents(renewIncome7dCents)} / 30天 ${formatMoneyUsdFromCents(renewIncome30dCents)} / 总计 ${formatMoneyUsdFromCents(renewIncomeTotalCents)}` },
+          { title: "当天总收入", value: formatMoneyUsdFromCents(totalIncomeTodayCents), hint: `7天 ${formatMoneyUsdFromCents(totalIncome7dCents)} / 30天 ${formatMoneyUsdFromCents(totalIncome30dCents)} / 总计 ${formatMoneyUsdFromCents(totalIncomeTotalCents)}` },
+          { title: "当天30天档云端续费次数", value: formatCount(renew30Today), hint: `7天 ${formatCount(renew30_7d)} / 30天 ${formatCount(renew30_30d)} / 总计 ${formatCount(renew30Total)}` },
+          { title: "当天60天档云端续费次数", value: formatCount(renew60Today), hint: `7天 ${formatCount(renew60_7d)} / 30天 ${formatCount(renew60_30d)} / 总计 ${formatCount(renew60Total)}` },
+          { title: "当天120天档云端续费次数", value: formatCount(renew120Today), hint: `7天 ${formatCount(renew120_7d)} / 30天 ${formatCount(renew120_30d)} / 总计 ${formatCount(renew120Total)}` },
         ],
         tables: [
           {
@@ -1425,13 +1584,10 @@ export async function GET() {
 
       users: {
         metrics: [
+          { title: "当天免费生成次数", value: formatCount(freeGenerateToday), hint: `7天 ${formatCount(freeGenerate7d)} / 30天 ${formatCount(freeGenerate30d)} / 总免费生成次数 ${formatCount(freeGenerateTotal)}` },
+          { title: "当天付费生成次数", value: formatCount(paidGenerateToday), hint: `7天 ${formatCount(paidGenerate7d)} / 30天 ${formatCount(paidGenerate30d)} / 总计付费生成次数 ${formatCount(paidGenerateTotal)}` },
           { title: "注册用户", value: formatCount(frontendSnapshot.totalUsers || 0), hint: "profiles" },
           { title: "7天活跃用户", value: formatCount(frontendSnapshot.activeUsers7d || 0), hint: "user_operation_logs" },
-          { title: "页面访问 7 天", value: formatCount(frontendSnapshot.pageViews7d || 0), hint: `访客 ${formatCount(frontendSnapshot.pageVisitors7d || 0)}` },
-          { title: "登录成功", value: formatCount(frontendSnapshot.loginSuccessCount || 0), hint: "login_success" },
-          { title: "登录回调失败", value: formatCount(frontendSnapshot.authCallbackFailedCount || 0), hint: "auth_callback_failed" },
-          { title: "构建失败事件", value: formatCount(frontendSnapshot.buildFailedEventCount || 0), hint: "build_failed" },
-          { title: "下载失败事件", value: formatCount(frontendSnapshot.downloadFailedCount || 0), hint: "download_failed" },
           { title: "真实付费用户", value: formatCount(realPaidUserCount), hint: "按 web_stripe_orders status=processed 去重 user_id" },
           { title: "真实复购用户", value: formatCount(realRepeatPaidUserCount), hint: "成功支付次数 > 1" },
           { title: "生成付费用户", value: formatCount(successfulGeneratePaidUserSet.size), hint: "generate_app processed 去重 user_id" },
@@ -1484,6 +1640,10 @@ export async function GET() {
 
       revenue: {
         metrics: [
+          { title: "当天付费生成收入", value: formatMoneyUsdFromCents(paidGenerateIncomeTodayCents), hint: `7天 ${formatMoneyUsdFromCents(paidGenerateIncome7dCents)} / 30天 ${formatMoneyUsdFromCents(paidGenerateIncome30dCents)} / 总计付费生成收入 ${formatMoneyUsdFromCents(paidGenerateIncomeTotalCents)}` },
+          { title: "当天云端续费收入", value: formatMoneyUsdFromCents(renewIncomeTodayCents), hint: `7天 ${formatMoneyUsdFromCents(renewIncome7dCents)} / 30天 ${formatMoneyUsdFromCents(renewIncome30dCents)} / 总计云端续费收入 ${formatMoneyUsdFromCents(renewIncomeTotalCents)}` },
+          { title: "当天总收入", value: formatMoneyUsdFromCents(totalIncomeTodayCents), hint: `7天 ${formatMoneyUsdFromCents(totalIncome7dCents)} / 30天 ${formatMoneyUsdFromCents(totalIncome30dCents)} / 总计收入 ${formatMoneyUsdFromCents(totalIncomeTotalCents)}` },
+          { title: "当天付费生成次数", value: formatCount(paidGenerateToday), hint: `7天 ${formatCount(paidGenerate7d)} / 30天 ${formatCount(paidGenerate30d)} / 总计付费生成次数 ${formatCount(paidGenerateTotal)}` },
           { title: "订单总数", value: formatCount(revenueOrders.length), hint: "web_stripe_orders" },
           { title: "支付成功", value: formatCount(successfulRevenueOrders.length), hint: "status=processed" },
           { title: "支付处理中", value: formatCount(processingRevenueOrders.length), hint: "status=processing" },
@@ -1684,6 +1844,9 @@ export async function GET() {
 
       content: {
         metrics: [
+          { title: "当天30天档云端续费次数", value: formatCount(renew30Today), hint: `7天 ${formatCount(renew30_7d)} / 30天 ${formatCount(renew30_30d)} / 总计30天档云端续费次数 ${formatCount(renew30Total)}` },
+          { title: "当天60天档云端续费次数", value: formatCount(renew60Today), hint: `7天 ${formatCount(renew60_7d)} / 30天 ${formatCount(renew60_30d)} / 总计60天档云端续费次数 ${formatCount(renew60Total)}` },
+          { title: "当天120天档云端续费次数", value: formatCount(renew120Today), hint: `7天 ${formatCount(renew120_7d)} / 30天 ${formatCount(renew120_30d)} / 总计120天档云端续费次数 ${formatCount(renew120Total)}` },
           { title: "分类总数", value: formatCount(categories.length), hint: "categories" },
           { title: "商品总数", value: formatCount(dishes.length), hint: `推荐 ${formatCount(recommendedDishes)} / 折扣 ${formatCount(discountedDishes)}` },
           { title: "售罄商品", value: formatCount(soldOutDishes), hint: `隐藏 ${formatCount(hiddenDishes)}` },
