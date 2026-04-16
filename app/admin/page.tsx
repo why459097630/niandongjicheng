@@ -1131,21 +1131,6 @@ export default function AdminPage() {
           })}
         </div>
 
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-bold tracking-[-0.03em] text-slate-950">{activeTab?.label}</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              真实接口模式。当前后台已收口为 4 个核心模块 + 4 个功能页，只保留当前阶段真正需要使用的统计与操作入口。
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Pill>单页面控制台</Pill>
-            <Pill>顶部 Tab 切换</Pill>
-            <Pill>真实数据优先</Pill>
-            {alertBadgeCount > 0 ? <Pill>待处置支付异常 {alertBadgeCount}</Pill> : null}
-          </div>
-        </div>
-
         {actionMessage ? (
           <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
             {actionMessage}
@@ -1460,8 +1445,7 @@ export default function AdminPage() {
             {tab !== "chat" && activeData.notes && activeData.notes.length > 0 ? <EmptyState lines={activeData.notes} /> : null}
 
             {tab === "chat" ? (
-              <section className="rounded-[28px] border border-white/70 bg-white/82 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl md:p-6">
-                <h3 className="mb-3 text-lg font-bold tracking-[-0.03em] text-slate-900">聊天操作面板</h3>
+              <section className="rounded-[28px] border border-white/70 bg-white/82 p-3 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl md:p-4">
                 <AdminChatPanel />
               </section>
             ) : null}
