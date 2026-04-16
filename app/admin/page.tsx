@@ -695,17 +695,20 @@ export default function AdminPage() {
     return {
       overview_core: {
         metrics: pickMetricsFromTabs(sourceTabs, [
+          { tab: "dashboard", title: "页面访问 7 天", alias: "7天访问次数" },
           { tab: "revenue", title: "7天收入" },
-          { tab: "users", title: "真实付费用户" },
+          { tab: "revenue", title: "支付成功", alias: "成功订单数" },
           { tab: "revenue", title: "Checkout→Paid 转化率" },
+          { tab: "builds", title: "构建总数" },
+          { tab: "builds", title: "成功构建" },
+          { tab: "builds", title: "失败构建" },
           { tab: "stores", title: "有效 Store", alias: "有效商户" },
-          { tab: "builds", title: "构建成功率" },
           { tab: "alerts", title: "今日构建失败", alias: "系统异常数" },
         ]),
         tables: [],
         notes: [
-          "这个模块是老板视角总览，只抽取最核心的 6 个指标。",
-          "数据全部复用现有 overview 接口，不新增后端统计逻辑。",
+          "这个模块是老板视角总览，优先展示流量、收入、转化、构建、商户这5类核心信息。",
+          "数据全部复用现有 overview 接口，不新增后端统计逻辑，只做前端重排和提权展示。",
         ],
       },
       revenue_core: {
