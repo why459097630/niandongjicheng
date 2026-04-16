@@ -695,27 +695,28 @@ export default function AdminPage() {
     return {
       overview_core: {
         metrics: pickMetricsFromTabs(sourceTabs, [
-          { tab: "dashboard", title: "页面访问 7 天", alias: "7天访问次数" },
-          { tab: "revenue", title: "7天收入" },
-          { tab: "revenue", title: "支付成功", alias: "成功订单数" },
-          { tab: "revenue", title: "Checkout→Paid 转化率" },
-          { tab: "builds", title: "构建总数" },
-          { tab: "builds", title: "成功构建" },
-          { tab: "builds", title: "失败构建" },
-          { tab: "stores", title: "有效 Store", alias: "有效商户" },
-          { tab: "alerts", title: "今日构建失败", alias: "系统异常数" },
+          { tab: "dashboard", title: "当天访问量" },
+          { tab: "dashboard", title: "当天免费生成次数" },
+          { tab: "dashboard", title: "当天付费生成次数" },
+          { tab: "dashboard", title: "当天付费生成收入" },
+          { tab: "dashboard", title: "当天云端续费收入" },
+          { tab: "dashboard", title: "当天总收入" },
+          { tab: "dashboard", title: "当天30天档云端续费次数" },
+          { tab: "dashboard", title: "当天60天档云端续费次数" },
+          { tab: "dashboard", title: "当天120天档云端续费次数" },
         ]),
         tables: [],
         notes: [
-          "这个模块是老板视角总览，优先展示流量、收入、转化、构建、商户这5类核心信息。",
-          "数据全部复用现有 overview 接口，不新增后端统计逻辑，只做前端重排和提权展示。",
+          "这一页是你截图那 9 组统计的总览入口。",
+          "这里只放今天口径，7天 / 30天 / 总计都放在指标 hint 里直接显示。",
         ],
       },
       revenue_core: {
         metrics: pickMetricsFromTabs(sourceTabs, [
-          { tab: "revenue", title: "今日收入" },
-          { tab: "revenue", title: "7天收入" },
-          { tab: "revenue", title: "30天收入" },
+          { tab: "revenue", title: "当天付费生成收入" },
+          { tab: "revenue", title: "当天云端续费收入" },
+          { tab: "revenue", title: "当天总收入" },
+          { tab: "revenue", title: "当天付费生成次数" },
           { tab: "revenue", title: "订单总数" },
           { tab: "revenue", title: "支付成功" },
           { tab: "revenue", title: "总收入" },
@@ -728,12 +729,14 @@ export default function AdminPage() {
         ]),
         tables: mergeTablesFromTabs(sourceTabs, ["revenue"]),
         notes: [
-          "这个模块只看钱和支付转化。",
-          "当前先直接复用原 revenue Tab 的现成统计和表格。",
+          "这一页专门放你截图里的所有收入统计。",
+          "付费生成收入、云端续费收入、总收入都在这里看。",
         ],
       },
       users_core: {
         metrics: pickMetricsFromTabs(sourceTabs, [
+          { tab: "users", title: "当天免费生成次数" },
+          { tab: "users", title: "当天付费生成次数" },
           { tab: "users", title: "注册用户" },
           { tab: "users", title: "7天活跃用户" },
           { tab: "users", title: "真实付费用户" },
@@ -753,13 +756,13 @@ export default function AdminPage() {
           ) || []),
         ],
         notes: [
-          "这一页只保留6个最核心指标（用户规模 / 付费 / 商户 / 到期）。",
-          "其余数据全部下沉到表格层，避免指标区信息爆炸。",
-          "结构分为：用户价值 → 用户质量 → 商户结构 → 生命周期。",
+          "这一页放你截图里的免费生成次数和付费生成次数统计。",
+          "7天 / 30天 / 总计已经直接挂在每个指标的说明里。",
         ],
       },
       system_core: {
         metrics: pickMetricsFromTabs(sourceTabs, [
+          { tab: "dashboard", title: "当天访问量" },
           { tab: "builds", title: "构建总数" },
           { tab: "builds", title: "成功构建" },
           { tab: "builds", title: "失败构建" },
@@ -781,8 +784,8 @@ export default function AdminPage() {
           ) || []),
         ],
         notes: [
-          "这个模块只看构建、异常、云端状态和系统稳定性。",
-          "当前先把 builds / alerts / cloud 的系统类统计集中展示。",
+          "这一页把你截图里的访问量统计放到系统层。",
+          "因为访问统计本质上属于网站运行侧指标。",
         ],
       },
     };
@@ -863,27 +866,23 @@ export default function AdminPage() {
       }),
       content: {
         metrics: pickMetricsFromTabs(sourceTabs, [
-          // 👇 第一层：内容 + 互动核心指标（只留6个）
-          { tab: "content", title: "商品浏览" },
-          { tab: "content", title: "公告点击" },
+          { tab: "content", title: "当天30天档云端续费次数" },
+          { tab: "content", title: "当天60天档云端续费次数" },
+          { tab: "content", title: "当天120天档云端续费次数" },
           { tab: "chat", title: "总会话数" },
           { tab: "chat", title: "总消息数" },
-          { tab: "chat", title: "今日新会话" },
-          { tab: "chat", title: "待回复会话" },
+          { tab: "chat", title: "今日新增会话" },
+          { tab: "chat", title: "超时未回复会话" },
         ]),
 
         tables: [
-          // 👇 第二层：内容使用（浏览 / 点击）
           ...(sourceTabs.content?.tables || []),
-
-          // 👇 第三层：聊天明细（会话 / 消息）
           ...(sourceTabs.chat?.tables || []),
         ],
 
         notes: [
-          "这一页只保留6个核心指标（内容浏览 + 聊天互动）。",
-          "结构分为：内容使用 → 聊天互动，避免统计混在一起。",
-          "聊天统计已从 chat 页迁移到这里，chat 页只负责操作。",
+          "这一页放你截图里的 30天档 / 60天档 / 120天档 云端续费次数统计。",
+          "云端续费收入放在核心收入页，续费次数结构放在内容与使用情况页。",
         ],
       },
       chat: {
