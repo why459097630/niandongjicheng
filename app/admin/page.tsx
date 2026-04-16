@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AdminChatPanel from "@/components/chat/AdminChatPanel";
+import SiteHeader from "@/components/layout/SiteHeader";
 
 const tabs = [
   { key: "overview_core", label: "核心总览" },
@@ -1135,7 +1136,9 @@ export default function AdminPage() {
     <main className="min-h-screen bg-[#f8fafc] text-slate-900">
       <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_45%,#e2e8f0_100%),radial-gradient(circle_at_top,rgba(168,85,247,0.10),transparent_36%),radial-gradient(circle_at_right,rgba(59,130,246,0.08),transparent_28%)]" />
 
-      <div className="mx-auto max-w-7xl px-6 pb-12 pt-8">
+      <SiteHeader compact nextPath="/admin" />
+
+      <div className="mx-auto max-w-7xl px-6 pb-12 pt-6">
         <div className="mb-8 rounded-[32px] border border-white/70 bg-white/78 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl md:p-8">
           <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
             <div>
