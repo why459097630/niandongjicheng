@@ -1460,9 +1460,10 @@ export default function AdminPage() {
             {tab !== "chat" && activeData.notes && activeData.notes.length > 0 ? <EmptyState lines={activeData.notes} /> : null}
 
             {tab === "chat" ? (
-              <SectionCard title="聊天操作面板" description="这里只保留站内聊天操作，聊天统计已并入“内容与使用情况”页。">
+              <section className="rounded-[28px] border border-white/70 bg-white/82 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl md:p-6">
+                <h3 className="mb-3 text-lg font-bold tracking-[-0.03em] text-slate-900">聊天操作面板</h3>
                 <AdminChatPanel />
-              </SectionCard>
+              </section>
             ) : null}
           </div>
         )}
