@@ -124,6 +124,7 @@ export default function AdminChatPanel() {
   const [autoReplyDelay, setAutoReplyDelay] = useState(10);
   const [autoReplyLoading, setAutoReplyLoading] = useState(true);
   const [autoReplySaving, setAutoReplySaving] = useState(false);
+  const [autoReplyNotice, setAutoReplyNotice] = useState("");
 
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) || null,
@@ -285,6 +286,7 @@ export default function AdminChatPanel() {
   const loadAutoReplySettings = useCallback(async () => {
     try {
       setAutoReplyLoading(true);
+      setAutoReplyNotice("");
 
       const response = await fetch("/api/chat/admin/auto-reply", {
         method: "GET",
@@ -316,12 +318,14 @@ export default function AdminChatPanel() {
 
     if (!nextText) {
       setMessageError("自动回复内容不能为空。");
+      setAutoReplyNotice("");
       return;
     }
 
     try {
       setAutoReplySaving(true);
       setMessageError(null);
+      setAutoReplyNotice("");
 
       const response = await fetch("/api/chat/admin/auto-reply", {
         method: "POST",
@@ -348,8 +352,10 @@ export default function AdminChatPanel() {
           ? Math.max(0, Math.min(300, Math.floor(Number(json.settings.delaySeconds))))
           : 10
       );
+      setAutoReplyNotice("自动回复设置已保存。");
     } catch (error) {
       setMessageError(error instanceof Error ? error.message : "Failed to save auto reply settings.");
+      setAutoReplyNotice("");
     } finally {
       setAutoReplySaving(false);
     }
@@ -516,7 +522,7 @@ export default function AdminChatPanel() {
   return (
     <section className="min-h-0">
 
-      <section className="grid h-[min(78vh,900px)] min-h-[680px] gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
+      <section className="grid h-[min(86vh,980px)] min-h-[760px] gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col rounded-[24px] border border-white/70 bg-white/78 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
 
           <div className="mb-3 grid grid-cols-3 gap-2">
@@ -665,9 +671,10 @@ export default function AdminChatPanel() {
                   onClick={() => {
                     void saveAutoReplySettings();
                   }}
-                  className="rounded-full bg-fuchsia-100 px-3 py-1 text-xs font-semibold text-fuchsia-700"
+                  disabled={autoReplySaving || autoReplyLoading}
+                  className="rounded-full bg-fuchsia-100 px-3 py-1 text-xs font-semibold text-fuchsia-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  保存
+                  {autoReplySaving ? "保存中..." : autoReplyLoading ? "读取中..." : "保存"}
                 </button>
               </div>
 
@@ -677,6 +684,10 @@ export default function AdminChatPanel() {
                 rows={2}
                 className="mt-3 w-full rounded border px-3 py-2 text-sm"
               />
+
+              {autoReplyNotice ? (
+                <div className="mt-2 text-xs font-medium text-emerald-600">{autoReplyNotice}</div>
+              ) : null}
             </div>
           </div>
           <div className="shrink-0 border-b border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.48))] px-6 py-5">
