@@ -1506,8 +1506,8 @@ export async function GET() {
           { title: "当天云端续费收入", value: formatMoneyUsdFromCents(renewIncomeTodayCents), hint: `7天 ${formatMoneyUsdFromCents(renewIncome7dCents)} / 30天 ${formatMoneyUsdFromCents(renewIncome30dCents)} / 总计 ${formatMoneyUsdFromCents(renewIncomeTotalCents)}` },
           { title: "当天总收入", value: formatMoneyUsdFromCents(totalIncomeTodayCents), hint: `7天 ${formatMoneyUsdFromCents(totalIncome7dCents)} / 30天 ${formatMoneyUsdFromCents(totalIncome30dCents)} / 总计 ${formatMoneyUsdFromCents(totalIncomeTotalCents)}` },
           { title: "当天30天档云端续费次数", value: formatCount(renew30Today), hint: `7天 ${formatCount(renew30_7d)} / 30天 ${formatCount(renew30_30d)} / 总计 ${formatCount(renew30Total)}` },
-          { title: "当天60天档云端续费次数", value: formatCount(renew60Today), hint: `7天 ${formatCount(renew60_7d)} / 30天 ${formatCount(renew60_30d)} / 总计 ${formatCount(renew60Total)}` },
-          { title: "当天120天档云端续费次数", value: formatCount(renew120Today), hint: `7天 ${formatCount(renew120_7d)} / 30天 ${formatCount(renew120_30d)} / 总计 ${formatCount(renew120Total)}` },
+          { title: "当天90天档云端续费次数", value: formatCount(renew60Today), hint: `7天 ${formatCount(renew60_7d)} / 30天 ${formatCount(renew60_30d)} / 总计 ${formatCount(renew60Total)}` },
+          { title: "当天180天档云端续费次数", value: formatCount(renew120Today), hint: `7天 ${formatCount(renew120_7d)} / 30天 ${formatCount(renew120_30d)} / 总计 ${formatCount(renew120Total)}` },
         ],
         tables: [
           {
@@ -1650,16 +1650,12 @@ export async function GET() {
           { title: "支付失败", value: formatCount(failedRevenueOrders.length), hint: "status=failed" },
           { title: "支付取消", value: formatCount(canceledRevenueOrders.length), hint: "status=canceled" },
           { title: "Checkout 已创建", value: formatCount(checkoutCreatedRevenueOrders.length), hint: "status=checkout_created" },
-          { title: "总收入", value: formatMoneyUsdFromCents(totalPaidAmountCents), hint: `生成 ${formatMoneyUsdFromCents(generatePaidAmountCents)} / 续费 ${formatMoneyUsdFromCents(renewPaidAmountCents)}` },
           { title: "生成订单", value: formatCount(generateOrders.length), hint: `成功 ${formatCount(successfulGenerateOrders.length)}` },
           { title: "续费订单", value: formatCount(renewOrders.length), hint: `成功 ${formatCount(successfulRenewOrders.length)}` },
           { title: "Checkout→Paid 转化率", value: formatPercent(checkoutToPaidRate), hint: `${formatCount(paidRevenueOrders.length)} / ${formatCount(paidCheckoutEligibleOrders.length)}` },
           { title: "Paid→Processed 转化率", value: formatPercent(paidToProcessedRate), hint: `${formatCount(successfulRevenueOrders.length)} / ${formatCount(paidRevenueOrders.length)}` },
           { title: "生成支付转化率", value: formatPercent(generateCheckoutToPaidRate), hint: `${formatCount(generatePaidOrLaterOrders.length)} / ${formatCount(generateCheckoutEligibleOrders.length)}` },
           { title: "续费支付转化率", value: formatPercent(renewCheckoutToPaidRate), hint: `${formatCount(renewPaidOrLaterOrders.length)} / ${formatCount(renewCheckoutEligibleOrders.length)}` },
-          { title: "今日收入", value: formatMoneyUsdFromCents(totalPaidAmount1dCents), hint: `成功订单 ${formatCount(successfulRevenueOrders1d.length)}` },
-          { title: "7天收入", value: formatMoneyUsdFromCents(totalPaidAmount7dCents), hint: `成功订单 ${formatCount(successfulRevenueOrders7d.length)}` },
-          { title: "30天收入", value: formatMoneyUsdFromCents(totalPaidAmount30dCents), hint: `成功订单 ${formatCount(successfulRevenueOrders30d.length)}` },
           { title: "客单价", value: formatMoneyUsdFromCents(avgOrderValueCents), hint: "成功支付订单平均金额" },
           { title: "ARPPU", value: formatMoneyUsdFromCents(arppuCents), hint: "真实付费用户平均收入" },
         ],
@@ -1845,8 +1841,8 @@ export async function GET() {
       content: {
         metrics: [
           { title: "当天30天档云端续费次数", value: formatCount(renew30Today), hint: `7天 ${formatCount(renew30_7d)} / 30天 ${formatCount(renew30_30d)} / 总计30天档云端续费次数 ${formatCount(renew30Total)}` },
-          { title: "当天60天档云端续费次数", value: formatCount(renew60Today), hint: `7天 ${formatCount(renew60_7d)} / 30天 ${formatCount(renew60_30d)} / 总计60天档云端续费次数 ${formatCount(renew60Total)}` },
-          { title: "当天120天档云端续费次数", value: formatCount(renew120Today), hint: `7天 ${formatCount(renew120_7d)} / 30天 ${formatCount(renew120_30d)} / 总计120天档云端续费次数 ${formatCount(renew120Total)}` },
+          { title: "当天90天档云端续费次数", value: formatCount(renew60Today), hint: `7天 ${formatCount(renew60_7d)} / 30天 ${formatCount(renew60_30d)} / 总计90天档云端续费次数 ${formatCount(renew60Total)}` },
+          { title: "当天180天档云端续费次数", value: formatCount(renew120Today), hint: `7天 ${formatCount(renew120_7d)} / 30天 ${formatCount(renew120_30d)} / 总计180天档云端续费次数 ${formatCount(renew120Total)}` },
           { title: "分类总数", value: formatCount(categories.length), hint: "categories" },
           { title: "商品总数", value: formatCount(dishes.length), hint: `推荐 ${formatCount(recommendedDishes)} / 折扣 ${formatCount(discountedDishes)}` },
           { title: "售罄商品", value: formatCount(soldOutDishes), hint: `隐藏 ${formatCount(hiddenDishes)}` },
