@@ -314,7 +314,7 @@ export default function GeneratingPage() {
     if (isPaymentRefundPending) return "Refund in progress";
     if (isPaymentRefunded) return "Refund completed";
     if (effectiveStage === "configuring_build") return "Configuring your app";
-    if (effectiveStage === "queued") return "Waiting in build queue";
+    if (effectiveStage === "queued") return "Currently in queue";
     if (effectiveStage === "success") return "Build completed";
     if (effectiveStage === "failed") {
       return effectiveFailedStep ? ACTIVE_LABEL[effectiveFailedStep] : "Build failed";
@@ -389,30 +389,24 @@ export default function GeneratingPage() {
                 <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Build queue</div>
                 <div className="mt-3 flex items-center justify-center gap-3">
                   <Clock3 className="h-5 w-5 text-sky-500" />
-                  <div className="text-2xl font-bold tracking-[-0.03em]">{currentActivity}</div>
+                  <div className="text-2xl font-bold tracking-[-0.03em]">Currently in queue</div>
                 </div>
-                <div className="mt-3 text-sm leading-7 text-slate-500">{effectiveMessage}</div>
+                <div className="mt-3 text-sm leading-7 text-slate-500">
+                  {effectiveMessage || "Your request is currently waiting for an available build slot."}
+                </div>
 
                 <div className="mt-6 rounded-[24px] border border-slate-200/70 bg-slate-50/80 p-5">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                    Queue position
+                    Queue status
                   </div>
-                  <div className="mt-3">
-                    <div className="flex items-end justify-center gap-3">
-                      <span className="text-4xl font-extrabold tracking-[-0.06em] text-slate-950">
-                        {typeof effectiveQueueAheadCount === "number" ? effectiveQueueAheadCount : "--"}
-                      </span>
-                      <span className="pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-500/80">
-                        {typeof effectiveQueueAheadCount === "number" && effectiveQueueAheadCount === 1 ? "person ahead" : "people ahead"}
-                      </span>
-                    </div>
-                    <div className="mt-1 text-sm leading-6 text-slate-500">
-                      {typeof effectiveQueueAheadCount === "number"
-                        ? effectiveQueueAheadCount === 0
-                          ? "No one is ahead of you. Your build should start very soon."
-                          : `There ${effectiveQueueAheadCount > 1 ? "are" : "is"} ${effectiveQueueAheadCount} ${effectiveQueueAheadCount > 1 ? "people" : "person"} ahead of you in queue.`
-                        : "Queue position is updating..."}
-                    </div>
+                  <div className="mt-3 text-base font-semibold tracking-[-0.02em] text-slate-950">
+                    Your build is currently waiting in queue
+                  </div>
+                  <div className="mt-2 text-sm leading-7 text-slate-500">
+                    You do not need to keep this page open. Once the build is finished, you can go to the History page and download the APK there.
+                  </div>
+                  <div className="mt-2 text-sm leading-7 text-slate-500">
+                    Free builds may take longer during peak times because paid builds are prioritized.
                   </div>
                 </div>
 
@@ -420,7 +414,7 @@ export default function GeneratingPage() {
                   <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400" />
                   <span className="h-2 w-2 animate-pulse rounded-full bg-sky-300 [animation-delay:180ms]" />
                   <span className="h-2 w-2 animate-pulse rounded-full bg-indigo-300 [animation-delay:360ms]" />
-                  <span className="ml-1">We’ll start your build automatically.</span>
+                  <span className="ml-1">You can safely leave this page and check History later.</span>
                 </div>
               </div>
             ) : (
@@ -669,3 +663,4 @@ export default function GeneratingPage() {
     </main>
   );
 }
+

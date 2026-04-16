@@ -127,14 +127,41 @@ async function getBuildQueueMeta(
     record?.status === "queued" || record?.stage === "queued";
 
   if (isQueuedRecord && record?.createdAt) {
-    const queueAheadResult = await supabase
-      .from("builds")
-      .select("id", { head: true, count: "exact" })
-      .eq("status", "queued")
-      .lt("created_at", record.createdAt);
+    const currentPriority = record.buildPriority;
 
-    if (!queueAheadResult.error && typeof queueAheadResult.count === "number") {
-      queueAheadCount = queueAheadResult.count;
+    const countQueued = async (
+      priority: "admin" | "paid" | "free",
+      beforeCreatedAt?: string,
+    ): Promise<number> => {
+      let query = supabase
+        .from("builds")
+        .select("id", { head: true, count: "exact" })
+        .eq("status", "queued")
+        .eq("build_priority", priority);
+
+      if (beforeCreatedAt) {
+        query = query.lt("created_at", beforeCreatedAt);
+      }
+
+      const result = await query;
+      if (result.error || typeof result.count !== "number") {
+        return 0;
+      }
+
+      return result.count;
+    };
+
+    if (currentPriority === "admin") {
+      queueAheadCount = await countQueued("admin", record.createdAt);
+    } else if (currentPriority === "paid") {
+      const adminAhead = await countQueued("admin");
+      const paidAhead = await countQueued("paid", record.createdAt);
+      queueAheadCount = adminAhead + paidAhead;
+    } else {
+      const adminAhead = await countQueued("admin");
+      const paidAhead = await countQueued("paid");
+      const freeAhead = await countQueued("free", record.createdAt);
+      queueAheadCount = adminAhead + paidAhead + freeAhead;
     }
   }
 

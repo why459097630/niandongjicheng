@@ -28,6 +28,8 @@ export type BuildStatusSource =
   | "manual_fix"
   | "unknown";
 
+export type BuildPriority = "admin" | "paid" | "free";
+
 export type PaymentOrderStatus =
   | "created"
   | "checkout_created"
@@ -80,6 +82,7 @@ export type BuildRequest = {
   storeId?: string;
   userId?: string;
   runId?: string;
+  buildPriority?: BuildPriority;
 };
 
 export type CloudServiceStatus = "active" | "read_only" | "deleted";
@@ -92,6 +95,7 @@ export type InternalBuildRecord = {
   uiPackName: string;
   plan: string;
   mode: BuildMode;
+  buildPriority: BuildPriority;
   iconUrl?: string | null;
   iconDataUrl?: string | null;
   adminName?: string;

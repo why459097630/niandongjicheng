@@ -7,12 +7,22 @@ import {
   insertOperationLogOnce,
   updateBuildRecordByRunId,
 } from "./storage";
-import { BuildRequest, StartBuildResponse } from "./types";
+import { BuildPriority, BuildRequest, StartBuildResponse } from "./types";
 
 function normalizePlan(plan: string): string {
   const value = plan.trim().toLowerCase();
   if (!value) return "pro";
   return value;
+}
+
+function normalizeBuildPriority(
+  value: BuildPriority | undefined,
+  plan: string,
+): BuildPriority {
+  if (value === "admin") return "admin";
+  if (value === "paid") return "paid";
+  if (value === "free") return "free";
+  return normalizePlan(plan) === "free" ? "free" : "paid";
 }
 
 function createRunId(): string {
@@ -263,6 +273,7 @@ export async function startBuild(
   const moduleName = input.module?.trim() || "feature-showcase";
   const uiPackName = input.uiPack?.trim() || "ui-pack-showcase-greenpink";
   const plan = normalizePlan(input.plan || "pro");
+  const buildPriority = normalizeBuildPriority(input.buildPriority, plan);
   const adminName = input.adminName?.trim() || "";
   const storeId = input.storeId?.trim() || "";
   const userId = input.userId?.trim() || "";
@@ -305,6 +316,7 @@ export async function startBuild(
         moduleName,
         uiPackName,
         plan,
+        buildPriority,
         storeId,
         status: "queued",
         stage: "queued",
@@ -326,6 +338,7 @@ export async function startBuild(
         moduleName,
         uiPackName,
         plan,
+        buildPriority,
         storeId,
         status: "queued",
         stage: "queued",
@@ -350,6 +363,7 @@ export async function startBuild(
       moduleName,
       uiPackName,
       plan,
+      buildPriority,
       storeId,
       queued: true,
     },
@@ -362,6 +376,7 @@ export async function startBuild(
       moduleName,
       uiPackName,
       plan,
+      buildPriority,
       storeId,
       userId,
       queued: true,
@@ -374,6 +389,7 @@ export async function startBuild(
         module: moduleName,
         uiPack: uiPackName,
         plan,
+        buildPriority,
         adminName,
         storeId,
       },

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   BuildMode,
+  BuildPriority,
   BuildStage,
   BuildStatusSource,
   BuildStatusValue,
@@ -17,6 +18,7 @@ type BuildRow = {
   module_name: string;
   ui_pack_name: string;
   plan: string;
+  build_priority: BuildPriority | null;
   store_id: string | null;
   status: BuildStatusValue;
   stage: string;
@@ -41,6 +43,7 @@ type NewBuildRecordInput = {
   moduleName: string;
   uiPackName: string;
   plan: string;
+  buildPriority: BuildPriority;
   storeId?: string | null;
   status: BuildStatusValue;
   stage: BuildStage;
@@ -63,6 +66,7 @@ type UpdateBuildRecordInput = {
   moduleName?: string;
   uiPackName?: string;
   plan?: string;
+  buildPriority?: BuildPriority;
   storeId?: string | null;
   status?: BuildStatusValue;
   stage?: BuildStage;
@@ -110,6 +114,16 @@ function planToMode(plan: string): BuildMode {
   return normalizePlan(plan) === "free" ? "Free Trial" : "Paid Purchase";
 }
 
+function normalizeBuildPriority(
+  value: string | null | undefined,
+  plan: string,
+): BuildPriority {
+  if (value === "admin") return "admin";
+  if (value === "paid") return "paid";
+  if (value === "free") return "free";
+  return normalizePlan(plan) === "free" ? "free" : "paid";
+}
+
 function normalizeStage(
   status: BuildStatusValue,
   stage: string | null | undefined,
@@ -150,6 +164,7 @@ function mapBuildRow(row: BuildRow): InternalBuildRecord {
     uiPackName: row.ui_pack_name,
     plan: row.plan,
     mode: planToMode(row.plan),
+    buildPriority: normalizeBuildPriority(row.build_priority, row.plan),
     storeId: row.store_id,
     userId: row.user_id,
     requestPath: `requests/${row.run_id}/status.json`,
@@ -182,6 +197,7 @@ function buildInsertPayload(input: NewBuildRecordInput) {
     module_name: input.moduleName,
     ui_pack_name: input.uiPackName,
     plan: normalizePlan(input.plan),
+    build_priority: input.buildPriority,
     store_id: input.storeId ?? null,
     status: input.status,
     stage: input.stage,
@@ -209,6 +225,7 @@ function buildUpdatePayload(input: UpdateBuildRecordInput) {
   if (typeof input.moduleName === "string") payload.module_name = input.moduleName;
   if (typeof input.uiPackName === "string") payload.ui_pack_name = input.uiPackName;
   if (typeof input.plan === "string") payload.plan = normalizePlan(input.plan);
+  if (typeof input.buildPriority === "string") payload.build_priority = input.buildPriority;
   if (input.storeId !== undefined) payload.store_id = input.storeId;
   if (typeof input.status === "string") payload.status = input.status;
   if (typeof input.stage === "string") payload.stage = input.stage;
