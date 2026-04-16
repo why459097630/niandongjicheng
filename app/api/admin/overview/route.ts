@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createServerSupabase } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertAdminAccess } from "@/lib/chat/assertAdminAccess";
 import { getAdminRevenueOrders } from "@/lib/stripe/orders";
 
 type FrontendProfileRow = {
@@ -484,21 +485,19 @@ function rankMapEntries(map: Map<string, number>, limit = 20): Array<[string, nu
 
 export async function GET() {
   try {
-    const authClient = await createServerSupabase();
-    const {
-      data: { user },
-      error: authError,
-    } = await authClient.auth.getUser();
+    const adminCheck = await assertAdminAccess();
 
-    if (authError || !user) {
+    if (!adminCheck.ok) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Please sign in first.",
+          error: adminCheck.error,
         },
-        { status: 401 },
+        { status: adminCheck.status },
       );
     }
+
+    const authClient = await createServerSupabase();
 
     const { data: frontendSnapshotRaw, error: frontendSnapshotError } = await authClient.rpc(
       "admin_frontend_overview",

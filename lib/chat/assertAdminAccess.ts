@@ -35,22 +35,50 @@ export async function assertAdminAccess() {
   const currentEmail = (user.email || "").trim().toLowerCase();
   const currentUserId = user.id;
 
-  const emailMatched = !!currentEmail && emailAllowlist.includes(currentEmail);
-  const userIdMatched = !!currentUserId && userIdAllowlist.includes(currentUserId);
+  if (userIdAllowlist.length > 0) {
+    const userIdMatched = !!currentUserId && userIdAllowlist.includes(currentUserId);
 
-  if ((!emailMatched && !userIdMatched) || (!emailAllowlist.length && !userIdAllowlist.length)) {
+    if (!userIdMatched) {
+      return {
+        ok: false as const,
+        status: 403,
+        error: "Forbidden.",
+        user: null,
+      };
+    }
+
     return {
-      ok: false as const,
-      status: 403,
-      error: "Forbidden.",
-      user: null,
+      ok: true as const,
+      status: 200,
+      error: null,
+      user,
+    };
+  }
+
+  if (emailAllowlist.length > 0) {
+    const emailMatched = !!currentEmail && emailAllowlist.includes(currentEmail);
+
+    if (!emailMatched) {
+      return {
+        ok: false as const,
+        status: 403,
+        error: "Forbidden.",
+        user: null,
+      };
+    }
+
+    return {
+      ok: true as const,
+      status: 200,
+      error: null,
+      user,
     };
   }
 
   return {
-    ok: true as const,
-    status: 200,
-    error: null,
-    user,
+    ok: false as const,
+    status: 403,
+    error: "Forbidden.",
+    user: null,
   };
 }

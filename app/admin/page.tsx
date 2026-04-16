@@ -99,6 +99,12 @@ type AdminOrdersResponse = {
   error?: string;
 };
 
+type AdminAccessResponse = {
+  ok: boolean;
+  isAdmin?: boolean;
+  error?: string;
+};
+
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
 
@@ -566,6 +572,8 @@ function isCoreTab(tab: TabKey) {
 
 export default function AdminPage() {
   const [tab, setTab] = useState<TabKey>("overview_core");
+  const [accessLoading, setAccessLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -581,6 +589,21 @@ export default function AdminPage() {
   >("all");
   const [actionsPage, setActionsPage] = useState(1);
   const actionsPageSize = 10;
+
+  const loadAdminAccess = useCallback(async () => {
+    const response = await fetch("/api/admin/access", {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    const json = (await response.json()) as AdminAccessResponse;
+
+    if (!response.ok || !json.ok || !json.isAdmin) {
+      throw new Error(json.error || "Forbidden.");
+    }
+
+    return true;
+  }, []);
 
   const loadOverview = useCallback(async () => {
     const response = await fetch("/api/admin/overview", {
@@ -630,12 +653,19 @@ export default function AdminPage() {
     let cancelled = false;
 
     async function load() {
+      setAccessLoading(true);
       setLoading(true);
       setOrdersLoading(true);
       setError(null);
       setOrdersError(null);
 
       try {
+        await loadAdminAccess();
+
+        if (!cancelled) {
+          setIsAdmin(true);
+        }
+
         const [overview, orders] = await Promise.all([loadOverview(), loadAdminOrders()]);
 
         if (!cancelled) {
@@ -644,12 +674,14 @@ export default function AdminPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          setIsAdmin(false);
           const message = loadError instanceof Error ? loadError.message : "Failed to load admin data.";
           setError(message);
           setOrdersError(message);
         }
       } finally {
         if (!cancelled) {
+          setAccessLoading(false);
           setLoading(false);
           setOrdersLoading(false);
         }
@@ -661,9 +693,13 @@ export default function AdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [loadAdminOrders, loadOverview]);
+  }, [loadAdminAccess, loadAdminOrders, loadOverview]);
 
   useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+
     let cancelled = false;
 
     async function refreshOverviewOnly() {
@@ -685,7 +721,7 @@ export default function AdminPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [loadOverview]);
+  }, [isAdmin, loadOverview]);
 
   const activeTab = useMemo(() => tabs.find((item) => item.key === tab), [tab]);
 
@@ -1053,6 +1089,46 @@ export default function AdminPage() {
     } finally {
       setActioningOrderId("");
     }
+  }
+
+  if (accessLoading) {
+    return (
+      <main className="min-h-screen bg-[#f8fafc] text-slate-900">
+        <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_45%,#e2e8f0_100%),radial-gradient(circle_at_top,rgba(168,85,247,0.10),transparent_36%),radial-gradient(circle_at_right,rgba(59,130,246,0.08),transparent_28%)]" />
+        <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6 py-16">
+          <div className="w-full rounded-[32px] border border-white/70 bg-white/78 p-8 text-center shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+            <div className="text-sm font-medium text-slate-500">Checking admin access...</div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <main className="min-h-screen bg-[#f8fafc] text-slate-900">
+        <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_45%,#e2e8f0_100%),radial-gradient(circle_at_top,rgba(168,85,247,0.10),transparent_36%),radial-gradient(circle_at_right,rgba(59,130,246,0.08),transparent_28%)]" />
+        <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6 py-16">
+          <div className="w-full rounded-[32px] border border-rose-200 bg-white/90 p-8 text-center shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+            <div className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-rose-600">
+              Admin access denied
+            </div>
+            <h1 className="mt-4 text-3xl font-extrabold tracking-[-0.04em] text-slate-950">你没有权限访问这个后台页</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              只有管理员白名单内的账号可以进入 /admin。
+            </p>
+            <div className="mt-6">
+              <a
+                href="/"
+                className="inline-flex h-[44px] items-center justify-center rounded-full border border-slate-200 bg-white px-6 text-sm font-semibold text-slate-700 shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition hover:bg-slate-50"
+              >
+                返回首页
+              </a>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return (
