@@ -515,14 +515,25 @@ export default function AdminChatPanel() {
 
   return (
     <section className="min-h-0 space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
-        <MetricPill icon={<MessageSquare className="h-4 w-4" />} label="总会话" value={conversations.length} />
-        <MetricPill icon={<Clock3 className="h-4 w-4" />} label="未读" value={unreadCount} />
-        <MetricPill icon={<CheckCircle2 className="h-4 w-4" />} label="已关闭" value={closedCount} />
-      </div>
 
       <section className="grid h-[min(78vh,900px)] min-h-[680px] gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col rounded-[24px] border border-white/70 bg-white/78 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
+
+          <div className="mb-3 grid grid-cols-3 gap-2">
+            <div className="rounded-[12px] bg-slate-100 px-3 py-2 text-center text-xs text-slate-600">
+              <div className="text-[11px] text-slate-400">总会话</div>
+              <div className="text-sm font-semibold text-slate-900">{conversations.length}</div>
+            </div>
+            <div className="rounded-[12px] bg-slate-100 px-3 py-2 text-center text-xs text-slate-600">
+              <div className="text-[11px] text-slate-400">未读</div>
+              <div className="text-sm font-semibold text-slate-900">{unreadCount}</div>
+            </div>
+            <div className="rounded-[12px] bg-slate-100 px-3 py-2 text-center text-xs text-slate-600">
+              <div className="text-[11px] text-slate-400">已关闭</div>
+              <div className="text-sm font-semibold text-slate-900">{closedCount}</div>
+            </div>
+          </div>
+
           <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
             <div>
               <h3 className="bg-gradient-to-r from-fuchsia-600 to-purple-600 bg-clip-text text-lg font-bold tracking-[-0.03em] text-transparent">
@@ -622,8 +633,9 @@ export default function AdminChatPanel() {
         </div>
 
         <div className="flex min-h-0 flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white/78 shadow-[0_18px_54px_rgba(15,23,42,0.06)] backdrop-blur-2xl">
-          <div className="shrink-0 border-b border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.48))] px-6 py-5">
-            <div className="mb-4 rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-4 shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
+
+          <div className="shrink-0 border-b border-white/60 px-6 py-4">
+            <div className="rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-4 shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
                   <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -631,7 +643,7 @@ export default function AdminChatPanel() {
                       type="checkbox"
                       checked={autoReplyEnabled}
                       onChange={(event) => setAutoReplyEnabled(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-fuchsia-600 focus:ring-fuchsia-500"
+                      className="h-4 w-4 rounded border-slate-300 text-fuchsia-600"
                     />
                     开启自动回复
                   </label>
@@ -640,20 +652,9 @@ export default function AdminChatPanel() {
                     <span>延迟</span>
                     <input
                       type="number"
-                      min={0}
-                      max={300}
                       value={autoReplyDelay}
-                      onChange={(event) => {
-                        const value = Number(event.target.value);
-
-                        if (!Number.isFinite(value)) {
-                          setAutoReplyDelay(10);
-                          return;
-                        }
-
-                        setAutoReplyDelay(Math.max(0, Math.min(300, Math.floor(value))));
-                      }}
-                      className="h-[34px] w-[84px] rounded-full border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-fuchsia-300"
+                      onChange={(event) => setAutoReplyDelay(Number(event.target.value))}
+                      className="h-[30px] w-[70px] rounded border px-2 text-sm"
                     />
                     <span>秒</span>
                   </div>
@@ -664,27 +665,21 @@ export default function AdminChatPanel() {
                   onClick={() => {
                     void saveAutoReplySettings();
                   }}
-                  disabled={autoReplySaving || autoReplyLoading}
-                  className="inline-flex h-[36px] items-center justify-center rounded-full border border-fuchsia-200 bg-fuchsia-50 px-4 text-sm font-semibold text-fuchsia-700 transition hover:bg-fuchsia-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-full bg-fuchsia-100 px-3 py-1 text-xs font-semibold text-fuchsia-700"
                 >
-                  {autoReplySaving ? "保存中..." : autoReplyLoading ? "读取中..." : "保存自动回复设置"}
+                  保存
                 </button>
               </div>
 
-              <div className="mt-3">
-                <textarea
-                  value={autoReplyText}
-                  onChange={(event) => setAutoReplyText(event.target.value.slice(0, MAX_ADMIN_REPLY_LENGTH))}
-                  placeholder="请输入自动回复内容..."
-                  rows={2}
-                  maxLength={MAX_ADMIN_REPLY_LENGTH}
-                  className="w-full resize-none rounded-[16px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-fuchsia-300"
-                />
-                <div className="mt-2 text-xs text-slate-500">
-                  服务端生效。游客发送新消息后，即使你没有打开站内聊天页，系统也会按这里保存的设置自动回复。
-                </div>
-              </div>
+              <textarea
+                value={autoReplyText}
+                onChange={(event) => setAutoReplyText(event.target.value)}
+                rows={2}
+                className="mt-3 w-full rounded border px-3 py-2 text-sm"
+              />
             </div>
+          </div>
+          <div className="shrink-0 border-b border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.48))] px-6 py-5">
 
             {selectedConversation ? (
               <div className="flex flex-wrap items-center justify-between gap-4">
