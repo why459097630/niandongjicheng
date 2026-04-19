@@ -371,6 +371,7 @@ export async function startBuild(
   const firebaseAssignment = await resolveFirebaseProjectAssignment(supabase, {
     plan,
     storeId,
+    packageName,
   });
 
   await insertOperationLog(supabase, {
