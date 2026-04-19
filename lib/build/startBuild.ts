@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveFirebaseProjectAssignment } from "../firebase/projectPool";
 import { releaseNextQueuedBuild } from "./releaseNextQueuedBuild";
 import {
   getBuildRecordByRunId,
@@ -82,8 +83,8 @@ function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): stri
   const uiPack = input.uiPack?.trim() || "ui-pack-showcase-greenpink";
   const moduleName = input.module?.trim() || "feature-showcase";
   const appName = input.appName?.trim() || "Untitled App";
-
-  const packageName = `com.ndjc.apps.${runSafeSlug(appName)}.${runSafeSlug(input.storeId).slice(-12) || "a000000"}`;
+  const packageName =
+    input.packageName?.trim() || derivePackageName(appName, input.storeId);
 
   const assembly = {
     template,
@@ -94,6 +95,9 @@ function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): stri
     versionCode: 1,
     versionName: "1.0.0",
     storeId: input.storeId,
+    plan: input.plan || "pro",
+    firebaseProjectId: input.firebaseProjectId || null,
+    firebaseCredentialsEnvKey: input.firebaseCredentialsEnvKey || null,
   };
 
   return JSON.stringify(assembly, null, 2);
@@ -151,6 +155,10 @@ function runSafeSlug(value: string): string {
   return `a${normalized}`;
 }
 
+function derivePackageName(appName: string, storeId: string): string {
+  return `com.ndjc.apps.${runSafeSlug(appName)}.${runSafeSlug(storeId).slice(-12) || "a000000"}`;
+}
+
 async function githubRequest(
   url: string,
   init: RequestInit & { token: string },
@@ -196,6 +204,11 @@ async function uploadBuildRequestToRepo(
     adminName: input.adminName || "",
     iconUrl: input.iconUrl || null,
     iconDataUrl: input.iconDataUrl || null,
+    packageName: input.packageName || null,
+    firebaseProjectId: input.firebaseProjectId || null,
+    firebaseCredentialsEnvKey: input.firebaseCredentialsEnvKey || null,
+    firebaseProjectBucket: input.firebaseProjectBucket ?? null,
+    firebaseProjectSlot: input.firebaseProjectSlot ?? null,
     createdAt: new Date().toISOString(),
     requestPath: `requests/${runId}/status.json`,
   };
@@ -293,6 +306,9 @@ export async function startBuild(
     };
   }
 
+  const packageName =
+    input.packageName?.trim() || derivePackageName(appName, storeId);
+
   const existingRecord = await getBuildRecordByRunId(supabase, runId);
 
   if (
@@ -352,6 +368,11 @@ export async function startBuild(
         lastSyncedAt: null,
       });
 
+  const firebaseAssignment = await resolveFirebaseProjectAssignment(supabase, {
+    plan,
+    storeId,
+  });
+
   await insertOperationLog(supabase, {
     userId,
     buildId: saved.id,
@@ -365,6 +386,12 @@ export async function startBuild(
       plan,
       buildPriority,
       storeId,
+      packageName,
+      firebaseProjectId: firebaseAssignment.firebaseProjectId,
+      firebaseCredentialsEnvKey:
+        firebaseAssignment.firebaseCredentialsEnvKey,
+      firebaseProjectBucket: firebaseAssignment.firebaseProjectBucket,
+      firebaseProjectSlot: firebaseAssignment.firebaseProjectSlot,
       queued: true,
     },
   });
@@ -379,6 +406,12 @@ export async function startBuild(
       buildPriority,
       storeId,
       userId,
+      packageName,
+      firebaseProjectId: firebaseAssignment.firebaseProjectId,
+      firebaseCredentialsEnvKey:
+        firebaseAssignment.firebaseCredentialsEnvKey,
+      firebaseProjectBucket: firebaseAssignment.firebaseProjectBucket,
+      firebaseProjectSlot: firebaseAssignment.firebaseProjectSlot,
       queued: true,
     });
 
@@ -392,6 +425,12 @@ export async function startBuild(
         buildPriority,
         adminName,
         storeId,
+        packageName,
+        firebaseProjectId: firebaseAssignment.firebaseProjectId,
+        firebaseCredentialsEnvKey:
+          firebaseAssignment.firebaseCredentialsEnvKey,
+        firebaseProjectBucket: firebaseAssignment.firebaseProjectBucket,
+        firebaseProjectSlot: firebaseAssignment.firebaseProjectSlot,
       },
       runId,
       {

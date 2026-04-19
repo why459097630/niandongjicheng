@@ -83,6 +83,11 @@ export type BuildRequest = {
   userId?: string;
   runId?: string;
   buildPriority?: BuildPriority;
+  packageName?: string;
+  firebaseProjectId?: string;
+  firebaseCredentialsEnvKey?: string;
+  firebaseProjectBucket?: number;
+  firebaseProjectSlot?: number;
 };
 
 export type CloudServiceStatus = "active" | "read_only" | "deleted";
