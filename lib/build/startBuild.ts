@@ -74,6 +74,32 @@ function parseDataUrl(
   };
 }
 
+function buildPrivacyPolicyUrl(input: BuildRequest & { storeId: string }): string {
+  const provided = input.privacyUrl?.trim();
+
+  if (provided) {
+    return provided;
+  }
+
+  const appName = input.appName?.trim() || "Untitled App";
+  const merchantEmail =
+    input.merchantEmail?.trim() ||
+    input.adminName?.trim().toLowerCase() ||
+    "";
+
+  const siteUrl = (process.env.SITE_URL || "").trim().replace(/\/+$/, "");
+  const baseUrl = siteUrl || "https://你的域名";
+  const params = new URLSearchParams();
+
+  params.set("appName", appName);
+
+  if (merchantEmail) {
+    params.set("merchantEmail", merchantEmail);
+  }
+
+  return `${baseUrl}/privacy/${encodeURIComponent(input.storeId)}?${params.toString()}`;
+}
+
 function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): string {
   const template =
     input.module?.trim() === "feature-showcase"
@@ -85,6 +111,15 @@ function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): stri
   const appName = input.appName?.trim() || "Untitled App";
   const packageName =
     input.packageName?.trim() || derivePackageName(appName, input.storeId);
+  const merchantEmail =
+    input.merchantEmail?.trim() ||
+    input.adminName?.trim().toLowerCase() ||
+    "";
+  const privacyUrl = buildPrivacyPolicyUrl({
+    ...input,
+    appName,
+    merchantEmail,
+  });
 
   const assembly = {
     template,
@@ -95,6 +130,8 @@ function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): stri
     versionCode: 1,
     versionName: "1.0.0",
     storeId: input.storeId,
+    merchantEmail,
+    privacyUrl,
     plan: input.plan || "pro",
     firebaseProjectId: input.firebaseProjectId || null,
     firebaseCredentialsEnvKey: input.firebaseCredentialsEnvKey || null,
@@ -202,6 +239,14 @@ async function uploadBuildRequestToRepo(
     storeId: input.storeId,
     userId: input.userId || "",
     adminName: input.adminName || "",
+    merchantEmail:
+      input.merchantEmail?.trim() ||
+      input.adminName?.trim().toLowerCase() ||
+      "",
+    privacyUrl: buildPrivacyPolicyUrl({
+      ...input,
+      storeId: input.storeId,
+    }),
     iconUrl: input.iconUrl || null,
     iconDataUrl: input.iconDataUrl || null,
     packageName: input.packageName || null,

@@ -214,6 +214,7 @@ export async function POST(request: NextRequest) {
 
     const payload: BuildRequest & {
       adminName?: string;
+      merchantEmail?: string;
       storeId: string;
       iconDataUrl?: string | null;
       userId: string;
@@ -226,6 +227,7 @@ export async function POST(request: NextRequest) {
       iconUrl,
       iconDataUrl,
       adminName,
+      merchantEmail: adminName,
       storeId: provisionResult.storeId,
       userId: user.id,
       buildPriority,

@@ -79,6 +79,8 @@ export type BuildRequest = {
   iconDataUrl?: string | null;
   adminName?: string;
   adminPassword?: string;
+  merchantEmail?: string;
+  privacyUrl?: string;
   storeId?: string;
   userId?: string;
   runId?: string;
