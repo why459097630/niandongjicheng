@@ -4,18 +4,21 @@ import {
 } from "@/lib/privacy/privacyPolicyTemplate";
 
 type PrivacyPageProps = {
-  params: {
+  params: Promise<{
     storeId: string;
-  };
-  searchParams?: Record<string, string | string[] | undefined>;
+  }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default function Page({ params, searchParams }: PrivacyPageProps) {
+export default async function Page({ params, searchParams }: PrivacyPageProps) {
+  const { storeId } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+
   const model = buildPrivacyPolicyPageModel({
-    storeId: params.storeId,
-    appName: searchParams?.appName,
-    merchantEmail: searchParams?.merchantEmail,
-    effectiveDate: searchParams?.effectiveDate,
+    storeId,
+    appName: resolvedSearchParams.appName,
+    merchantEmail: resolvedSearchParams.merchantEmail,
+    effectiveDate: resolvedSearchParams.effectiveDate,
   });
 
   const policyText = renderPrivacyPolicyText(model);
@@ -42,7 +45,7 @@ export default function Page({ params, searchParams }: PrivacyPageProps) {
         </div>
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
-          <pre className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700 font-sans">
+          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-slate-700">
             {policyText}
           </pre>
         </div>
