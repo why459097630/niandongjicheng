@@ -13,6 +13,43 @@ import {
 } from "./types";
 import { getOrderByRunId } from "@/lib/stripe/orders";
 
+type GithubWorkflowRun = {
+  id?: number;
+  name?: string | null;
+  display_title?: string | null;
+  status?: string | null;
+  conclusion?: string | null;
+  html_url?: string | null;
+};
+
+type GithubWorkflowRunsResponse = {
+  workflow_runs?: GithubWorkflowRun[];
+};
+
+type GithubWorkflowJobStep = {
+  name?: string | null;
+  status?: string | null;
+  conclusion?: string | null;
+};
+
+type GithubWorkflowJob = {
+  steps?: GithubWorkflowJobStep[];
+};
+
+type GithubWorkflowJobsResponse = {
+  jobs?: GithubWorkflowJob[];
+};
+
+type WorkflowResolvedState = {
+  workflowRunId: number | null;
+  workflowStatus: string | null;
+  workflowConclusion: string | null;
+  workflowUrl: string | null;
+  stage: BuildStage;
+  failedStep?: StepKey;
+  message: string | null;
+};
+
 function getRequiredEnv(name: string): string {
   const value = (process.env[name] || "").trim();
   if (!value) {
@@ -94,6 +131,162 @@ function normalizeFailedStep(value: unknown): StepKey | undefined {
   if (value === "preparing_services") return "preparing_services";
   if (value === "building_apk") return "building_apk";
   return undefined;
+}
+
+function normalizeWorkflowRunId(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function normalizeWorkflowStatus(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized;
+}
+
+function normalizeWorkflowConclusion(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized;
+}
+
+function stageRank(stage: BuildStage | undefined): number {
+  if (stage === "queued") return 0;
+  if (stage === "configuring_build") return 1;
+  if (stage === "preparing_request") return 2;
+  if (stage === "processing_identity") return 3;
+  if (stage === "matching_logic_module") return 4;
+  if (stage === "applying_ui_pack") return 5;
+  if (stage === "preparing_services") return 6;
+  if (stage === "building_apk") return 7;
+  if (stage === "success") return 100;
+  if (stage === "failed") return 101;
+  return -1;
+}
+
+function messageForStage(stage: BuildStage): string {
+  if (stage === "configuring_build") {
+    return "Payment confirmed. Waiting for build status to sync.";
+  }
+  if (stage === "queued") {
+    return "Your request has been received and is waiting for an available build slot.";
+  }
+  if (stage === "preparing_request") {
+    return "Preparing build request";
+  }
+  if (stage === "processing_identity") {
+    return "Processing app identity";
+  }
+  if (stage === "matching_logic_module") {
+    return "Matching logic module";
+  }
+  if (stage === "applying_ui_pack") {
+    return "Applying UI pack";
+  }
+  if (stage === "preparing_services") {
+    return "Preparing app services and signing";
+  }
+  if (stage === "building_apk") {
+    return "Building and packaging APK";
+  }
+  if (stage === "success") {
+    return "Build completed";
+  }
+  return "Build failed";
+}
+
+function mapWorkflowStepNameToStage(
+  rawName: string | null | undefined,
+): { stage: BuildStage; failedStep?: StepKey } | null {
+  const name = String(rawName || "").trim().toLowerCase();
+
+  if (!name) return null;
+  if (name.includes("init build status")) {
+    return { stage: "preparing_request", failedStep: "preparing_request" };
+  }
+  if (name.includes("materialize request")) {
+    return { stage: "preparing_request", failedStep: "preparing_request" };
+  }
+  if (name.includes("processing identity")) {
+    return { stage: "processing_identity", failedStep: "processing_identity" };
+  }
+  if (name.includes("matching logic module")) {
+    return { stage: "matching_logic_module", failedStep: "matching_logic_module" };
+  }
+  if (name.includes("core-templates assembly")) {
+    return { stage: "applying_ui_pack", failedStep: "applying_ui_pack" };
+  }
+  if (name.includes("applying ui pack")) {
+    return { stage: "applying_ui_pack", failedStep: "applying_ui_pack" };
+  }
+  if (name.includes("resolve firebase credentials")) {
+    return { stage: "preparing_services", failedStep: "preparing_services" };
+  }
+  if (name.includes("google cloud auth")) {
+    return { stage: "preparing_services", failedStep: "preparing_services" };
+  }
+  if (name.includes("set up gcloud")) {
+    return { stage: "preparing_services", failedStep: "preparing_services" };
+  }
+  if (name.includes("prepare firebase config")) {
+    return { stage: "preparing_services", failedStep: "preparing_services" };
+  }
+  if (name.includes("install dependencies")) {
+    return { stage: "preparing_services", failedStep: "preparing_services" };
+  }
+  if (name.includes("set up jdk")) {
+    return { stage: "preparing_services", failedStep: "preparing_services" };
+  }
+  if (name.includes("show settings.gradle")) {
+    return { stage: "preparing_services", failedStep: "preparing_services" };
+  }
+  if (name.includes("list projects & tasks")) {
+    return { stage: "preparing_services", failedStep: "preparing_services" };
+  }
+  if (name.includes("preparing services")) {
+    return { stage: "preparing_services", failedStep: "preparing_services" };
+  }
+  if (name.includes("prepare release keystore")) {
+    return { stage: "building_apk", failedStep: "building_apk" };
+  }
+  if (name.includes("write signing-info")) {
+    return { stage: "building_apk", failedStep: "building_apk" };
+  }
+  if (name.includes("building apk")) {
+    return { stage: "building_apk", failedStep: "building_apk" };
+  }
+  if (name.includes("build release")) {
+    return { stage: "building_apk", failedStep: "building_apk" };
+  }
+  if (name.includes("rename outputs")) {
+    return { stage: "building_apk", failedStep: "building_apk" };
+  }
+  if (name.includes("collect deliverables")) {
+    return { stage: "building_apk", failedStep: "building_apk" };
+  }
+  if (name.includes("upload release artifacts")) {
+    return { stage: "building_apk", failedStep: "building_apk" };
+  }
+  if (name.includes("update status - success")) {
+    return { stage: "success" };
+  }
+  if (name.includes("update status - failed")) {
+    return { stage: "failed" };
+  }
+
+  return null;
 }
 
 async function getBuildQueueMeta(
@@ -206,6 +399,160 @@ async function readRemoteStatusFile(runId: string): Promise<Record<string, unkno
   return JSON.parse(decodeGithubContent(data.content)) as Record<string, unknown>;
 }
 
+async function safeReadRemoteStatusFile(
+  runId: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await readRemoteStatusFile(runId);
+  } catch (error) {
+    console.error("NDJC getBuildStatus: failed to read remote status file", {
+      runId,
+      error: error instanceof Error ? error.message : "unknown_error",
+    });
+    return null;
+  }
+}
+
+async function resolveWorkflowState(
+  runId: string,
+): Promise<WorkflowResolvedState | null> {
+  const token = getRequiredEnv("GH_TOKEN");
+  const owner = getRequiredEnv("GH_OWNER");
+  const repo = getRequiredEnv("GH_REPO");
+  const branch = getRequiredEnv("GH_BRANCH");
+  const workflowId = getRequiredEnv("WORKFLOW_ID");
+
+  const runsResponse = await githubRequest(
+    `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${encodeURIComponent(workflowId)}/runs?branch=${encodeURIComponent(branch)}&event=workflow_dispatch&per_page=30`,
+    {
+      method: "GET",
+      token,
+    },
+  );
+
+  const runsData = (await runsResponse.json()) as GithubWorkflowRunsResponse;
+
+  if (!runsResponse.ok) {
+    throw new Error(`Failed to read workflow runs: ${JSON.stringify(runsData)}`);
+  }
+
+  const matchedRun =
+    (runsData.workflow_runs || []).find((run) => {
+      const displayTitle = String(run.display_title || "");
+      const name = String(run.name || "");
+      return displayTitle.includes(runId) || name.includes(runId);
+    }) || null;
+
+  if (!matchedRun || typeof matchedRun.id !== "number") {
+    return null;
+  }
+
+  const workflowRunId = matchedRun.id;
+  const workflowStatus = normalizeWorkflowStatus(matchedRun.status);
+  const workflowConclusion = normalizeWorkflowConclusion(matchedRun.conclusion);
+  const workflowUrl =
+    typeof matchedRun.html_url === "string" ? matchedRun.html_url : null;
+
+  const jobsResponse = await githubRequest(
+    `https://api.github.com/repos/${owner}/${repo}/actions/runs/${workflowRunId}/jobs?per_page=100`,
+    {
+      method: "GET",
+      token,
+    },
+  );
+
+  const jobsData = (await jobsResponse.json()) as GithubWorkflowJobsResponse;
+
+  if (!jobsResponse.ok) {
+    throw new Error(`Failed to read workflow jobs: ${JSON.stringify(jobsData)}`);
+  }
+
+  let latestMappedStage: BuildStage | undefined = undefined;
+  let latestFailedStep: StepKey | undefined = undefined;
+
+  for (const job of jobsData.jobs || []) {
+    for (const step of job.steps || []) {
+      const mapped = mapWorkflowStepNameToStage(step.name);
+      if (!mapped) continue;
+      if (step.status !== "completed" && step.status !== "in_progress") continue;
+      if (step.conclusion === "skipped") continue;
+
+      latestMappedStage = mapped.stage;
+      if (mapped.failedStep) {
+        latestFailedStep = mapped.failedStep;
+      }
+    }
+  }
+
+  if (workflowConclusion === "success") {
+    return {
+      workflowRunId,
+      workflowStatus,
+      workflowConclusion,
+      workflowUrl,
+      stage: "success",
+      message: "Build completed",
+    };
+  }
+
+  if (workflowConclusion && workflowConclusion !== "success") {
+    return {
+      workflowRunId,
+      workflowStatus,
+      workflowConclusion,
+      workflowUrl,
+      stage: "failed",
+      failedStep: latestFailedStep || "building_apk",
+      message: "Packaging workflow failed. Check GitHub Actions logs.",
+    };
+  }
+
+  if (workflowStatus === "in_progress") {
+    const stage = latestMappedStage || "preparing_request";
+    return {
+      workflowRunId,
+      workflowStatus,
+      workflowConclusion,
+      workflowUrl,
+      stage,
+      failedStep: latestFailedStep,
+      message: messageForStage(stage),
+    };
+  }
+
+  if (
+    workflowStatus === "queued" ||
+    workflowStatus === "requested" ||
+    workflowStatus === "waiting" ||
+    workflowStatus === "pending"
+  ) {
+    return {
+      workflowRunId,
+      workflowStatus,
+      workflowConclusion,
+      workflowUrl,
+      stage: "queued",
+      message: "Your request has been received and is waiting for an available build slot.",
+    };
+  }
+
+  return null;
+}
+
+async function safeResolveWorkflowState(
+  runId: string,
+): Promise<WorkflowResolvedState | null> {
+  try {
+    return await resolveWorkflowState(runId);
+  } catch (error) {
+    console.error("NDJC getBuildStatus: failed to resolve workflow state", {
+      runId,
+      error: error instanceof Error ? error.message : "unknown_error",
+    });
+    return null;
+  }
+}
+
 function mapRecordToResponse(
   record: InternalBuildRecord,
   extra?: {
@@ -299,17 +646,15 @@ function mergeStatus(
       localRecord?.requestPath ??
       `requests/${runId}/status.json`,
     workflowRunId:
-      (typeof remote.workflowRunId === "number" ? remote.workflowRunId : null) ??
+      normalizeWorkflowRunId(remote.workflowRunId) ??
       localRecord?.workflowRunId ??
       null,
     workflowStatus:
-      (typeof remote.workflowStatus === "string" ? remote.workflowStatus : null) ??
+      normalizeWorkflowStatus(remote.workflowStatus) ??
       localRecord?.workflowStatus ??
       null,
     workflowConclusion:
-      (typeof remote.workflowConclusion === "string"
-        ? remote.workflowConclusion
-        : null) ??
+      normalizeWorkflowConclusion(remote.workflowConclusion) ??
       localRecord?.workflowConclusion ??
       null,
     workflowUrl:
@@ -469,6 +814,121 @@ function getPaidCompensationOverride(
   return null;
 }
 
+function shouldPreferWorkflowState(
+  baseStage: BuildStage | undefined,
+  baseStatus: BuildStatusValue | undefined,
+  workflowState: WorkflowResolvedState | null,
+): boolean {
+  if (!workflowState) {
+    return false;
+  }
+
+  if (workflowState.stage === "success" || workflowState.stage === "failed") {
+    return true;
+  }
+
+  if (baseStage === "success" || baseStage === "failed") {
+    return false;
+  }
+
+  if (stageRank(workflowState.stage) > stageRank(baseStage)) {
+    return true;
+  }
+
+  if (
+    workflowState.workflowStatus === "in_progress" &&
+    (baseStatus === "queued" ||
+      baseStage === "queued" ||
+      baseStage === "preparing_request")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function applyWorkflowState(
+  runId: string,
+  base: BuildStatusResponse,
+  workflowState: WorkflowResolvedState,
+): BuildStatusResponse {
+  const applied: BuildStatusResponse = {
+    ...base,
+    stage: workflowState.stage,
+    message:
+      workflowState.stage === "failed"
+        ? base.error || workflowState.message || "Packaging workflow failed. Check GitHub Actions logs."
+        : workflowState.message || base.message,
+    error:
+      workflowState.stage === "failed"
+        ? base.error || "Packaging workflow failed. Check GitHub Actions logs."
+        : base.error,
+    workflowRunId: workflowState.workflowRunId,
+    workflowStatus: workflowState.workflowStatus,
+    workflowConclusion: workflowState.workflowConclusion,
+    workflowUrl: workflowState.workflowUrl,
+    failedStep: workflowState.failedStep ?? base.failedStep,
+  };
+
+  if (workflowState.stage === "success" && !applied.downloadUrl) {
+    applied.downloadUrl = `/api/download-artifact?runId=${runId}`;
+  }
+
+  return applied;
+}
+
+async function syncResolvedStateToLocal(
+  supabase: SupabaseClient,
+  localRecord: InternalBuildRecord,
+  response: BuildStatusResponse,
+  statusSource: "github_status_json" | "manual_fix",
+): Promise<InternalBuildRecord> {
+  const stage = response.stage || localRecord.stage;
+  const status = stageToStatus(stage);
+  const synced = await updateBuildRecordByRunId(supabase, localRecord.runId, {
+    appName: response.appName || localRecord.appName,
+    moduleName: response.moduleName || localRecord.moduleName,
+    uiPackName: response.uiPackName || localRecord.uiPackName,
+    plan: response.plan || localRecord.plan,
+    storeId: response.storeId ?? localRecord.storeId ?? null,
+    status,
+    stage,
+    message: response.message ?? null,
+    workflowRunId: response.workflowRunId ?? null,
+    workflowUrl: response.workflowUrl ?? null,
+    artifactUrl: response.artifactUrl ?? null,
+    downloadUrl: response.downloadUrl ?? null,
+    error: response.error ?? null,
+    failedStep: response.failedStep ?? null,
+    completedAt:
+      status === "success" || status === "failed"
+        ? localRecord.completedAt ?? new Date().toISOString()
+        : undefined,
+    statusSource,
+    lastSyncedAt: new Date().toISOString(),
+  });
+
+  if (status === "failed" && localRecord.userId) {
+    await insertOperationLogOnce(
+      supabase,
+      {
+        userId: localRecord.userId,
+        buildId: localRecord.id,
+        runId: localRecord.runId,
+        eventName: "build_failed",
+        pagePath: "/generating",
+        metadata: {
+          source: statusSource,
+          reason: response.error ?? response.message ?? "build_failed",
+        },
+      },
+      { dedupeSeconds: 60 },
+    ).catch(() => null);
+  }
+
+  return synced;
+}
+
 const PAID_BUILD_INITIALIZATION_TIMEOUT_MS = 180000;
 
 export async function getBuildStatus(
@@ -477,7 +937,8 @@ export async function getBuildStatus(
   options?: { isPaidFlow?: boolean; requestStartTime?: number },
 ): Promise<BuildStatusResponse> {
   const localRecord = await getBuildRecordByRunId(supabase, runId);
-  const remoteStatus = await readRemoteStatusFile(runId);
+  const remoteStatus = await safeReadRemoteStatusFile(runId);
+  const workflowState = await safeResolveWorkflowState(runId);
   const paidOrder = options?.isPaidFlow ? await getOrderByRunId(runId) : null;
 
   if (remoteStatus) {
@@ -492,157 +953,180 @@ export async function getBuildStatus(
       localRecord.stage !== "failed" &&
       remoteNormalizedStatus === "queued";
 
-    const stage = shouldKeepLocalRunning
-      ? localRecord.stage
-      : merged.stage || localRecord?.stage || "queued";
+    let baseResponse: BuildStatusResponse = {
+      ...merged,
+      stage: shouldKeepLocalRunning
+        ? localRecord?.stage
+        : merged.stage || localRecord?.stage || "queued",
+      message: shouldKeepLocalRunning
+        ? localRecord?.message ?? merged.message ?? null
+        : merged.message ?? null,
+    };
 
-    const status = shouldKeepLocalRunning
+    const baseStatus = shouldKeepLocalRunning
       ? "running"
-      : remoteNormalizedStatus || stageToStatus(stage);
+      : remoteNormalizedStatus || stageToStatus(baseResponse.stage);
 
-    const message = shouldKeepLocalRunning
-      ? localRecord?.message ?? merged.message ?? null
-      : merged.message ?? null;
+    if (workflowState && shouldPreferWorkflowState(baseResponse.stage, baseStatus, workflowState)) {
+      baseResponse = applyWorkflowState(runId, baseResponse, workflowState);
+    }
 
     if (localRecord) {
-const synced = await updateBuildRecordByRunId(supabase, runId, {
-  appName: merged.appName,
-  moduleName: merged.moduleName,
-  uiPackName: merged.uiPackName,
-  plan: merged.plan,
-  storeId: merged.storeId ?? null,
-  status,
-  stage,
-  message,
-  workflowRunId: merged.workflowRunId ?? null,
-  workflowUrl: merged.workflowUrl ?? null,
-  artifactUrl: merged.artifactUrl ?? null,
-  downloadUrl: merged.downloadUrl ?? null,
-  error: merged.error ?? null,
-  failedStep: merged.failedStep ?? null,
-  completedAt: status === "success" ? (localRecord.completedAt ?? new Date().toISOString()) : undefined,
-  statusSource: "github_status_json",
-  lastSyncedAt: new Date().toISOString(),
-});
-
-      if (status === "failed" && localRecord.userId) {
-        await insertOperationLogOnce(
-          supabase,
-          {
-            userId: localRecord.userId,
-            buildId: localRecord.id,
-            runId,
-            eventName: "build_failed",
-            pagePath: "/generating",
-            metadata: {
-              source: "status_sync",
-              reason: merged.error ?? merged.message ?? "build_failed",
-            },
-          },
-          { dedupeSeconds: 60 },
-        ).catch(() => null);
-      }
+      const synced = await syncResolvedStateToLocal(
+        supabase,
+        localRecord,
+        baseResponse,
+        workflowState && shouldPreferWorkflowState(merged.stage, remoteNormalizedStatus, workflowState)
+          ? "manual_fix"
+          : "github_status_json",
+      );
 
       const queueMeta = await getBuildQueueMeta(supabase, synced);
 
-      const baseResponse = mapRecordToResponse(synced, {
-        adminName: merged.adminName,
-        workflowStatus: merged.workflowStatus ?? null,
-        workflowConclusion: merged.workflowConclusion ?? null,
-        failedStep: merged.failedStep,
+      const response = mapRecordToResponse(synced, {
+        adminName: baseResponse.adminName,
+        workflowStatus:
+          baseResponse.workflowStatus ?? localRecord.workflowStatus ?? null,
+        workflowConclusion:
+          baseResponse.workflowConclusion ?? localRecord.workflowConclusion ?? null,
+        failedStep: baseResponse.failedStep,
         queueAheadCount: queueMeta.queueAheadCount,
         runningCount: queueMeta.runningCount,
         concurrencyLimit: queueMeta.concurrencyLimit,
       });
 
-      const compensationOverride = getPaidCompensationOverride(runId, paidOrder, baseResponse);
-
-      return compensationOverride || withPaymentState(baseResponse, paidOrder);
+      const compensationOverride = getPaidCompensationOverride(runId, paidOrder, response);
+      return compensationOverride || withPaymentState(response, paidOrder);
     }
 
-    const mergedWithPayment = withPaymentState(merged, paidOrder);
+    const mergedWithPayment = withPaymentState(baseResponse, paidOrder);
     const mergedOverride = getPaidCompensationOverride(runId, paidOrder, mergedWithPayment);
-
     return mergedOverride || mergedWithPayment;
   }
 
-if (!localRecord) {
-  const isPaidFlow = options?.isPaidFlow === true;
-  const requestStartTime = options?.requestStartTime || Date.now();
-  const now = Date.now();
-  const elapsed = now - requestStartTime;
+  if (workflowState) {
+    let baseResponse: BuildStatusResponse;
 
-  if (isPaidFlow) {
-    const compensationOverride = getPaidCompensationOverride(runId, paidOrder);
-
-    if (compensationOverride) {
-      return compensationOverride;
-    }
-
-    if (paidOrder?.status === "failed") {
-      return withPaymentState(
-        {
-          ok: false,
-          error: paidOrder.error || "Paid build failed.",
-        },
-        paidOrder,
+    if (localRecord) {
+      baseResponse = applyWorkflowState(
+        runId,
+        mapRecordToResponse(localRecord),
+        workflowState,
       );
+
+      const synced = await syncResolvedStateToLocal(
+        supabase,
+        localRecord,
+        baseResponse,
+        "manual_fix",
+      );
+
+      const queueMeta = await getBuildQueueMeta(supabase, synced);
+
+      const response = mapRecordToResponse(synced, {
+        adminName: baseResponse.adminName,
+        workflowStatus: workflowState.workflowStatus,
+        workflowConclusion: workflowState.workflowConclusion,
+        failedStep: baseResponse.failedStep,
+        queueAheadCount: queueMeta.queueAheadCount,
+        runningCount: queueMeta.runningCount,
+        concurrencyLimit: queueMeta.concurrencyLimit,
+      });
+
+      const compensationOverride = getPaidCompensationOverride(runId, paidOrder, response);
+      return compensationOverride || withPaymentState(response, paidOrder);
     }
 
-    if (
-      paidOrder &&
-      (paidOrder.status === "created" ||
-        paidOrder.status === "checkout_created" ||
-        paidOrder.status === "paid" ||
-        paidOrder.status === "processing" ||
-        paidOrder.status === "processed")
-    ) {
-      return withPaymentState(
-        {
+    baseResponse = applyWorkflowState(
+      runId,
+      {
+        ok: true,
+        runId,
+        stage: workflowState.stage,
+        message: workflowState.message,
+        workflowRunId: workflowState.workflowRunId,
+        workflowStatus: workflowState.workflowStatus,
+        workflowConclusion: workflowState.workflowConclusion,
+        workflowUrl: workflowState.workflowUrl,
+        failedStep: workflowState.failedStep,
+      },
+      workflowState,
+    );
+
+    const workflowOnlyOverride = getPaidCompensationOverride(runId, paidOrder, baseResponse);
+    return workflowOnlyOverride || withPaymentState(baseResponse, paidOrder);
+  }
+
+  if (!localRecord) {
+    const isPaidFlow = options?.isPaidFlow === true;
+    const requestStartTime = options?.requestStartTime || Date.now();
+    const now = Date.now();
+    const elapsed = now - requestStartTime;
+
+    if (isPaidFlow) {
+      const compensationOverride = getPaidCompensationOverride(runId, paidOrder);
+
+      if (compensationOverride) {
+        return compensationOverride;
+      }
+
+      if (paidOrder?.status === "failed") {
+        return withPaymentState(
+          {
+            ok: false,
+            error: paidOrder.error || "Paid build failed.",
+          },
+          paidOrder,
+        );
+      }
+
+      if (
+        paidOrder &&
+        (paidOrder.status === "created" ||
+          paidOrder.status === "checkout_created" ||
+          paidOrder.status === "paid" ||
+          paidOrder.status === "processing" ||
+          paidOrder.status === "processed")
+      ) {
+        return withPaymentState(
+          {
+            ok: true,
+            runId,
+            stage: "configuring_build",
+            message:
+              paidOrder.status === "processed"
+                ? "Payment confirmed. Waiting for build status to sync."
+                : "Payment received. Securely preparing your build.",
+            queueAheadCount: 0,
+          },
+          paidOrder,
+        );
+      }
+
+      if (elapsed < PAID_BUILD_INITIALIZATION_TIMEOUT_MS) {
+        return {
           ok: true,
           runId,
           stage: "configuring_build",
-          message:
-            paidOrder.status === "processed"
-              ? "Payment confirmed. Waiting for build status to sync."
-              : "Payment received. Securely preparing your build.",
+          message: "Waiting for secure payment confirmation.",
           queueAheadCount: 0,
-        },
-        paidOrder,
-      );
-    }
-
-    if (elapsed < PAID_BUILD_INITIALIZATION_TIMEOUT_MS) {
-      return {
-        ok: true,
-        runId,
-        stage: "configuring_build",
-        message: "Waiting for secure payment confirmation.",
-        queueAheadCount: 0,
-      };
+        };
+      }
     }
 
     return {
       ok: false,
-      error: "Build setup did not complete in time.",
+      error: "Build record not found.",
     };
   }
 
-  return {
-    ok: false,
-    error: "Build record not found.",
-  };
-}
-
   const queueMeta = await getBuildQueueMeta(supabase, localRecord);
-
-  const baseResponse = mapRecordToResponse(localRecord, {
+  const localResponse = mapRecordToResponse(localRecord, {
     queueAheadCount: queueMeta.queueAheadCount,
     runningCount: queueMeta.runningCount,
     concurrencyLimit: queueMeta.concurrencyLimit,
   });
 
-  const compensationOverride = getPaidCompensationOverride(runId, paidOrder, baseResponse);
-
-  return compensationOverride || withPaymentState(baseResponse, paidOrder);
+  const compensationOverride = getPaidCompensationOverride(runId, paidOrder, localResponse);
+  return compensationOverride || withPaymentState(localResponse, paidOrder);
 }
