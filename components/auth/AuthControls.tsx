@@ -222,7 +222,7 @@ export default function AuthControls({
           type="button"
           onClick={() => setMenuOpen((value) => !value)}
           disabled={loading || isSigningIn || isSigningOut || isSwitchingAccount}
-          className={`group relative inline-flex max-w-[240px] items-center gap-2 overflow-hidden rounded-full border border-white/80 bg-white/88 px-3.5 py-2.5 text-sm font-semibold text-[#0f172a] shadow-[0_14px_30px_rgba(15,23,42,0.06),0_0_0_1px_rgba(255,255,255,0.34),0_0_24px_rgba(217,70,239,0.10)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-fuchsia-200/80 hover:bg-white hover:shadow-[0_18px_38px_rgba(15,23,42,0.08),0_0_0_1px_rgba(255,255,255,0.42),0_0_32px_rgba(217,70,239,0.16)] active:translate-y-0 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-70`}
+          className={`group relative inline-flex h-[42px] max-w-[240px] items-center gap-2 overflow-hidden rounded-full border border-white/80 bg-white/88 px-4 py-2 text-sm font-semibold text-[#0f172a] shadow-[0_14px_30px_rgba(15,23,42,0.06),0_0_0_1px_rgba(255,255,255,0.34),0_0_24px_rgba(217,70,239,0.10)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-fuchsia-200/80 hover:bg-white hover:shadow-[0_18px_38px_rgba(15,23,42,0.08),0_0_0_1px_rgba(255,255,255,0.42),0_0_32px_rgba(217,70,239,0.16)] active:translate-y-0 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-70`}
           title={email}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
@@ -230,9 +230,6 @@ export default function AuthControls({
           <span className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.72)_0%,rgba(255,255,255,0.18)_42%,rgba(217,70,239,0.08)_100%)] opacity-100" />
           <span className="pointer-events-none absolute inset-[1px] rounded-full bg-[linear-gradient(180deg,rgba(255,255,255,0.72)_0%,rgba(255,255,255,0.18)_100%)] opacity-80" />
           <span className="pointer-events-none absolute -left-10 top-0 h-full w-12 rotate-[18deg] bg-white/45 blur-md transition-all duration-500 group-hover:translate-x-[160%]" />
-          <span className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-xs font-bold text-white">
-            {email.slice(0, 1).toUpperCase()}
-          </span>
           <span className="relative z-10 truncate">{email}</span>
           <svg
             viewBox="0 0 20 20"
