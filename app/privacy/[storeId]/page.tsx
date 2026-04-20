@@ -1,6 +1,6 @@
 import {
-  PRIVACY_POLICY_TEMPLATE,
   buildPrivacyPolicyPageModel,
+  renderPrivacyPolicyText,
 } from "@/lib/privacy/privacyPolicyTemplate";
 
 type PrivacyPageProps = {
@@ -17,6 +17,8 @@ export default function Page({ params, searchParams }: PrivacyPageProps) {
     merchantEmail: searchParams?.merchantEmail,
     effectiveDate: searchParams?.effectiveDate,
   });
+
+  const policyText = renderPrivacyPolicyText(model);
 
   return (
     <main className="min-h-screen bg-white px-6 py-10 text-slate-900">
@@ -39,21 +41,10 @@ export default function Page({ params, searchParams }: PrivacyPageProps) {
           <div className="mt-1 text-sm font-medium text-slate-900">{model.effectiveDate}</div>
         </div>
 
-        <div className="mt-8 space-y-8">
-          {PRIVACY_POLICY_TEMPLATE.map((section) => (
-            <section key={section.title}>
-              <h2 className="text-xl font-semibold tracking-[-0.02em] text-slate-900">
-                {section.title}
-              </h2>
-              <div className="mt-3 space-y-3">
-                {section.paragraphs.map((paragraph) => (
-                  <p key={paragraph} className="text-sm leading-7 text-slate-700">
-                    {paragraph}
-                  </p>
-                ))}
-              </div>
-            </section>
-          ))}
+        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+          <pre className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700 font-sans">
+            {policyText}
+          </pre>
         </div>
       </div>
     </main>
