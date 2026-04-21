@@ -159,13 +159,13 @@ function escapeHtml(value: string): string {
 
 export function buildPrivacyPolicyPageModel(input: {
   storeId: string;
-  appName?: string | string[];
-  merchantEmail?: string | string[];
-  effectiveDate?: string | string[];
+  appName: string;
+  merchantEmail: string;
+  effectiveDate: string;
 }): PrivacyPolicyPageModel {
-  const appName = pickFirst(input.appName).trim() || "This App";
-  const merchantEmail = pickFirst(input.merchantEmail).trim() || "Not provided";
-  const effectiveDate = pickFirst(input.effectiveDate).trim() || "2026-04-20";
+  const appName = input.appName.trim() || "This App";
+  const merchantEmail = input.merchantEmail.trim() || "Not provided";
+  const effectiveDate = input.effectiveDate.trim() || "2026-04-20";
 
   return {
     appName,

@@ -1,3 +1,5 @@
+import { notFound } from "next/navigation";
+import { getPrivacyPageByStoreId } from "@/lib/privacy/getPrivacyPageByStoreId";
 import {
   buildPrivacyPolicyPageModel,
   renderPrivacyPolicyText,
@@ -7,18 +9,21 @@ type PrivacyPageProps = {
   params: Promise<{
     storeId: string;
   }>;
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function Page({ params, searchParams }: PrivacyPageProps) {
+export default async function Page({ params }: PrivacyPageProps) {
   const { storeId } = await params;
-  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const privacyPage = await getPrivacyPageByStoreId(storeId);
+
+  if (!privacyPage) {
+    notFound();
+  }
 
   const model = buildPrivacyPolicyPageModel({
-    storeId,
-    appName: resolvedSearchParams.appName,
-    merchantEmail: resolvedSearchParams.merchantEmail,
-    effectiveDate: resolvedSearchParams.effectiveDate,
+    storeId: privacyPage.storeId,
+    appName: privacyPage.appName,
+    merchantEmail: privacyPage.merchantEmail,
+    effectiveDate: privacyPage.effectiveDate,
   });
 
   const policyText = renderPrivacyPolicyText(model);
@@ -32,9 +37,6 @@ export default async function Page({ params, searchParams }: PrivacyPageProps) {
           <div className="text-sm text-slate-500">App Name</div>
           <div className="mt-1 text-lg font-semibold text-slate-900">{model.appName}</div>
 
-          <div className="mt-4 text-sm text-slate-500">Store ID</div>
-          <div className="mt-1 break-all text-sm font-medium text-slate-900">{model.storeId}</div>
-
           <div className="mt-4 text-sm text-slate-500">Contact</div>
           <div className="mt-1 text-sm font-medium text-slate-900">
             {model.merchantEmail || "Not provided"}
@@ -45,7 +47,7 @@ export default async function Page({ params, searchParams }: PrivacyPageProps) {
         </div>
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
-          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-slate-700">
+          <pre className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700 font-sans">
             {policyText}
           </pre>
         </div>

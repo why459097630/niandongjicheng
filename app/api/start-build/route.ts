@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
       iconUrl,
       iconDataUrl,
       adminName,
-      merchantEmail: adminName,
+      merchantEmail: (user.email || "").trim().toLowerCase(),
       storeId: provisionResult.storeId,
       userId: user.id,
       buildPriority,

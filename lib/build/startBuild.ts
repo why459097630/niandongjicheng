@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createAdminClient } from "../supabase/admin";
 import { resolveFirebaseProjectAssignment } from "../firebase/projectPool";
 import { releaseNextQueuedBuild } from "./releaseNextQueuedBuild";
 import {
@@ -81,25 +82,80 @@ function buildPrivacyPolicyUrl(input: BuildRequest & { storeId: string }): strin
     return provided;
   }
 
-  const appName = input.appName?.trim() || "Untitled App";
-  const merchantEmail =
-    input.merchantEmail?.trim() ||
-    input.adminName?.trim().toLowerCase() ||
-    "";
-
   const siteUrl = (process.env.SITE_URL || "").trim().replace(/\/+$/, "");
   const baseUrl = siteUrl || "https://你的域名";
-  const params = new URLSearchParams();
 
-  params.set("appName", appName);
-
-  if (merchantEmail) {
-    params.set("merchantEmail", merchantEmail);
-  }
-
-  return `${baseUrl}/privacy/${encodeURIComponent(input.storeId)}?${params.toString()}`;
+  return `${baseUrl}/privacy/${encodeURIComponent(input.storeId)}`;
 }
 
+async function resolveNdjcLoginEmail(
+  userId: string,
+  fallbackEmail: string,
+): Promise<string> {
+  const normalizedFallback = fallbackEmail.trim().toLowerCase();
+  if (!userId.trim()) {
+    return normalizedFallback;
+  }
+
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("profiles")
+      .select("email")
+      .eq("id", userId.trim())
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    const email = String(data?.email || "").trim().toLowerCase();
+    return email || normalizedFallback;
+  } catch {
+    return normalizedFallback;
+  }
+}
+
+async function upsertPrivacyPageRecord(input: {
+  userId: string;
+  storeId: string;
+  appName: string;
+  merchantEmail: string;
+  effectiveDate: string;
+}): Promise<string> {
+  const admin = createAdminClient();
+
+  const { data: existing, error: existingError } = await admin
+    .from("privacy_pages")
+    .select("effective_date")
+    .eq("store_id", input.storeId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(existingError.message || "Failed to load privacy page record.");
+  }
+
+  const effectiveDate = String(existing?.effective_date || "").trim() || input.effectiveDate;
+
+  const { error: upsertError } = await admin
+    .from("privacy_pages")
+    .upsert(
+      {
+        user_id: input.userId,
+        store_id: input.storeId,
+        app_name: input.appName,
+        merchant_email: input.merchantEmail,
+        effective_date: effectiveDate,
+      },
+      { onConflict: "store_id" },
+    );
+
+  if (upsertError) {
+    throw new Error(upsertError.message || "Failed to save privacy page record.");
+  }
+
+  return effectiveDate;
+}
 function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): string {
   const template =
     input.module?.trim() === "feature-showcase"
@@ -336,7 +392,10 @@ export async function startBuild(
   const storeId = input.storeId?.trim() || "";
   const userId = input.userId?.trim() || "";
   const runId = input.runId?.trim() || createRunId();
-
+  const fallbackMerchantEmail =
+    input.merchantEmail?.trim().toLowerCase() ||
+    adminName.trim().toLowerCase() ||
+    "";
   if (!storeId) {
     return {
       ok: false,
@@ -353,6 +412,8 @@ export async function startBuild(
 
   const packageName =
     input.packageName?.trim() || derivePackageName(appName, storeId);
+
+  const merchantEmail = await resolveNdjcLoginEmail(userId, fallbackMerchantEmail);
 
   const existingRecord = await getBuildRecordByRunId(supabase, runId);
 
@@ -443,6 +504,16 @@ export async function startBuild(
   });
 
   try {
+    const initialEffectiveDate = new Date().toISOString().slice(0, 10);
+
+    const effectiveDate = await upsertPrivacyPageRecord({
+      userId,
+      storeId,
+      appName,
+      merchantEmail,
+      effectiveDate: initialEffectiveDate,
+    });
+
     console.log("NDJC startBuild: uploading request files", {
       runId,
       appName,
@@ -452,6 +523,8 @@ export async function startBuild(
       buildPriority,
       storeId,
       userId,
+      merchantEmail,
+      effectiveDate,
       packageName,
       firebaseProjectId: firebaseAssignment.firebaseProjectId,
       firebaseCredentialsEnvKey:
@@ -470,6 +543,11 @@ export async function startBuild(
         plan,
         buildPriority,
         adminName,
+        merchantEmail,
+        privacyUrl: buildPrivacyPolicyUrl({
+          ...input,
+          storeId,
+        }),
         storeId,
         packageName,
         firebaseProjectId: firebaseAssignment.firebaseProjectId,
