@@ -156,7 +156,10 @@ async function upsertPrivacyPageRecord(input: {
 
   return effectiveDate;
 }
-function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): string {
+function buildAssemblyLocalJson(
+  input: BuildRequest & { storeId: string },
+  runId: string,
+): string {
   const template =
     input.module?.trim() === "feature-showcase"
       ? "core-skeleton"
@@ -188,6 +191,7 @@ function buildAssemblyLocalJson(input: BuildRequest & { storeId: string }): stri
     storeId: input.storeId,
     merchantEmail,
     privacyUrl,
+    iconPath: `requests/${runId}/icon.png`,
     plan: input.plan || "pro",
     firebaseProjectId: input.firebaseProjectId || null,
     firebaseCredentialsEnvKey: input.firebaseCredentialsEnvKey || null,
@@ -284,7 +288,7 @@ async function uploadBuildRequestToRepo(
   const repo = getRequiredEnv("GH_REPO");
   const branch = getRequiredEnv("GH_BRANCH");
 
-  const assemblyJson = buildAssemblyLocalJson(input);
+  const assemblyJson = buildAssemblyLocalJson(input, runId);
   const statusJson = buildRemoteStatusJson(input, runId, initial);
   const requestMeta = {
     runId,
@@ -316,6 +320,10 @@ async function uploadBuildRequestToRepo(
 
   const iconUpload = input.iconDataUrl ? parseDataUrl(input.iconDataUrl) : null;
 
+  if (!iconUpload) {
+    throw new Error("App icon is required. Missing iconDataUrl for build request.");
+  }
+
   const files: Array<{
     path: string;
     content: string;
@@ -337,23 +345,19 @@ async function uploadBuildRequestToRepo(
       content: statusJson,
       message: `NDJC request ${runId}: add status.json`,
     },
-  ];
-
-  if (iconUpload) {
-    files.push({
+    {
       path: `requests/${runId}/icon.${iconUpload.extension}`,
       content: iconUpload.base64Content,
       message: `NDJC request ${runId}: add icon.${iconUpload.extension}`,
       isBase64Binary: true,
-    });
-
-    files.push({
+    },
+    {
       path: `requests/${runId}/icon.png`,
       content: iconUpload.base64Content,
       message: `NDJC request ${runId}: add icon.png`,
       isBase64Binary: true,
-    });
-  }
+    },
+  ];
 
   for (const file of files) {
     const response = await githubRequest(
