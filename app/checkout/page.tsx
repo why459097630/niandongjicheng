@@ -71,12 +71,13 @@ export default function CheckoutPage() {
     const storedIconDataUrl = sessionStorage.getItem(ICON_DATA_URL_STORAGE_KEY);
     const storedIconFileName = sessionStorage.getItem(ICON_FILE_NAME_STORAGE_KEY) || "";
 
-    if (storedIconDataUrl) {
-      setIconDataUrl(storedIconDataUrl);
-      setIconFileName(storedIconFileName);
-    } else {
+    if (!storedIconDataUrl) {
       setIconDataUrl(null);
       setIconFileName("");
+      setSubmitError("App icon is missing. Please go back to Builder and upload the icon again.");
+    } else {
+      setIconDataUrl(storedIconDataUrl);
+      setIconFileName(storedIconFileName);
     }
 
     setIsPageReady(true);
@@ -371,6 +372,10 @@ export default function CheckoutPage() {
                           throw new Error("Admin password has expired for security reasons. Please go back to Builder and enter it again.");
                         }
 
+                        if (!iconDataUrl) {
+                          throw new Error("App icon is missing. Please go back to Builder and upload the icon again.");
+                        }
+
                         if (plan === "free") {
                           const response = await fetch("/api/start-build", {
                             method: "POST",
@@ -394,6 +399,8 @@ export default function CheckoutPage() {
                             throw new Error(data.error || "Failed to start build.");
                           }
 
+                          sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
+                          sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
                           window.location.href = `/generating?runId=${encodeURIComponent(data.runId)}`;
                           return;
                         }
@@ -421,6 +428,8 @@ export default function CheckoutPage() {
                         }
 
                         sessionStorage.removeItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY);
+                        sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
+                        sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
                         window.location.href = data.url;
                       } catch (error) {
                         setSubmitError(error instanceof Error ? error.message : "Failed to continue to payment.");

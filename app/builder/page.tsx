@@ -42,8 +42,6 @@ type BuilderDraft = {
   uiPack: string;
   plan: string;
   adminName: string;
-  iconDataUrl: string | null;
-  iconFileName: string;
 };
 
 function loadBuilderDraft(): BuilderDraft | null {
@@ -338,19 +336,11 @@ export default function BuilderPage() {
     setAdminName(nextAdminName);
     setAdminPassword("");
 
-    const storedIconDataUrl =
-      draft?.iconDataUrl ||
-      sessionStorage.getItem(ICON_DATA_URL_STORAGE_KEY);
-
-    const storedIconFileName =
-      draft?.iconFileName ||
-      sessionStorage.getItem(ICON_FILE_NAME_STORAGE_KEY) ||
-      "";
-
-    if (storedIconDataUrl) {
-      setIconDataUrl(storedIconDataUrl);
-      setIconFileName(storedIconFileName);
-    }
+    setIconFile(null);
+    setIconDataUrl(null);
+    setIconFileName("");
+    sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
+    sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
 
     setIsDraftHydrated(true);
   }, []);
@@ -397,10 +387,8 @@ export default function BuilderPage() {
       uiPack: uiPackName,
       plan: planRef.current,
       adminName: adminName.trim(),
-      iconDataUrl,
-      iconFileName,
     });
-  }, [isDraftHydrated, appName, moduleName, uiPackName, adminName, iconDataUrl, iconFileName]);
+  }, [isDraftHydrated, appName, moduleName, uiPackName, adminName]);
 
   const selectedModuleClass =
     "rounded-full border border-indigo-400 bg-[linear-gradient(135deg,rgba(224,231,255,0.95),rgba(238,242,255,0.98))] px-4 py-2 text-indigo-700 shadow-[0_0_0_2px_rgba(99,102,241,0.12),0_10px_24px_rgba(99,102,241,0.12)] transition hover:-translate-y-0.5";
@@ -441,8 +429,6 @@ export default function BuilderPage() {
       uiPack: buildParams.uiPack,
       plan: buildParams.plan,
       adminName: buildParams.adminName,
-      iconDataUrl: buildParams.iconDataUrl,
-      iconFileName,
     });
 
     sessionStorage.setItem(CHECKOUT_APP_NAME_STORAGE_KEY, buildParams.appName);
