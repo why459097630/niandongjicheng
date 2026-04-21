@@ -96,6 +96,29 @@ function isValidAdminPassword(value: string): boolean {
   return value.length >= 6 && value.length <= 64;
 }
 
+const ICON_SHAPE_PREVIEWS = [
+  {
+    key: "circle",
+    label: "Circle",
+    frameClassName: "rounded-full",
+  },
+  {
+    key: "rounded",
+    label: "Rounded",
+    frameClassName: "rounded-[22px]",
+  },
+  {
+    key: "squircle",
+    label: "Squircle",
+    frameClassName: "rounded-[30%]",
+  },
+  {
+    key: "square",
+    label: "Square",
+    frameClassName: "rounded-[12px]",
+  },
+] as const;
+
 export default function BuilderPage() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
   const [activePreview, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
@@ -538,61 +561,91 @@ export default function BuilderPage() {
                     ) : null}
                   </div>
 
-                  <div ref={appIconSectionRef} className="space-y-2">
-                    <div className="flex justify-between">
-                      <label className="text-sm font-semibold">App Icon</label>
-                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
-                    </div>
-                    <p className="text-xs text-slate-400">Shown as your app icon on the home screen after installation.</p>
-                    <div
-                      className={`group flex items-center gap-3 rounded-2xl border bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:shadow-[0_14px_30px_rgba(15,23,42,0.06)] ${
-                        validationErrors.appIcon
-                          ? "border-rose-300 hover:border-rose-300"
-                          : "border-slate-200 hover:border-indigo-300"
-                      }`}
-                    >
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
-                        className="hidden"
-                        onChange={handleIconChange}
-                      />
+<div ref={appIconSectionRef} className="space-y-2">
+  <div className="flex justify-between">
+    <label className="text-sm font-semibold">App Icon</label>
+    <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
+  </div>
+  <p className="text-xs text-slate-400">Shown as your app icon on the home screen after installation.</p>
+  <div
+    className={`group rounded-2xl border bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:shadow-[0_14px_30px_rgba(15,23,42,0.06)] ${
+      validationErrors.appIcon
+        ? "border-rose-300 hover:border-rose-300"
+        : "border-slate-200 hover:border-indigo-300"
+    }`}
+  >
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+      className="hidden"
+      onChange={handleIconChange}
+    />
 
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 text-[11px] font-semibold text-slate-500">
-                        {iconDataUrl ? (
-                          <img src={iconDataUrl} alt="App icon preview" className="h-full w-full object-cover" />
-                        ) : (
-                          "Icon"
-                        )}
-                      </div>
+    <div className="flex items-start gap-3">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 text-[11px] font-semibold text-slate-500">
+        {iconDataUrl ? (
+          <img src={iconDataUrl} alt="App icon preview" className="h-full w-full object-cover" />
+        ) : (
+          "Icon"
+        )}
+      </div>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-[#0f172a]">Upload app icon</div>
-                        <div className="mt-0.5 text-xs text-slate-400">
-                          {iconFileName
-                            ? `${iconFileName}`
-                            : "PNG / JPG / SVG · 1024×1024 recommended"}
-                        </div>
-                        {iconDataUrl ? (
-                          <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-600">
-                            Image preview ready
-                          </div>
-                        ) : null}
-                      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold text-[#0f172a]">Upload app icon</div>
+        <div className="mt-0.5 text-xs text-slate-400">
+          {iconFileName
+            ? `${iconFileName}`
+            : "PNG / JPG / SVG · 1024×1024 recommended"}
+        </div>
+        {iconDataUrl ? (
+          <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-600">
+            Image preview ready
+          </div>
+        ) : null}
+        <p className="mt-2 text-[11px] leading-5 text-slate-500">
+          Previewed in common Android icon shapes. The image will fill the icon container, and edges may be cropped by the system, so keep important content centered.
+        </p>
+      </div>
 
-                      <button
-                        type="button"
-                        onClick={handleChooseIcon}
-                        className="rounded-xl border border-slate-200 bg-slate-100/80 px-3 py-1.5 text-xs font-medium text-[#0f172a] transition group-hover:border-indigo-200 group-hover:bg-indigo-50 group-hover:text-indigo-600"
-                      >
-                        {iconDataUrl ? "Replace" : "Choose"}
-                      </button>
-                    </div>
-                    {validationErrors.appIcon ? (
-                      <p className="text-xs font-medium text-rose-500">App icon is required.</p>
-                    ) : null}
-                  </div>
+      <button
+        type="button"
+        onClick={handleChooseIcon}
+        className="rounded-xl border border-slate-200 bg-slate-100/80 px-3 py-1.5 text-xs font-medium text-[#0f172a] transition group-hover:border-indigo-200 group-hover:bg-indigo-50 group-hover:text-indigo-600"
+      >
+        {iconDataUrl ? "Replace" : "Choose"}
+      </button>
+    </div>
+
+    <div className="mt-4 grid grid-cols-4 gap-3">
+      {ICON_SHAPE_PREVIEWS.map((shape) => (
+        <div key={shape.key} className="space-y-2">
+          <div className="text-center text-[10px] font-medium uppercase tracking-[0.12em] text-slate-400">
+            {shape.label}
+          </div>
+          <div className="flex justify-center">
+            <div
+              className={`flex h-14 w-14 items-center justify-center overflow-hidden border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 ${shape.frameClassName}`}
+            >
+              {iconDataUrl ? (
+                <img
+                  src={iconDataUrl}
+                  alt={`${shape.label} icon preview`}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-[10px] font-semibold text-slate-400">Preview</span>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+  {validationErrors.appIcon ? (
+    <p className="text-xs font-medium text-rose-500">App icon is required.</p>
+  ) : null}
+</div>
 
                   <div ref={logicModuleSectionRef} className="space-y-2">
                     <div className="flex justify-between">
