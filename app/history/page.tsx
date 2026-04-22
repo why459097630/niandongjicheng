@@ -250,7 +250,8 @@ function canDownloadBuild(item: BuildItem) {
 
   if (Number.isNaN(completedTime)) return true;
 
-  const expiresAt = completedTime + 90 * 24 * 60 * 60 * 1000;
+  const retentionDays = 1;
+  const expiresAt = completedTime + retentionDays * 24 * 60 * 60 * 1000;
   return Date.now() < expiresAt;
 }
 
@@ -432,11 +433,11 @@ export default function HistoryPage() {
               const cloudMeta = item.stage === "success" ? getCloudStatusMeta(item) : null;
               const buildCompensationMeta = getBuildCompensationMeta(item);
               const renewCompensationMeta = getRenewCompensationMeta(item);
-              const showInlineFailedReason = item.stage === "failed" && item.failedStep;
-              const showInlineCompletedTime = item.stage === "success" && item.completedAt;
-              const showDownloadButton = canDownloadBuild(item);
-              const showFailedContinueButton =
-                item.stage === "failed" && item.buildOrderStatus !== "refunded";
+const showInlineFailedReason = item.stage === "failed" && item.failedStep;
+const showInlineCompletedTime = item.stage === "success" && item.completedAt;
+const canDownload = canDownloadBuild(item);
+const showFailedContinueButton =
+  item.stage === "failed" && item.buildOrderStatus !== "refunded";
               const showRenewButton =
                 item.stage === "success" &&
                 item.mode === "Paid Purchase" &&
@@ -558,54 +559,63 @@ export default function HistoryPage() {
                         </button>
                       ) : null}
 
-                      {showDownloadButton ? (
-                        <div className="flex flex-col items-end gap-2">
-                          <a
-                            href={`/api/build-status?runId=${encodeURIComponent(item.runId)}&download=1&event=history_download`}
-                            className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(217,70,239,0.20)] transition hover:-translate-y-0.5 hover:opacity-90"
-                          >
-                            <Download className="h-4 w-4" />
-                            Download
-                          </a>
+{item.stage === "success" && item.downloadUrl ? (
+  <div className="flex flex-col items-end gap-2">
+    {canDownload ? (
+      <a
+        href={`/api/build-status?runId=${encodeURIComponent(item.runId)}&download=1&event=history_download`}
+        className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(217,70,239,0.20)] transition hover:-translate-y-0.5 hover:opacity-90"
+      >
+        <Download className="h-4 w-4" />
+        Download
+      </a>
+    ) : (
+      <div className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-5 text-sm font-semibold text-slate-400 shadow-[0_6px_14px_rgba(148,163,184,0.06)]">
+        <Download className="h-4 w-4" />
+        Expired
+      </div>
+    )}
 
-                          {item.stage === "success" && item.mode === "Paid Purchase" ? (
-                            showRenewButton ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (typeof window !== "undefined") {
-                                    window.sessionStorage.setItem("ndjc_renew_app_name", item.appName || "");
-                                    window.sessionStorage.setItem("ndjc_renew_store_id", item.storeId || "");
-                                    window.sessionStorage.setItem("ndjc_renew_cloud_status", item.cloudStatus || "");
-                                    window.sessionStorage.setItem("ndjc_renew_cloud_expires_at", item.cloudExpiresAt || "");
-                                  }
+    {item.stage === "success" && item.mode === "Paid Purchase" ? (
+      showRenewButton ? (
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== "undefined") {
+              window.sessionStorage.setItem("ndjc_renew_app_name", item.appName || "");
+              window.sessionStorage.setItem("ndjc_renew_store_id", item.storeId || "");
+              window.sessionStorage.setItem("ndjc_renew_cloud_status", item.cloudStatus || "");
+              window.sessionStorage.setItem("ndjc_renew_cloud_expires_at", item.cloudExpiresAt || "");
+            }
 
-                                  const params = new URLSearchParams({
-                                    appName: item.appName || "",
-                                    storeId: item.storeId || "",
-                                    cloudStatus: item.cloudStatus || "",
-                                    cloudExpiresAt: item.cloudExpiresAt || "",
-                                  });
+            const params = new URLSearchParams({
+              appName: item.appName || "",
+              storeId: item.storeId || "",
+              cloudStatus: item.cloudStatus || "",
+              cloudExpiresAt: item.cloudExpiresAt || "",
+            });
 
-                                  window.location.href = `/renew-cloud?${params.toString()}`;
-                                }}
-                                className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-sky-200 bg-gradient-to-r from-sky-100 to-sky-50 px-5 text-sm font-semibold text-sky-700 shadow-[0_8px_18px_rgba(14,165,233,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(14,165,233,0.14)]"
-                              >
-                                <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
-                                Renew Cloud
-                              </button>
-                            ) : (
-                              <div className="inline-flex h-[40px] w-[164px] items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-5 text-sm font-semibold text-amber-700 shadow-[0_6px_14px_rgba(245,158,11,0.08)]">
-                                Renewal processing
-                              </div>
-                            )
-                          ) : null}
+            window.location.href = `/renew-cloud?${params.toString()}`;
+          }}
+          className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-sky-200 bg-gradient-to-r from-sky-100 to-sky-50 px-5 text-sm font-semibold text-sky-700 shadow-[0_8px_18px_rgba(14,165,233,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(14,165,233,0.14)]"
+        >
+          <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
+          Renew Cloud
+        </button>
+      ) : (
+        <div className="inline-flex h-[40px] w-[164px] items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-5 text-sm font-semibold text-amber-700 shadow-[0_6px_14px_rgba(245,158,11,0.08)]">
+          Renewal processing
+        </div>
+      )
+    ) : null}
 
-                          <div className="w-[164px] text-center text-[11px] text-slate-400">
-                            Download available for 90 days
-                          </div>
-                        </div>
-                      ) : null}
+    <div className="w-[164px] text-center text-[11px] text-slate-400">
+      {canDownload
+        ? "Download available for 24 hours"
+        : "Download expired after 24 hours"}
+    </div>
+  </div>
+) : null}
 
                       {showFailedContinueButton ? (
                         <button
