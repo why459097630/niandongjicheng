@@ -27,6 +27,8 @@ type BuildRow = {
   workflow_url: string | null;
   artifact_url: string | null;
   download_url: string | null;
+  release_url: string | null;
+  public_apk_url: string | null;
   error: string | null;
   failed_step: string | null;
   completed_at: string | null;
@@ -52,6 +54,8 @@ type NewBuildRecordInput = {
   workflowUrl?: string | null;
   artifactUrl?: string | null;
   downloadUrl?: string | null;
+  releaseUrl?: string | null;
+  publicApkUrl?: string | null;
   error?: string | null;
   failedStep?: StepKey | null;
   completedAt?: string | null;
@@ -75,6 +79,8 @@ type UpdateBuildRecordInput = {
   workflowUrl?: string | null;
   artifactUrl?: string | null;
   downloadUrl?: string | null;
+  releaseUrl?: string | null;
+  publicApkUrl?: string | null;
   error?: string | null;
   failedStep?: StepKey | null;
   completedAt?: string | null;
@@ -183,6 +189,8 @@ function mapBuildRow(row: BuildRow): InternalBuildRecord {
     message: row.message || "",
     artifactUrl: row.artifact_url,
     downloadUrl: row.download_url,
+    releaseUrl: row.release_url,
+    publicApkUrl: row.public_apk_url,
     error: row.error,
   };
 }
@@ -206,6 +214,8 @@ function buildInsertPayload(input: NewBuildRecordInput) {
     workflow_url: input.workflowUrl ?? null,
     artifact_url: input.artifactUrl ?? null,
     download_url: input.downloadUrl ?? null,
+    release_url: input.releaseUrl ?? null,
+    public_apk_url: input.publicApkUrl ?? null,
     error: input.error ?? null,
     failed_step: input.failedStep ?? null,
     completed_at: input.completedAt ?? null,
@@ -234,6 +244,8 @@ function buildUpdatePayload(input: UpdateBuildRecordInput) {
   if (input.workflowUrl !== undefined) payload.workflow_url = input.workflowUrl;
   if (input.artifactUrl !== undefined) payload.artifact_url = input.artifactUrl;
   if (input.downloadUrl !== undefined) payload.download_url = input.downloadUrl;
+  if (input.releaseUrl !== undefined) payload.release_url = input.releaseUrl;
+  if (input.publicApkUrl !== undefined) payload.public_apk_url = input.publicApkUrl;
   if (input.error !== undefined) payload.error = input.error;
   if (input.failedStep !== undefined) payload.failed_step = input.failedStep;
   if (input.completedAt !== undefined) payload.completed_at = input.completedAt;

@@ -124,6 +124,8 @@ export type InternalBuildRecord = {
   message: string;
   artifactUrl: string | null;
   downloadUrl: string | null;
+  releaseUrl: string | null;
+  publicApkUrl: string | null;
   error: string | null;
 };
 
@@ -143,6 +145,8 @@ export type BuildStatusResponse = {
   message?: string | null;
   artifactUrl?: string | null;
   downloadUrl?: string | null;
+  releaseUrl?: string | null;
+  publicApkUrl?: string | null;
   error?: string | null;
   appName?: string;
   adminName?: string;
@@ -182,6 +186,8 @@ export type BuildHistoryItem = {
   uiPackName: string;
   mode: BuildMode;
   downloadUrl?: string | null;
+  releaseUrl?: string | null;
+  publicApkUrl?: string | null;
   cloudStatus?: CloudServiceStatus;
   cloudExpiresAt?: string | null;
   cloudDeletesAt?: string | null;

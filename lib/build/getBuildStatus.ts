@@ -572,6 +572,8 @@ function mapRecordToResponse(
     message: record.error || record.message,
     artifactUrl: record.artifactUrl,
     downloadUrl: record.downloadUrl,
+    releaseUrl: record.releaseUrl,
+    publicApkUrl: record.publicApkUrl,
     error: record.error,
     appName: record.appName,
     adminName: extra?.adminName,
@@ -614,6 +616,14 @@ function mergeStatus(
     downloadUrl:
       (typeof remote.downloadUrl === "string" ? remote.downloadUrl : null) ??
       localRecord?.downloadUrl ??
+      null,
+    releaseUrl:
+      (typeof remote.releaseUrl === "string" ? remote.releaseUrl : null) ??
+      localRecord?.releaseUrl ??
+      null,
+    publicApkUrl:
+      (typeof remote.publicApkUrl === "string" ? remote.publicApkUrl : null) ??
+      localRecord?.publicApkUrl ??
       null,
     error:
       (typeof remote.error === "string" ? remote.error : null) ??
@@ -898,6 +908,8 @@ async function syncResolvedStateToLocal(
     workflowUrl: response.workflowUrl ?? null,
     artifactUrl: response.artifactUrl ?? null,
     downloadUrl: response.downloadUrl ?? null,
+    releaseUrl: response.releaseUrl ?? null,
+    publicApkUrl: response.publicApkUrl ?? null,
     error: response.error ?? null,
     failedStep: response.failedStep ?? null,
     completedAt:

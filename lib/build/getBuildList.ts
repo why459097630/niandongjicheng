@@ -20,6 +20,8 @@ export async function getBuildList(
     uiPackName: record.uiPackName,
     mode: record.mode,
     downloadUrl: record.downloadUrl,
+    releaseUrl: record.releaseUrl,
+    publicApkUrl: record.publicApkUrl,
   }));
 
   return {
