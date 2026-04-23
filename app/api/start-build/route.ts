@@ -3,6 +3,7 @@ import { startBuild } from '@/lib/build/startBuild';
 import { BuildRequest } from '@/lib/build/types';
 import { provisionStore } from '@/lib/build/provisionStore';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { syncAuthUserProfile } from '@/lib/build/storage';
 import { assertAdminAccess } from '@/lib/chat/assertAdminAccess';
 
@@ -38,6 +39,7 @@ function getFreeComboCooldownStartIso(): string {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
+    const adminSupabase = createAdminClient();
     const {
       data: { user },
       error: authError,
@@ -233,7 +235,7 @@ export async function POST(request: NextRequest) {
       buildPriority,
     };
 
-    const result = await startBuild(supabase, payload);
+    const result = await startBuild(adminSupabase, payload);
 
     if (!result.ok) {
       return NextResponse.json(result, { status: 400 });
