@@ -222,13 +222,13 @@ useEffect(() => {
   const currentExpiryDate = new Date(cloudExpiresAt);
   const daysUntilExpiry = Number.isNaN(currentExpiryDate.getTime())
     ? null
-    : Math.max(0, Math.ceil((currentExpiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+    : Math.max(0, Math.floor((currentExpiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
   const expiryCountdownLabel =
     daysUntilExpiry === null
       ? null
       : daysUntilExpiry === 0
-        ? "Expires today"
-        : `Expires in ${daysUntilExpiry} day${daysUntilExpiry === 1 ? "" : "s"}`;
+        ? "Less than 1 day left"
+        : `${daysUntilExpiry} day${daysUntilExpiry === 1 ? "" : "s"} left`;
   const statusBadgeLabel =
     cloudStatus === "active"
       ? "Cloud Active"
