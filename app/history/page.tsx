@@ -48,6 +48,7 @@ type BuildItem = {
   uiPackName: string;
   mode: string;
   downloadUrl?: string | null;
+  publicApkUrl?: string | null;
 
   buildOrderStatus?: PaymentOrderStatus | null;
   buildCompensationStatus?: PaymentCompensationStatus | null;
@@ -607,6 +608,19 @@ const showFailedContinueButton =
           Renewal processing
         </div>
       )
+    ) : null}
+
+    {item.stage === "success" && item.mode === "Paid Purchase" ? (
+      <button
+        type="button"
+        onClick={() => {
+          window.location.href = `/app-download/${encodeURIComponent(item.runId)}`;
+        }}
+        className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-fuchsia-200 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-pink-50 px-5 text-sm font-semibold text-fuchsia-700 shadow-[0_8px_18px_rgba(217,70,239,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(217,70,239,0.16)]"
+      >
+        <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
+        Share App
+      </button>
     ) : null}
 
     <div className="w-[164px] text-center text-[11px] text-slate-400">
