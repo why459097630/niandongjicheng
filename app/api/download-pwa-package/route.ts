@@ -46,6 +46,20 @@ function sanitizeFileName(value: string) {
     .slice(0, 80);
 }
 
+function createContentDispositionFileName(fileName: string) {
+  const asciiFallback = fileName
+    .replace(/[^\x20-\x7E]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .trim() || "Think-it-Done-PWA-Package.zip";
+
+  const encodedFileName = encodeURIComponent(fileName)
+    .replace(/['()]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/\*/g, "%2A");
+
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedFileName}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -226,7 +240,7 @@ export async function GET(request: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Content-Disposition": createContentDispositionFileName(fileName),
         "Cache-Control": "no-store",
       },
     });
