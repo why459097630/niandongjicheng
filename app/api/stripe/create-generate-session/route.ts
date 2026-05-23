@@ -8,6 +8,8 @@ import {
   createGenerateOrder,
 } from "@/lib/stripe/orders";
 
+export const runtime = "nodejs";
+
 function getGeneratePriceId(): string {
   const value =
     (process.env.STRIPE_PRICE_ID_GENERATE_PRO || "").trim() ||
@@ -254,10 +256,15 @@ const session = await stripe.checkout.sessions.create({
   } catch (error) {
     console.error("NDJC create-generate-session error", error);
 
+    const message =
+      error instanceof Error
+        ? error.message.slice(0, 1000)
+        : "Failed to create Stripe checkout session.";
+
     return NextResponse.json(
       {
         ok: false,
-        error: "Failed to create Stripe checkout session.",
+        error: message,
       },
       { status: 500 },
     );
