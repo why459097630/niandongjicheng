@@ -421,10 +421,10 @@ export default function CheckoutPage() {
                           }),
                         });
 
-                        const data = await response.json();
+                        const data = await response.json().catch(() => null);
 
                         if (!response.ok || !data?.ok || !data?.url) {
-                          throw new Error(data?.error || "Failed to create Stripe checkout session.");
+                          throw new Error(data?.error || `Failed to create Stripe checkout session. Status=${response.status}`);
                         }
 
                         sessionStorage.removeItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY);
