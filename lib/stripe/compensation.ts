@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { provisionStore } from "@/lib/build/provisionStore";
-import { startBuild } from "@/lib/build/startBuild";
+import { startPwaGeneration } from "@/lib/pwa/startPwaGeneration";
 import { getBuildRecordByRunId, insertOperationLog } from "@/lib/build/storage";
 import type { BuildRequest } from "@/lib/build/types";
 import {
@@ -499,10 +499,10 @@ async function executeGenerateOrder(order: StripeOrderRecord): Promise<void> {
     storeId,
   };
 
-  const buildResult = await startBuild(supabase, buildInput);
+  const buildResult = await startPwaGeneration(supabase, buildInput);
 
   if (!buildResult.ok) {
-    throw new Error(buildResult.error || "Failed to start paid build.");
+    throw new Error(buildResult.error || "Failed to start paid PWA generation.");
   }
 
   await markBuildStarted(order.id);

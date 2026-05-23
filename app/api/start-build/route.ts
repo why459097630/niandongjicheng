@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { startBuild } from '@/lib/build/startBuild';
+import { startPwaGeneration } from '@/lib/pwa/startPwaGeneration';
 import { BuildRequest } from '@/lib/build/types';
 import { provisionStore } from '@/lib/build/provisionStore';
 import { createClient } from '@/lib/supabase/server';
@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
       buildPriority,
     };
 
-    const result = await startBuild(adminSupabase, payload);
+    const result = await startPwaGeneration(adminSupabase, payload);
 
     if (!result.ok) {
       return NextResponse.json(result, { status: 400 });
