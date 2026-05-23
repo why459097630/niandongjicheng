@@ -47,20 +47,39 @@ function getPwaBaseUrl(): string {
 
 function getAppCloudEnv() {
   const supabaseUrl = process.env.APP_CLOUD_SUPABASE_URL?.trim() || "";
-  const secretKey = process.env.APP_CLOUD_SUPABASE_SECRET_KEY?.trim() || "";
+  const secretKey =
+    process.env.APP_CLOUD_SUPABASE_SECRET_KEY?.trim() ||
+    process.env.APP_CLOUD_SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    "";
 
   if (!supabaseUrl) {
     throw new Error("APP_CLOUD_SUPABASE_URL is required.");
   }
 
   if (!secretKey) {
-    throw new Error("APP_CLOUD_SUPABASE_SECRET_KEY is required.");
+    throw new Error("APP_CLOUD_SUPABASE_SECRET_KEY or APP_CLOUD_SUPABASE_SERVICE_ROLE_KEY is required.");
   }
 
   return {
     supabaseUrl: supabaseUrl.replace(/\/+$/, ""),
     secretKey,
   };
+}
+
+function getDefaultPwaLogoUrl(): string {
+  const explicitLogoUrl =
+    process.env.PWA_DEFAULT_LOGO_URL?.trim() ||
+    process.env.NEXT_PUBLIC_PWA_DEFAULT_LOGO_URL?.trim() ||
+    "";
+
+  if (explicitLogoUrl) {
+    return explicitLogoUrl;
+  }
+
+  const pwaBaseUrl = getPwaBaseUrl();
+
+  return `${pwaBaseUrl}/icon-512.png`;
 }
 
 function parseDataUrl(value: string | null | undefined): {
@@ -115,8 +134,12 @@ async function uploadPwaIcon(input: {
   }
 
   const { supabaseUrl, secretKey } = getAppCloudEnv();
-  const bucket = process.env.PWA_ICON_BUCKET?.trim() || "store-assets";
-  const objectPath = `pwa-icons/${input.storeId}/icon.${parsed.extension}`;
+  const bucket = process.env.PWA_ICON_BUCKET?.trim() || "store-images";
+  const objectPath = `${input.storeId}/pwa-icon.${parsed.extension}`;
+
+  const uploadBody = new Blob([new Uint8Array(parsed.bytes)], {
+    type: parsed.mimeType,
+  });
 
   const uploadResponse = await fetch(
     `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${objectPath}`,
@@ -128,7 +151,7 @@ async function uploadPwaIcon(input: {
         "Content-Type": parsed.mimeType,
         "x-upsert": "true",
       },
-      body: parsed.bytes,
+      body: uploadBody,
       cache: "no-store",
     },
   );
@@ -153,13 +176,28 @@ async function upsertStorePwaProfile(input: {
   logoUrl?: string | null;
 }) {
   const { supabaseUrl, secretKey } = getAppCloudEnv();
+  const safeLogoUrl = String(input.logoUrl || "").trim() || getDefaultPwaLogoUrl();
+  const description = `${input.appName} official PWA app.`;
 
   const body = [
     {
       store_id: input.storeId,
       title: input.appName,
-      description: `${input.appName} official PWA app.`,
-      logo_url: input.logoUrl || null,
+      title_i18n: {
+        en: input.appName,
+        zh: input.appName,
+      },
+      description,
+      description_i18n: {
+        en: description,
+        zh: description,
+      },
+      logo_url: safeLogoUrl,
+      logo_image_variants: {
+        original: safeLogoUrl,
+        pwa: safeLogoUrl,
+      },
+      updated_at: new Date().toISOString(),
     },
   ];
 
@@ -222,11 +260,13 @@ export async function startPwaGeneration(
   const pwaUrl = `${existingPwaBaseUrl}/pwa/${encodeURIComponent(storeId)}`;
   const downloadUrl = `/api/download-pwa-package?runId=${encodeURIComponent(runId)}`;
 
-  const logoUrl = await uploadPwaIcon({
+  const uploadedLogoUrl = await uploadPwaIcon({
     storeId,
     iconDataUrl: input.iconDataUrl,
     iconUrl: input.iconUrl,
   });
+
+  const logoUrl = String(uploadedLogoUrl || "").trim() || getDefaultPwaLogoUrl();
 
   await upsertStorePwaProfile({
     storeId,

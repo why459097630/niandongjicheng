@@ -212,8 +212,8 @@ export async function GET(request: NextRequest) {
       ].join("\n"),
     );
 
-    const zipBuffer = await zip.generateAsync({
-      type: "nodebuffer",
+    const zipArrayBuffer = await zip.generateAsync({
+      type: "arraybuffer",
       compression: "DEFLATE",
       compressionOptions: {
         level: 6,
@@ -222,7 +222,7 @@ export async function GET(request: NextRequest) {
 
     const fileName = `${sanitizeFileName(record.appName)}-PWA-Package.zip`;
 
-    return new NextResponse(zipBuffer, {
+    return new NextResponse(zipArrayBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
