@@ -79,7 +79,7 @@ function getDefaultPwaLogoUrl(): string {
 
   const pwaBaseUrl = getPwaBaseUrl();
 
-  return `${pwaBaseUrl}/icon-512.png`;
+  return `${pwaBaseUrl}/icons/icon-512.png`;
 }
 
 function parseDataUrl(value: string | null | undefined): {
@@ -194,8 +194,8 @@ async function upsertStorePwaProfile(input: {
       },
       logo_url: safeLogoUrl,
       logo_image_variants: {
-        original: safeLogoUrl,
-        pwa: safeLogoUrl,
+        source: safeLogoUrl,
+        displayLogo: safeLogoUrl,
       },
       updated_at: new Date().toISOString(),
     },
