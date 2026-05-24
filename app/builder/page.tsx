@@ -44,6 +44,124 @@ type BuilderDraft = {
   adminName: string;
 };
 
+type IconCropMetrics = {
+  naturalWidth: number;
+  naturalHeight: number;
+};
+
+type IconCropOffset = {
+  x: number;
+  y: number;
+};
+
+type IconCropDragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+};
+
+const ICON_CROP_BOX_SIZE = 280;
+const ICON_CROP_OUTPUT_SIZE = 1024;
+const ICON_CROP_MIN_SCALE = 1;
+const ICON_CROP_MAX_SCALE = 4;
+const ICON_CROP_OUTPUT_TYPE = "image/png";
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getIconCropBounds(metrics: IconCropMetrics | null, scale: number): IconCropOffset {
+  if (!metrics) {
+    return {
+      x: 0,
+      y: 0,
+    };
+  }
+
+  const baseScale = ICON_CROP_BOX_SIZE / Math.min(metrics.naturalWidth, metrics.naturalHeight);
+  const previewWidth = metrics.naturalWidth * baseScale * scale;
+  const previewHeight = metrics.naturalHeight * baseScale * scale;
+
+  return {
+    x: Math.max(0, (previewWidth - ICON_CROP_BOX_SIZE) / 2),
+    y: Math.max(0, (previewHeight - ICON_CROP_BOX_SIZE) / 2),
+  };
+}
+
+function clampIconCropOffset(
+  offset: IconCropOffset,
+  metrics: IconCropMetrics | null,
+  scale: number,
+): IconCropOffset {
+  const bounds = getIconCropBounds(metrics, scale);
+
+  return {
+    x: clampNumber(offset.x, -bounds.x, bounds.x),
+    y: clampNumber(offset.y, -bounds.y, bounds.y),
+  };
+}
+
+function loadImageElement(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => {
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      reject(new Error("Failed to load icon image."));
+    };
+
+    image.src = dataUrl;
+  });
+}
+
+async function inspectIconImage(dataUrl: string): Promise<IconCropMetrics> {
+  const image = await loadImageElement(dataUrl);
+
+  return {
+    naturalWidth: image.naturalWidth,
+    naturalHeight: image.naturalHeight,
+  };
+}
+
+async function createCroppedIconDataUrl(input: {
+  sourceDataUrl: string;
+  metrics: IconCropMetrics;
+  scale: number;
+  offset: IconCropOffset;
+}): Promise<string> {
+  const image = await loadImageElement(input.sourceDataUrl);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("Canvas is not available.");
+  }
+
+  canvas.width = ICON_CROP_OUTPUT_SIZE;
+  canvas.height = ICON_CROP_OUTPUT_SIZE;
+
+  context.clearRect(0, 0, ICON_CROP_OUTPUT_SIZE, ICON_CROP_OUTPUT_SIZE);
+
+  const baseScale = ICON_CROP_BOX_SIZE / Math.min(input.metrics.naturalWidth, input.metrics.naturalHeight);
+  const previewWidth = input.metrics.naturalWidth * baseScale * input.scale;
+  const previewHeight = input.metrics.naturalHeight * baseScale * input.scale;
+  const renderScale = ICON_CROP_OUTPUT_SIZE / ICON_CROP_BOX_SIZE;
+
+  const drawWidth = previewWidth * renderScale;
+  const drawHeight = previewHeight * renderScale;
+  const drawX = (ICON_CROP_OUTPUT_SIZE - drawWidth) / 2 + input.offset.x * renderScale;
+  const drawY = (ICON_CROP_OUTPUT_SIZE - drawHeight) / 2 + input.offset.y * renderScale;
+
+  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+
+  return canvas.toDataURL(ICON_CROP_OUTPUT_TYPE);
+}
+
 function loadBuilderDraft(): BuilderDraft | null {
   try {
     const raw = sessionStorage.getItem(BUILDER_DRAFT_STORAGE_KEY);
@@ -130,11 +248,21 @@ export default function BuilderPage() {
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [iconFileName, setIconFileName] = useState("");
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
+  const [pendingIconFile, setPendingIconFile] = useState<File | null>(null);
+  const [pendingIconFileName, setPendingIconFileName] = useState("");
+  const [pendingIconDataUrl, setPendingIconDataUrl] = useState<string | null>(null);
+  const [iconCropMetrics, setIconCropMetrics] = useState<IconCropMetrics | null>(null);
+  const [iconCropOpen, setIconCropOpen] = useState(false);
+  const [iconCropScale, setIconCropScale] = useState(1);
+  const [iconCropOffset, setIconCropOffset] = useState<IconCropOffset>({ x: 0, y: 0 });
+  const [iconCropBusy, setIconCropBusy] = useState(false);
+  const [iconCropError, setIconCropError] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState(false);
   const [isDraftHydrated, setIsDraftHydrated] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(EMPTY_VALIDATION_ERRORS);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const iconCropDragRef = useRef<IconCropDragState | null>(null);
   const appNameSectionRef = useRef<HTMLDivElement | null>(null);
   const appIconSectionRef = useRef<HTMLDivElement | null>(null);
   const logicModuleSectionRef = useRef<HTMLDivElement | null>(null);
@@ -266,36 +394,136 @@ export default function BuilderPage() {
     const nextFile = event.target.files?.[0] || null;
 
     try {
-      setIconFile(nextFile);
+      setIconCropError("");
 
       if (!nextFile) {
-        setIconFileName("");
-        setIconDataUrl(null);
-        setValidationErrors((prev) => ({ ...prev, appIcon: true }));
-        sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
-        sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
+        setPendingIconFile(null);
+        setPendingIconFileName("");
+        setPendingIconDataUrl(null);
+        setIconCropMetrics(null);
+        setIconCropOpen(false);
         event.target.value = "";
         return;
       }
 
       const nextIconDataUrl = await fileToDataUrl(nextFile);
+      const nextMetrics = await inspectIconImage(nextIconDataUrl);
 
-      setIconFileName(nextFile.name);
-      setIconDataUrl(nextIconDataUrl);
-      setValidationErrors((prev) => ({ ...prev, appIcon: false }));
-      sessionStorage.setItem(ICON_DATA_URL_STORAGE_KEY, nextIconDataUrl);
-      sessionStorage.setItem(ICON_FILE_NAME_STORAGE_KEY, nextFile.name);
-      void logIconUploaded(nextFile.name);
+      if (nextMetrics.naturalWidth < 128 || nextMetrics.naturalHeight < 128) {
+        throw new Error("Icon image is too small. Please upload an image at least 128×128.");
+      }
+
+      setPendingIconFile(nextFile);
+      setPendingIconFileName(nextFile.name);
+      setPendingIconDataUrl(nextIconDataUrl);
+      setIconCropMetrics(nextMetrics);
+      setIconCropScale(1);
+      setIconCropOffset({ x: 0, y: 0 });
+      setIconCropOpen(true);
+      setIconCropBusy(false);
     } catch (error) {
-      setIconFile(null);
-      setIconFileName("");
-      setIconDataUrl(null);
-      sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
-      sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
+      setPendingIconFile(null);
+      setPendingIconFileName("");
+      setPendingIconDataUrl(null);
+      setIconCropMetrics(null);
+      setIconCropOpen(false);
       alert(error instanceof Error ? error.message : "Failed to read icon file.");
     } finally {
       event.target.value = "";
     }
+  };
+
+  const resetPendingIconCrop = () => {
+    setPendingIconFile(null);
+    setPendingIconFileName("");
+    setPendingIconDataUrl(null);
+    setIconCropMetrics(null);
+    setIconCropScale(1);
+    setIconCropOffset({ x: 0, y: 0 });
+    setIconCropBusy(false);
+    setIconCropError("");
+    setIconCropOpen(false);
+    iconCropDragRef.current = null;
+  };
+
+  const handleCancelIconCrop = () => {
+    resetPendingIconCrop();
+  };
+
+  const handleConfirmIconCrop = async () => {
+    if (!pendingIconDataUrl || !iconCropMetrics || !pendingIconFile) {
+      setIconCropError("Please choose an icon image first.");
+      return;
+    }
+
+    try {
+      setIconCropBusy(true);
+      setIconCropError("");
+
+      const safeOffset = clampIconCropOffset(iconCropOffset, iconCropMetrics, iconCropScale);
+      const croppedDataUrl = await createCroppedIconDataUrl({
+        sourceDataUrl: pendingIconDataUrl,
+        metrics: iconCropMetrics,
+        scale: iconCropScale,
+        offset: safeOffset,
+      });
+
+      setIconFile(pendingIconFile);
+      setIconFileName(pendingIconFileName);
+      setIconDataUrl(croppedDataUrl);
+      setValidationErrors((prev) => ({ ...prev, appIcon: false }));
+      sessionStorage.setItem(ICON_DATA_URL_STORAGE_KEY, croppedDataUrl);
+      sessionStorage.setItem(ICON_FILE_NAME_STORAGE_KEY, pendingIconFileName);
+      void logIconUploaded(pendingIconFileName);
+      resetPendingIconCrop();
+    } catch (error) {
+      setIconCropError(error instanceof Error ? error.message : "Failed to crop icon image.");
+      setIconCropBusy(false);
+    }
+  };
+
+  const handleIconCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!iconCropMetrics) return;
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    iconCropDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: iconCropOffset.x,
+      originY: iconCropOffset.y,
+    };
+  };
+
+  const handleIconCropPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const dragState = iconCropDragRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const nextOffset = {
+      x: dragState.originX + event.clientX - dragState.startX,
+      y: dragState.originY + event.clientY - dragState.startY,
+    };
+
+    setIconCropOffset(clampIconCropOffset(nextOffset, iconCropMetrics, iconCropScale));
+  };
+
+  const handleIconCropPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    const dragState = iconCropDragRef.current;
+
+    if (dragState?.pointerId === event.pointerId) {
+      iconCropDragRef.current = null;
+    }
+  };
+
+  const handleIconCropScaleChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextScale = clampNumber(Number(event.target.value), ICON_CROP_MIN_SCALE, ICON_CROP_MAX_SCALE);
+
+    setIconCropScale(nextScale);
+    setIconCropOffset((prev) => clampIconCropOffset(prev, iconCropMetrics, nextScale));
   };
 
   useEffect(() => {
@@ -483,6 +711,107 @@ export default function BuilderPage() {
 
   return (
     <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
+      {iconCropOpen && pendingIconDataUrl && iconCropMetrics ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[28px] border border-white/70 bg-white p-5 shadow-[0_28px_80px_rgba(15,23,42,0.28)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-500">App icon crop</div>
+                <h2 className="mt-1 text-2xl font-extrabold tracking-[-0.04em] text-[#0f172a]">Adjust your icon</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  Drag and zoom the image. The square crop will be used to generate Android and iOS home screen icons.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelIconCrop}
+                disabled={iconCropBusy}
+                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 flex justify-center">
+              <div
+                className="relative select-none overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#f8fafc,#e2e8f0)] shadow-inner touch-none"
+                style={{
+                  width: ICON_CROP_BOX_SIZE,
+                  height: ICON_CROP_BOX_SIZE,
+                }}
+                onPointerDown={handleIconCropPointerDown}
+                onPointerMove={handleIconCropPointerMove}
+                onPointerUp={handleIconCropPointerEnd}
+                onPointerCancel={handleIconCropPointerEnd}
+              >
+                <img
+                  src={pendingIconDataUrl}
+                  alt="Icon crop source"
+                  draggable={false}
+                  className="pointer-events-none absolute left-1/2 top-1/2 max-w-none select-none"
+                  style={{
+                    width: iconCropMetrics.naturalWidth * (ICON_CROP_BOX_SIZE / Math.min(iconCropMetrics.naturalWidth, iconCropMetrics.naturalHeight)) * iconCropScale,
+                    height: iconCropMetrics.naturalHeight * (ICON_CROP_BOX_SIZE / Math.min(iconCropMetrics.naturalWidth, iconCropMetrics.naturalHeight)) * iconCropScale,
+                    transform: `translate(calc(-50% + ${iconCropOffset.x}px), calc(-50% + ${iconCropOffset.y}px))`,
+                  }}
+                />
+
+                <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-2 ring-inset ring-white/90" />
+                <div className="pointer-events-none absolute inset-[42px] rounded-full border border-white/85 shadow-[0_0_0_999px_rgba(15,23,42,0.10)]" />
+                <div className="pointer-events-none absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/35" />
+                <div className="pointer-events-none absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-white/35" />
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Zoom</label>
+                <span className="text-xs font-semibold text-slate-500">{Math.round(iconCropScale * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={ICON_CROP_MIN_SCALE}
+                max={ICON_CROP_MAX_SCALE}
+                step="0.01"
+                value={iconCropScale}
+                onChange={handleIconCropScaleChange}
+                disabled={iconCropBusy}
+                className="w-full accent-indigo-500"
+              />
+              <div className="flex items-center justify-between text-[11px] font-medium text-slate-400">
+                <span>Full image</span>
+                <span>Closer crop</span>
+              </div>
+            </div>
+
+            {iconCropError ? (
+              <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600">
+                {iconCropError}
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={handleCancelIconCrop}
+                disabled={iconCropBusy}
+                className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmIconCrop}
+                disabled={iconCropBusy}
+                className="flex-1 rounded-2xl bg-[#111827] px-4 py-3 text-sm font-bold text-white shadow-[0_16px_34px_rgba(15,23,42,0.22)] transition hover:-translate-y-0.5 hover:bg-[#020617] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {iconCropBusy ? "Cropping..." : "Use this icon"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
 
       <SiteHeader
@@ -552,7 +881,7 @@ export default function BuilderPage() {
     <label className="text-sm font-semibold">App Icon</label>
     <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
   </div>
-  <p className="text-xs text-slate-400">Shown as your app icon on the home screen after installation.</p>
+  <p className="text-xs text-slate-400">Upload any image, then adjust the crop area for your home screen app icon.</p>
   <div
     className={`group rounded-2xl border bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:shadow-[0_14px_30px_rgba(15,23,42,0.06)] ${
       validationErrors.appIcon
@@ -563,7 +892,7 @@ export default function BuilderPage() {
     <input
       ref={fileInputRef}
       type="file"
-      accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+      accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
       className="hidden"
       onChange={handleIconChange}
     />
@@ -582,15 +911,15 @@ export default function BuilderPage() {
         <div className="mt-0.5 text-xs text-slate-400">
           {iconFileName
             ? `${iconFileName}`
-            : "PNG / JPG / SVG · 1024×1024 recommended"}
+            : "PNG / JPG / WEBP / SVG · square crop will be generated"}
         </div>
         {iconDataUrl ? (
           <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-600">
-            Image preview ready
+            Cropped icon ready
           </div>
         ) : null}
         <p className="mt-2 text-[11px] leading-5 text-slate-500">
-          Previewed in common Android icon shapes. The image will fill the icon container, and edges may be cropped by the system, so keep important content centered.
+          Drag and zoom after upload. The cropped image will be converted into Android and iOS home screen icons automatically.
         </p>
       </div>
 
