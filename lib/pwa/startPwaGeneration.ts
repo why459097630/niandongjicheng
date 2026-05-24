@@ -199,39 +199,66 @@ async function renderPwaIconPng(input: {
       .resize({
         width: input.size,
         height: input.size,
-        fit: "contain",
+        fit: "cover",
+        position: "center",
         background: transparentBackground,
       })
       .png()
       .toBuffer();
   }
 
-  const safeSize = Math.round(input.size * 0.74);
-  const beforePadding = Math.floor((input.size - safeSize) / 2);
-  const afterPadding = input.size - safeSize - beforePadding;
+  const foregroundSize = Math.round(input.size * 0.7);
 
-  const safeAreaPng = await sharp(input.sourceBytes, {
+  const backgroundPng = await sharp(input.sourceBytes, {
     density: 512,
     animated: false,
     failOn: "none",
   })
     .resize({
-      width: safeSize,
-      height: safeSize,
+      width: input.size,
+      height: input.size,
+      fit: "cover",
+      position: "center",
+    })
+    .blur(Math.max(8, Math.round(input.size * 0.035)))
+    .modulate({
+      brightness: 1.04,
+      saturation: 0.82,
+    })
+    .png()
+    .toBuffer();
+
+  const foregroundPng = await sharp(input.sourceBytes, {
+    density: 512,
+    animated: false,
+    failOn: "none",
+  })
+    .resize({
+      width: foregroundSize,
+      height: foregroundSize,
       fit: "contain",
       background: transparentBackground,
     })
     .png()
     .toBuffer();
 
-  return sharp(safeAreaPng)
-    .extend({
-      top: beforePadding,
-      bottom: afterPadding,
-      left: beforePadding,
-      right: afterPadding,
-      background: transparentBackground,
-    })
+  const overlaySvg = Buffer.from(
+    `<svg width="${input.size}" height="${input.size}" viewBox="0 0 ${input.size} ${input.size}" xmlns="http://www.w3.org/2000/svg"><rect width="${input.size}" height="${input.size}" fill="rgba(255,255,255,0.30)"/></svg>`,
+  );
+
+  return sharp(backgroundPng)
+    .composite([
+      {
+        input: overlaySvg,
+        left: 0,
+        top: 0,
+      },
+      {
+        input: foregroundPng,
+        left: Math.round((input.size - foregroundSize) / 2),
+        top: Math.round((input.size - foregroundSize) / 2),
+      },
+    ])
     .png()
     .toBuffer();
 }
