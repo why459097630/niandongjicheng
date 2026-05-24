@@ -190,26 +190,7 @@ async function renderPwaIconPng(input: {
     alpha: 0,
   };
 
-  if (!input.maskable) {
-    return sharp(input.sourceBytes, {
-      density: 512,
-      animated: false,
-      failOn: "none",
-    })
-      .resize({
-        width: input.size,
-        height: input.size,
-        fit: "cover",
-        position: "center",
-        background: transparentBackground,
-      })
-      .png()
-      .toBuffer();
-  }
-
-  const foregroundSize = Math.round(input.size * 0.7);
-
-  const backgroundPng = await sharp(input.sourceBytes, {
+  return sharp(input.sourceBytes, {
     density: 512,
     animated: false,
     failOn: "none",
@@ -219,46 +200,8 @@ async function renderPwaIconPng(input: {
       height: input.size,
       fit: "cover",
       position: "center",
-    })
-    .blur(Math.max(8, Math.round(input.size * 0.035)))
-    .modulate({
-      brightness: 1.04,
-      saturation: 0.82,
-    })
-    .png()
-    .toBuffer();
-
-  const foregroundPng = await sharp(input.sourceBytes, {
-    density: 512,
-    animated: false,
-    failOn: "none",
-  })
-    .resize({
-      width: foregroundSize,
-      height: foregroundSize,
-      fit: "contain",
       background: transparentBackground,
     })
-    .png()
-    .toBuffer();
-
-  const overlaySvg = Buffer.from(
-    `<svg width="${input.size}" height="${input.size}" viewBox="0 0 ${input.size} ${input.size}" xmlns="http://www.w3.org/2000/svg"><rect width="${input.size}" height="${input.size}" fill="rgba(255,255,255,0.30)"/></svg>`,
-  );
-
-  return sharp(backgroundPng)
-    .composite([
-      {
-        input: overlaySvg,
-        left: 0,
-        top: 0,
-      },
-      {
-        input: foregroundPng,
-        left: Math.round((input.size - foregroundSize) / 2),
-        top: Math.round((input.size - foregroundSize) / 2),
-      },
-    ])
     .png()
     .toBuffer();
 }
