@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { insertBuildRecord, insertOperationLogOnce } from "@/lib/build/storage";
 import type { BuildPriority, BuildRequest, StartBuildResponse } from "@/lib/build/types";
@@ -116,39 +117,50 @@ function parseDataUrl(value: string | null | undefined): {
   };
 }
 
-async function uploadPwaIcon(input: {
-  storeId: string;
-  iconDataUrl?: string | null;
-  iconUrl?: string | null;
-}): Promise<string | null> {
-  const directIconUrl = String(input.iconUrl || "").trim();
+type StandardPwaIconAssets = {
+  source: string;
+  displayLogo: string;
+  icon192: string;
+  icon512: string;
+  maskable192: string;
+  maskable512: string;
+  appleTouchIcon: string;
+};
 
-  if (directIconUrl) {
-    return directIconUrl;
-  }
+function getDefaultPwaIconAssets(): StandardPwaIconAssets {
+  const pwaBaseUrl = getPwaBaseUrl();
 
-  const parsed = parseDataUrl(input.iconDataUrl);
+  return {
+    source: `${pwaBaseUrl}/icons/icon-512.png`,
+    displayLogo: `${pwaBaseUrl}/icons/icon-512.png`,
+    icon192: `${pwaBaseUrl}/icons/icon-192.png`,
+    icon512: `${pwaBaseUrl}/icons/icon-512.png`,
+    maskable192: `${pwaBaseUrl}/icons/maskable-192.png`,
+    maskable512: `${pwaBaseUrl}/icons/maskable-512.png`,
+    appleTouchIcon: `${pwaBaseUrl}/icons/apple-touch-icon.png`,
+  };
+}
 
-  if (!parsed) {
-    return null;
-  }
-
-  const { supabaseUrl, secretKey } = getAppCloudEnv();
-  const bucket = process.env.PWA_ICON_BUCKET?.trim() || "store-images";
-  const objectPath = `${input.storeId}/pwa-icon.${parsed.extension}`;
-
-  const uploadBody = new Blob([new Uint8Array(parsed.bytes)], {
-    type: parsed.mimeType,
+async function uploadStorageObject(input: {
+  supabaseUrl: string;
+  secretKey: string;
+  bucket: string;
+  objectPath: string;
+  contentType: string;
+  bytes: Buffer;
+}): Promise<string> {
+  const uploadBody = new Blob([new Uint8Array(input.bytes)], {
+    type: input.contentType,
   });
 
   const uploadResponse = await fetch(
-    `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${objectPath}`,
+    `${input.supabaseUrl}/storage/v1/object/${encodeURIComponent(input.bucket)}/${input.objectPath}`,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${secretKey}`,
-        apikey: secretKey,
-        "Content-Type": parsed.mimeType,
+        Authorization: `Bearer ${input.secretKey}`,
+        apikey: input.secretKey,
+        "Content-Type": input.contentType,
         "x-upsert": "true",
       },
       body: uploadBody,
@@ -158,25 +170,238 @@ async function uploadPwaIcon(input: {
 
   if (!uploadResponse.ok) {
     const text = await uploadResponse.text();
-    console.warn("NDJC startPwaGeneration: icon upload failed, continue without icon", {
-      status: uploadResponse.status,
-      body: text,
-      bucket,
-      objectPath,
-    });
-    return null;
+    throw new Error(
+      `Failed to upload storage object. Status=${uploadResponse.status}. Bucket=${input.bucket}. Path=${input.objectPath}. Body=${text}`,
+    );
   }
 
-  return `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}/${objectPath}`;
+  return `${input.supabaseUrl}/storage/v1/object/public/${encodeURIComponent(input.bucket)}/${input.objectPath}`;
+}
+
+async function renderPwaIconPng(input: {
+  sourceBytes: Buffer;
+  size: number;
+  maskable: boolean;
+}): Promise<Buffer> {
+  const transparentBackground = {
+    r: 255,
+    g: 255,
+    b: 255,
+    alpha: 0,
+  };
+
+  if (!input.maskable) {
+    return sharp(input.sourceBytes, {
+      density: 512,
+      animated: false,
+      failOn: "none",
+    })
+      .resize({
+        width: input.size,
+        height: input.size,
+        fit: "contain",
+        background: transparentBackground,
+      })
+      .png()
+      .toBuffer();
+  }
+
+  const safeSize = Math.round(input.size * 0.74);
+  const beforePadding = Math.floor((input.size - safeSize) / 2);
+  const afterPadding = input.size - safeSize - beforePadding;
+
+  const safeAreaPng = await sharp(input.sourceBytes, {
+    density: 512,
+    animated: false,
+    failOn: "none",
+  })
+    .resize({
+      width: safeSize,
+      height: safeSize,
+      fit: "contain",
+      background: transparentBackground,
+    })
+    .png()
+    .toBuffer();
+
+  return sharp(safeAreaPng)
+    .extend({
+      top: beforePadding,
+      bottom: afterPadding,
+      left: beforePadding,
+      right: afterPadding,
+      background: transparentBackground,
+    })
+    .png()
+    .toBuffer();
+}
+
+async function uploadPwaIcon(input: {
+  storeId: string;
+  iconDataUrl?: string | null;
+  iconUrl?: string | null;
+}): Promise<StandardPwaIconAssets> {
+  const defaultAssets = getDefaultPwaIconAssets();
+  const directIconUrl = String(input.iconUrl || "").trim();
+
+  if (directIconUrl) {
+    return {
+      ...defaultAssets,
+      source: directIconUrl,
+      displayLogo: directIconUrl,
+    };
+  }
+
+  const parsed = parseDataUrl(input.iconDataUrl);
+
+  if (!parsed) {
+    return defaultAssets;
+  }
+
+  const { supabaseUrl, secretKey } = getAppCloudEnv();
+  const bucket = process.env.PWA_ICON_BUCKET?.trim() || "store-images";
+  const sourceExtension = parsed.extension === "svg" ? "svg" : parsed.extension;
+  const sourcePath = `${input.storeId}/source-logo.${sourceExtension}`;
+  const displayLogoPath = `${input.storeId}/display-logo.png`;
+  const icon192Path = `${input.storeId}/pwa-icon-192.png`;
+  const icon512Path = `${input.storeId}/pwa-icon-512.png`;
+  const maskable192Path = `${input.storeId}/pwa-maskable-192.png`;
+  const maskable512Path = `${input.storeId}/pwa-maskable-512.png`;
+  const appleTouchIconPath = `${input.storeId}/apple-touch-icon.png`;
+
+  try {
+    const [
+      displayLogoBytes,
+      icon192Bytes,
+      icon512Bytes,
+      maskable192Bytes,
+      maskable512Bytes,
+      appleTouchIconBytes,
+    ] = await Promise.all([
+      renderPwaIconPng({
+        sourceBytes: parsed.bytes,
+        size: 512,
+        maskable: false,
+      }),
+      renderPwaIconPng({
+        sourceBytes: parsed.bytes,
+        size: 192,
+        maskable: false,
+      }),
+      renderPwaIconPng({
+        sourceBytes: parsed.bytes,
+        size: 512,
+        maskable: false,
+      }),
+      renderPwaIconPng({
+        sourceBytes: parsed.bytes,
+        size: 192,
+        maskable: true,
+      }),
+      renderPwaIconPng({
+        sourceBytes: parsed.bytes,
+        size: 512,
+        maskable: true,
+      }),
+      renderPwaIconPng({
+        sourceBytes: parsed.bytes,
+        size: 180,
+        maskable: false,
+      }),
+    ]);
+
+    const [
+      source,
+      displayLogo,
+      icon192,
+      icon512,
+      maskable192,
+      maskable512,
+      appleTouchIcon,
+    ] = await Promise.all([
+      uploadStorageObject({
+        supabaseUrl,
+        secretKey,
+        bucket,
+        objectPath: sourcePath,
+        contentType: parsed.mimeType,
+        bytes: parsed.bytes,
+      }),
+      uploadStorageObject({
+        supabaseUrl,
+        secretKey,
+        bucket,
+        objectPath: displayLogoPath,
+        contentType: "image/png",
+        bytes: displayLogoBytes,
+      }),
+      uploadStorageObject({
+        supabaseUrl,
+        secretKey,
+        bucket,
+        objectPath: icon192Path,
+        contentType: "image/png",
+        bytes: icon192Bytes,
+      }),
+      uploadStorageObject({
+        supabaseUrl,
+        secretKey,
+        bucket,
+        objectPath: icon512Path,
+        contentType: "image/png",
+        bytes: icon512Bytes,
+      }),
+      uploadStorageObject({
+        supabaseUrl,
+        secretKey,
+        bucket,
+        objectPath: maskable192Path,
+        contentType: "image/png",
+        bytes: maskable192Bytes,
+      }),
+      uploadStorageObject({
+        supabaseUrl,
+        secretKey,
+        bucket,
+        objectPath: maskable512Path,
+        contentType: "image/png",
+        bytes: maskable512Bytes,
+      }),
+      uploadStorageObject({
+        supabaseUrl,
+        secretKey,
+        bucket,
+        objectPath: appleTouchIconPath,
+        contentType: "image/png",
+        bytes: appleTouchIconBytes,
+      }),
+    ]);
+
+    return {
+      source,
+      displayLogo,
+      icon192,
+      icon512,
+      maskable192,
+      maskable512,
+      appleTouchIcon,
+    };
+  } catch (error) {
+    console.warn("NDJC startPwaGeneration: standard PWA icon generation failed, fallback to default icons", {
+      error: error instanceof Error ? error.message : String(error),
+      storeId: input.storeId,
+    });
+
+    return defaultAssets;
+  }
 }
 
 async function upsertStorePwaProfile(input: {
   storeId: string;
   appName: string;
-  logoUrl?: string | null;
+  iconAssets: StandardPwaIconAssets;
 }) {
   const { supabaseUrl, secretKey } = getAppCloudEnv();
-  const safeLogoUrl = String(input.logoUrl || "").trim() || getDefaultPwaLogoUrl();
   const description = `${input.appName} official PWA app.`;
 
   const body = [
@@ -192,10 +417,15 @@ async function upsertStorePwaProfile(input: {
         en: description,
         zh: description,
       },
-      logo_url: safeLogoUrl,
+      logo_url: input.iconAssets.displayLogo,
       logo_image_variants: {
-        source: safeLogoUrl,
-        displayLogo: safeLogoUrl,
+        source: input.iconAssets.source,
+        displayLogo: input.iconAssets.displayLogo,
+        icon192: input.iconAssets.icon192,
+        icon512: input.iconAssets.icon512,
+        maskable192: input.iconAssets.maskable192,
+        maskable512: input.iconAssets.maskable512,
+        appleTouchIcon: input.iconAssets.appleTouchIcon,
       },
       updated_at: new Date().toISOString(),
     },
@@ -260,18 +490,16 @@ export async function startPwaGeneration(
   const pwaUrl = `${existingPwaBaseUrl}/pwa/${encodeURIComponent(storeId)}`;
   const downloadUrl = `/api/download-pwa-package?runId=${encodeURIComponent(runId)}`;
 
-  const uploadedLogoUrl = await uploadPwaIcon({
+  const iconAssets = await uploadPwaIcon({
     storeId,
     iconDataUrl: input.iconDataUrl,
     iconUrl: input.iconUrl,
   });
 
-  const logoUrl = String(uploadedLogoUrl || "").trim() || getDefaultPwaLogoUrl();
-
   await upsertStorePwaProfile({
     storeId,
     appName,
-    logoUrl,
+    iconAssets,
   });
 
   await insertBuildRecord(supabase, {
