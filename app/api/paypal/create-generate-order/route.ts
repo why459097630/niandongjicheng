@@ -176,25 +176,25 @@ export async function POST(request: NextRequest) {
 
     await attachStripeSessionToOrder(order.id, paypalOrder.id);
 
-    await insertOperationLog(supabase, {
-      userId: user.id,
-      runId,
-      eventName: "paypal_order_created",
-      pagePath: "/api/paypal/create-generate-order",
-      metadata: {
-        kind: "paypal_generate_order_created",
-        orderId: order.id,
-        paypalOrderId: paypalOrder.id,
-        amountCents,
-        currency,
-        appName,
-        module: moduleName,
-        uiPack: uiPackName,
-        plan,
-        adminName,
-        hasIcon: Boolean(iconDataUrl),
-      },
-    });
+await insertOperationLog(supabase, {
+  userId: user.id,
+  runId,
+  eventName: "stripe_session_created",
+  pagePath: "/api/paypal/create-generate-order",
+  metadata: {
+    kind: "paypal_generate_order_created",
+    orderId: order.id,
+    paypalOrderId: paypalOrder.id,
+    amountCents,
+    currency,
+    appName,
+    module: moduleName,
+    uiPack: uiPackName,
+    plan,
+    adminName,
+    hasIcon: Boolean(iconDataUrl),
+  },
+});
 
     return NextResponse.json({
       ok: true,

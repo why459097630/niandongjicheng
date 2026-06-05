@@ -192,22 +192,21 @@ export async function POST(request: NextRequest) {
 
     await attachStripeSessionToOrder(order.id, paypalOrder.id);
 
-    await insertOperationLog(supabase, {
-      userId: user.id,
-      runId: null,
-      eventName: "paypal_order_created",
-      pagePath: "/api/paypal/create-renew-order",
-      metadata: {
-        kind: "paypal_renew_order_created",
-        orderId: order.id,
-        paypalOrderId: paypalOrder.id,
-        amountCents,
-        currency,
-        storeId,
-        renewId,
-      },
-    });
-
+await insertOperationLog(supabase, {
+  userId: user.id,
+  runId: null,
+  eventName: "stripe_session_created",
+  pagePath: "/api/paypal/create-renew-order",
+  metadata: {
+    kind: "paypal_renew_order_created",
+    orderId: order.id,
+    paypalOrderId: paypalOrder.id,
+    amountCents,
+    currency,
+    storeId,
+    renewId,
+  },
+});
     return NextResponse.json({
       ok: true,
       url: getPayPalApprovalUrl(paypalOrder),
