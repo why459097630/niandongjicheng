@@ -64,6 +64,7 @@ export type UserOperationEventName =
   | "download_failed"
   | "checkout_opened"
   | "stripe_session_created"
+  | "paypal_order_created"
   | "payment_auto_retry_scheduled"
   | "payment_manual_review_required"
   | "payment_manual_retry_started"
