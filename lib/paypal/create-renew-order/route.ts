@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { insertOperationLog } from "@/lib/build/storage";
@@ -8,6 +7,16 @@ import {
   createRenewOrder,
   getRecentActiveRenewOrder,
 } from "@/lib/stripe/orders";
+import {
+  createPayPalOrder,
+  getPayPalApprovalUrl,
+} from "@/lib/paypal/client";
+import {
+  getPayPalCurrency,
+  getPayPalRenewAmountCents,
+} from "@/lib/paypal/pricing";
+
+export const runtime = "nodejs";
 
 function getRequiredEnv(name: string): string {
   const value = (process.env[name] || "").trim();
@@ -17,22 +26,6 @@ function getRequiredEnv(name: string): string {
   }
 
   return value;
-}
-
-function getRenewPriceId(renewId: string): string {
-  const priceMap: Record<string, string> = {
-    "30d": getRequiredEnv("STRIPE_PRICE_ID_RENEW_30D"),
-    "90d": getRequiredEnv("STRIPE_PRICE_ID_RENEW_90D"),
-    "180d": getRequiredEnv("STRIPE_PRICE_ID_RENEW_180D"),
-  };
-
-  const priceId = priceMap[renewId];
-
-  if (!priceId) {
-    throw new Error("Invalid renewId.");
-  }
-
-  return priceId;
 }
 
 async function assertStoreCanBeRenewed(storeId: string) {
@@ -73,8 +66,8 @@ async function assertStoreCanBeRenewed(storeId: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    const stripeSecretKey = getRequiredEnv("STRIPE_SECRET_KEY");
     const siteUrl = getRequiredEnv("SITE_URL");
+    const currency = getPayPalCurrency();
 
     const supabase = await createClient();
     const {
@@ -106,17 +99,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!renewId) {
+    if (renewId !== "30d" && renewId !== "90d" && renewId !== "180d") {
       return NextResponse.json(
         {
           ok: false,
-          error: "renewId is required.",
+          error: "Invalid renewId.",
         },
         { status: 400 },
       );
     }
-
-    const priceId = getRenewPriceId(renewId);
 
     const { data: ownedBuild, error: ownedBuildError } = await supabase
       .from("builds")
@@ -177,6 +168,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const amountCents = getPayPalRenewAmountCents(renewId);
+
     const order = await createRenewOrder({
       userId: user.id,
       storeId,
@@ -187,66 +180,46 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const stripe = new Stripe(stripeSecretKey);
-
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      customer_email: user.email || undefined,
-      success_url: `${siteUrl}/renew-cloud?stripeSuccess=1&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/renew-cloud?canceled=1`,
-      metadata: {
-        kind: "renew_cloud",
-        orderId: order.id,
-        userId: user.id,
-        storeId,
-        renewId,
-      },
+    const paypalOrder = await createPayPalOrder({
+      orderId: order.id,
+      amountCents,
+      currency,
+      description: `Think It Done cloud renewal ${renewId}.`,
+      customId: order.id,
+      returnUrl: `${siteUrl}/renew-cloud?paypalSuccess=1&renewId=${encodeURIComponent(renewId)}`,
+      cancelUrl: `${siteUrl}/renew-cloud?canceled=1`,
     });
 
-    if (!session.id || !session.url) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Stripe checkout URL is empty.",
-        },
-        { status: 500 },
-      );
-    }
-
-    await attachStripeSessionToOrder(order.id, session.id);
+    await attachStripeSessionToOrder(order.id, paypalOrder.id);
 
     await insertOperationLog(supabase, {
       userId: user.id,
       runId: null,
-      eventName: "stripe_session_created",
-      pagePath: "/api/stripe/create-renew-session",
+      eventName: "paypal_order_created",
+      pagePath: "/api/paypal/create-renew-order",
       metadata: {
-        kind: "stripe_renew_session_created",
+        kind: "paypal_renew_order_created",
         orderId: order.id,
-        sessionId: session.id,
+        paypalOrderId: paypalOrder.id,
+        amountCents,
+        currency,
         storeId,
         renewId,
-        priceId,
       },
     });
 
     return NextResponse.json({
       ok: true,
-      url: session.url,
+      url: getPayPalApprovalUrl(paypalOrder),
+      paypalOrderId: paypalOrder.id,
     });
   } catch (error) {
-    console.error("NDJC create-renew-session error", error);
+    console.error("NDJC create PayPal renew order error", error);
 
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Failed to create Stripe renewal session.",
+        error: error instanceof Error ? error.message.slice(0, 1000) : "Failed to create PayPal renewal order.",
       },
       { status: 500 },
     );

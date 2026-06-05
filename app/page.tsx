@@ -131,18 +131,18 @@ export default function Home() {
         <section className="relative z-10 mx-auto grid min-h-[78vh] max-w-7xl items-center gap-12 px-6 py-16 md:grid-cols-[minmax(0,640px)_1fr]">
           <div className="max-w-[640px]">
             <div className="mb-4 inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium tracking-[0.06em] text-[#64748b]">
-              Built for local service businesses
+              Built for local businesses
             </div>
 
             <h1 className="mb-8 text-5xl font-extrabold tracking-[-0.04em] leading-[0.96] md:text-7xl">
-              Build your own real Android app
+              Create a branded customer hub
               <br />
-              <span className="text-4xl md:text-6xl text-[#0f172a]/60">For your local business — no code needed</span>
+              <span className="text-4xl md:text-6xl text-[#0f172a]/60">For your local business — ready to share</span>
             </h1>
 
             
             <p className="mb-10 max-w-[600px] text-lg leading-[1.9] text-[#475569]">
-              Give your customers a dedicated app — show services, chat instantly, and send updates.
+              Generate a mobile-ready customer hub customers can open by link or QR code, save to their home screen, and use like a lightweight app.
             </p>
 
             <div className="max-w-[560px]">
@@ -151,11 +151,11 @@ export default function Home() {
               </div>
 
               <h3 className="mt-5 max-w-[520px] text-[31px] font-bold tracking-[-0.055em] leading-[0.98] text-[#0f172a] sm:text-[40px]">
-                Start building your app now
+                Build your customer hub
               </h3>
 
               <p className="mt-4 max-w-[460px] text-[13px] font-medium tracking-[0.01em] text-[#64748b]">
-                No coding required · Generate a real native Android APK
+                No coding required · Create a branded customer entry for your local business
               </p>
 
               <div className="mt-8 flex items-center gap-4">
@@ -178,7 +178,7 @@ export default function Home() {
                   <span className="opacity-40">→</span>
                   <span>Generate</span>
                   <span className="opacity-40">→</span>
-                  <span>Download</span>
+                  <span>Launch</span>
                 </div>
               </div>
             </div>
@@ -267,74 +267,117 @@ export default function Home() {
       </div>
 
       <section className="mx-auto max-w-7xl px-6 py-24">
-        <div className="grid gap-12 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:items-start">
-          <div className="rounded-[28px] border border-rose-200/50 bg-[linear-gradient(180deg,rgba(255,255,255,0.78)_0%,rgba(249,250,251,0.98)_100%)] p-8 shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_12px_30px_rgba(15,23,42,0.03)] md:p-9">
-            <div className="mb-4 text-sm font-semibold tracking-[0.12em] text-rose-400">The problem</div>
-            <h2 className="max-w-[520px] text-3xl font-extrabold tracking-[-0.04em] leading-[1.06] text-[#0f172a] md:text-[34px]">
-              Running your business on platforms alone makes growth harder
-            </h2>
-            <p className="mt-5 max-w-[560px] text-[16px] leading-[1.9] text-[#64748b]">
-              Many small businesses still rely on social platforms, chat groups, or marketplace pages to present products and talk to customers. That works at first, but it becomes hard to build your own brand, retain customers, and keep communication organized.
-            </p>
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="mb-4 text-sm font-semibold tracking-[0.14em] text-indigo-400">
+            Customer hub system
+          </div>
+          <h2 className="text-4xl font-extrabold tracking-[-0.045em] leading-[1.04] text-[#0f172a] md:text-[54px]">
+            Your own customer hub, without app store friction
+          </h2>
+          <p className="mx-auto mt-6 max-w-2xl text-[17px] leading-[1.9] text-[#64748b]">
+            Create a branded PWA where customers can browse services, book appointments, chat with you, and receive updates — all under your own name and icon.
+          </p>
+        </div>
 
-            <div className="mt-9 grid gap-3">
-              <div className="rounded-2xl border border-rose-200/60 bg-white px-4 py-3.5 text-[14px] font-medium text-[#475569] shadow-[0_6px_16px_rgba(15,23,42,0.03)]">
-                No dedicated place to showcase products and services professionally
+        <div className="mt-14 grid gap-5 lg:grid-cols-3">
+          <div className="group relative overflow-hidden rounded-[34px] border border-indigo-100/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(246,248,255,0.92)_100%)] p-8 shadow-[0_24px_70px_rgba(99,102,241,0.12)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_82px_rgba(99,102,241,0.16)]">
+            <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-indigo-100/70 blur-3xl" />
+            <div className="absolute -bottom-20 left-8 h-48 w-48 rounded-full bg-fuchsia-100/50 blur-3xl" />
+            <div className="absolute right-8 top-7 text-6xl font-semibold tracking-[-0.06em] text-indigo-100/80">01</div>
+
+            <div className="relative z-10">
+              <div className="flex items-start justify-between gap-4">
+                <div className="inline-flex rounded-full border border-indigo-100 bg-white/82 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-indigo-500 shadow-[0_10px_26px_rgba(99,102,241,0.08)]">
+                  Brand
+                </div>
               </div>
-              <div className="rounded-2xl border border-rose-200/55 bg-white px-4 py-3.5 text-[14px] text-[#475569] shadow-[0_6px_16px_rgba(15,23,42,0.025)]">
-                Customer communication is scattered across different channels
-              </div>
-              <div className="rounded-2xl border border-rose-200/55 bg-white px-4 py-3.5 text-[14px] text-[#475569] shadow-[0_6px_16px_rgba(15,23,42,0.025)]">
-                Promotions and updates do not reach customers in a direct, branded way
-              </div>
-              <div className="rounded-2xl border border-rose-200/55 bg-white px-4 py-3.5 text-[14px] text-[#475569] shadow-[0_6px_16px_rgba(15,23,42,0.025)]">
-                It is difficult to build a stronger brand presence and private customer channel
+
+              <h3 className="mt-8 text-3xl font-extrabold tracking-[-0.04em] leading-[1.06] text-[#0f172a]">
+                Build your branded entry
+              </h3>
+
+              <p className="mt-4 text-[15px] leading-[1.85] text-[#64748b]">
+                Give customers a recognizable entry that carries your business name, icon, and identity.
+              </p>
+
+              <div className="mt-8 flex flex-wrap gap-2">
+                <span className="rounded-full border border-indigo-100 bg-white/82 px-3 py-1.5 text-xs font-semibold text-indigo-500">
+                  Custom name
+                </span>
+                <span className="rounded-full border border-indigo-100 bg-white/82 px-3 py-1.5 text-xs font-semibold text-indigo-500">
+                  Custom icon
+                </span>
+                <span className="rounded-full border border-indigo-100 bg-white/82 px-3 py-1.5 text-xs font-semibold text-indigo-500">
+                  Link or QR code
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-[32px] border border-indigo-100/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,248,255,0.94)_100%)] p-8 shadow-[0_24px_70px_rgba(99,102,241,0.16)] md:p-10">
-            <div className="absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.16),transparent_68%)]" />
-            <div className="absolute left-1/2 top-3 -translate-x-1/2 text-[20px] text-amber-400">✨</div>
-            <div className="relative z-10 mb-4 text-sm font-semibold tracking-[0.12em] text-indigo-400">The solution</div>
-            <h2 className="relative z-10 max-w-[560px] text-[36px] font-extrabold tracking-[-0.045em] leading-[1.04] text-[#0f172a] md:text-[38px]">
-              Give your business its own app
-            </h2>
-            <p className="relative z-10 mt-5 max-w-[580px] text-[17px] leading-[1.95] text-[#64748b]">
-              Create a simple native app to showcase products, talk with customers, publish updates, and present your business — all in one place.
-            </p>
+          <div className="group relative overflow-hidden rounded-[34px] border border-sky-100/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(240,249,255,0.90)_100%)] p-8 shadow-[0_24px_70px_rgba(14,165,233,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_82px_rgba(14,165,233,0.14)]">
+            <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-sky-100/70 blur-3xl" />
+            <div className="absolute -bottom-20 left-8 h-48 w-48 rounded-full bg-cyan-100/50 blur-3xl" />
+            <div className="absolute right-8 top-7 text-6xl font-semibold tracking-[-0.06em] text-sky-100/90">02</div>
 
-            <div className="relative z-10 mt-10 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-[22px] border border-indigo-200/70 bg-white/88 p-5 shadow-[0_10px_24px_rgba(99,102,241,0.08)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_34px_rgba(99,102,241,0.12)] sm:col-span-2">
-                <div className="text-sm font-semibold tracking-[0.06em] text-indigo-500">Products</div>
-                <h3 className="mt-2 text-[21px] font-semibold tracking-[-0.02em] text-[#0f172a]">Show what you sell</h3>
-                <p className="mt-2 max-w-[440px] text-[14px] leading-[1.8] text-[#64748b]">
-                  Display products and services in your own app space.
-                </p>
+            <div className="relative z-10">
+              <div className="flex items-start justify-between gap-4">
+                <div className="inline-flex rounded-full border border-sky-100 bg-white/82 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-sky-500 shadow-[0_10px_26px_rgba(14,165,233,0.08)]">
+                  Operate
+                </div>
               </div>
 
-              <div className="rounded-[22px] border border-indigo-200/65 bg-white/82 p-5 shadow-[0_8px_20px_rgba(99,102,241,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(99,102,241,0.10)]">
-                <div className="text-sm font-semibold tracking-[0.06em] text-indigo-500">Chat</div>
-                <h3 className="mt-2 text-lg font-semibold text-[#0f172a]">Talk with customers</h3>
-                <p className="mt-2 text-[14px] leading-[1.8] text-[#64748b]">
-                  Communicate directly inside your own channel.
-                </p>
+              <h3 className="mt-8 text-3xl font-extrabold tracking-[-0.04em] leading-[1.06] text-[#0f172a]">
+                Manage customer actions in one place
+              </h3>
+
+              <p className="mt-4 text-[15px] leading-[1.85] text-[#64748b]">
+                Show what you offer, receive bookings, and keep customer conversations organized in one branded hub.
+              </p>
+
+              <div className="mt-8 flex flex-wrap gap-2">
+                <span className="rounded-full border border-sky-100 bg-white/82 px-3 py-1.5 text-xs font-semibold text-sky-500">
+                  Services
+                </span>
+                <span className="rounded-full border border-sky-100 bg-white/82 px-3 py-1.5 text-xs font-semibold text-sky-500">
+                  Bookings
+                </span>
+                <span className="rounded-full border border-sky-100 bg-white/82 px-3 py-1.5 text-xs font-semibold text-sky-500">
+                  Chat
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="group relative overflow-hidden rounded-[34px] border border-fuchsia-100/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(253,244,255,0.90)_100%)] p-8 shadow-[0_24px_70px_rgba(217,70,239,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_82px_rgba(217,70,239,0.14)]">
+            <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-fuchsia-100/70 blur-3xl" />
+            <div className="absolute -bottom-20 left-8 h-48 w-48 rounded-full bg-rose-100/50 blur-3xl" />
+            <div className="absolute right-8 top-7 text-6xl font-semibold tracking-[-0.06em] text-fuchsia-100/90">03</div>
+
+            <div className="relative z-10">
+              <div className="flex items-start justify-between gap-4">
+                <div className="inline-flex rounded-full border border-fuchsia-100 bg-white/82 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-fuchsia-500 shadow-[0_10px_26px_rgba(217,70,239,0.08)]">
+                  Retention
+                </div>
               </div>
 
-              <div className="rounded-[22px] border border-indigo-200/65 bg-white/82 p-5 shadow-[0_8px_20px_rgba(99,102,241,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(99,102,241,0.10)]">
-                <div className="text-sm font-semibold tracking-[0.06em] text-indigo-500">Updates</div>
-                <h3 className="mt-2 text-lg font-semibold text-[#0f172a]">Send promotions</h3>
-                <p className="mt-2 text-[14px] leading-[1.8] text-[#64748b]">
-                  Share news and offers directly with customers.
-                </p>
-              </div>
+              <h3 className="mt-8 text-3xl font-extrabold tracking-[-0.04em] leading-[1.06] text-[#0f172a]">
+                Bring customers back
+              </h3>
 
-              <div className="rounded-[22px] border border-indigo-200/65 bg-white/82 p-5 shadow-[0_8px_20px_rgba(99,102,241,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(99,102,241,0.10)] sm:col-span-2">
-                <div className="text-sm font-semibold tracking-[0.06em] text-indigo-500">Brand</div>
-                <h3 className="mt-2 text-lg font-semibold text-[#0f172a]">Build your brand</h3>
-                <p className="mt-2 max-w-[460px] text-[14px] leading-[1.8] text-[#64748b]">
-                  Create a more professional, branded experience.
-                </p>
+              <p className="mt-4 text-[15px] leading-[1.85] text-[#64748b]">
+                Keep a direct customer channel where people can return for updates, promotions, and repeat visits.
+              </p>
+
+              <div className="mt-8 flex flex-wrap gap-2">
+                <span className="rounded-full border border-fuchsia-100 bg-white/82 px-3 py-1.5 text-xs font-semibold text-fuchsia-500">
+                  Updates
+                </span>
+                <span className="rounded-full border border-fuchsia-100 bg-white/82 px-3 py-1.5 text-xs font-semibold text-fuchsia-500">
+                  Promotions
+                </span>
+                <span className="rounded-full border border-fuchsia-100 bg-white/82 px-3 py-1.5 text-xs font-semibold text-fuchsia-500">
+                  Repeat visits
+                </span>
               </div>
             </div>
           </div>
@@ -345,10 +388,10 @@ export default function Home() {
         <div className="text-center">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">Use cases</div>
           <h2 className="text-2xl font-extrabold tracking-[-0.03em] md:text-3xl">
-            Built for real-world local businesses
+            Made for local businesses that serve real customers
           </h2>
           <p className="mt-4 text-[17px] leading-[1.9] text-[#475569]">
-            Perfect for restaurants, salons, local shops, and service-based businesses.
+            Ideal for restaurants, salons, local shops, studios, fitness services, and appointment-based businesses.
           </p>
         </div>
 
@@ -361,70 +404,12 @@ export default function Home() {
         </div>
       </section>
 
-            <section id="features" className="scroll-mt-28 mx-auto max-w-7xl px-6 py-20">
-        <div className="mb-12">
-          <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">Features</div>
-          <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">
-            Build your own app — faster, cheaper, and fully in your control
-          </h2>
-          <div className="mt-6 h-px w-10 bg-gradient-to-r from-indigo-300/22 via-indigo-200/16 to-transparent" />
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
-            <div className="mb-6 flex items-center justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
-                <DollarSign className="h-5 w-5" />
-              </div>
-              <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                Cost
-              </div>
-            </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Get your own app without spending thousands</h3>
-            <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              No developers, no complexity — just build it yourself.
-            </p>
-            <div className="text-sm text-[#94a3b8]">Start building right away without setup or hidden costs.</div>
-          </div>
-
-          <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
-            <div className="mb-6 flex items-center justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
-                <Zap className="h-5 w-5" />
-              </div>
-              <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                Speed
-              </div>
-            </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Launch your app in minutes</h3>
-            <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Set it up in minutes with a simple, guided flow.
-            </p>
-            <div className="text-sm text-[#94a3b8]">From idea to working app, without delays or back-and-forth.</div>
-          </div>
-
-          <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.08)]">
-            <div className="mb-6 flex items-center justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
-                <Smartphone className="h-5 w-5" />
-              </div>
-              <div className="rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
-                Ownership
-              </div>
-            </div>
-            <h3 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[#0f172a]">Own your native app & customers</h3>
-            <p className="mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              A real Android app, ready to connect directly with your customers.
-            </p>
-            <div className="text-sm text-[#94a3b8]">Own your brand, your users, and your communication channel.</div>
-          </div>
-        </div>
-      </section>
+      
 
             <section id="how-it-works" className="scroll-mt-28 mx-auto max-w-7xl px-6 py-20">
         <div className="mb-12">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">How it works</div>
-          <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">Simple 3-step flow</h2>
+          <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">Launch in 3 simple steps</h2>
           <div className="mt-6 h-px w-10 bg-gradient-to-r from-indigo-300/22 via-indigo-200/16 to-transparent" />
         </div>
 
@@ -436,11 +421,11 @@ export default function Home() {
               <Wand2 className="h-5 w-5" />
             </div>
             <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Configure</div>
-            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Configure your app</h3>
+            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Set up your customer hub</h3>
             <p className="relative z-10 mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Set app name, upload icon, and create your admin account.
+              Add your app name, upload your icon, and create your admin account.
             </p>
-            <div className="relative z-10 text-sm text-[#94a3b8]">Define your app identity before building.</div>
+            <div className="relative z-10 text-sm text-[#94a3b8]">Define your business identity before launch.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/50 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.07)]">
@@ -448,12 +433,12 @@ export default function Home() {
             <div className="relative z-10 mb-8 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.13)]">
               <Sparkles className="h-5 w-5" />
             </div>
-            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Selection</div>
-            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Select features & UI</h3>
+            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Generate</div>
+            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Create your PWA link</h3>
             <p className="relative z-10 mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Choose a logic module and match it with a UI pack.
+              Generate your branded customer hub and get a live link or QR code customers can open in their browser.
             </p>
-            <div className="relative z-10 text-sm text-[#94a3b8]">Mix functionality and design without coding.</div>
+            <div className="relative z-10 text-sm text-[#94a3b8]">No app store review or custom development required.</div>
           </div>
 
           <div className="group relative overflow-hidden rounded-[28px] border border-white/40 bg-white/50 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:border-indigo-200/60 hover:shadow-[0_20px_48px_rgba(99,102,241,0.07)]">
@@ -461,12 +446,12 @@ export default function Home() {
             <div className="relative z-10 mb-8 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.13)]">
               <Download className="h-5 w-5" />
             </div>
-            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Build</div>
-            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Build & download APK</h3>
+            <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Manage</div>
+            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Run your hub after launch</h3>
             <p className="relative z-10 mb-5 text-[17px] leading-[1.85] text-[#475569]">
-              Start build, track progress, and download your app.
+              Use the built-in admin area to keep your content, appointments, conversations, and updates running after launch.
             </p>
-            <div className="relative z-10 text-sm text-[#94a3b8]">From configuration to installable APK in one flow.</div>
+            <div className="relative z-10 text-sm text-[#94a3b8]">Keep your customer entry active and useful for your business.</div>
           </div>
         </div>
       </section>
@@ -485,14 +470,14 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   No Code
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Can I build an app without coding?</h3>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Can I create a customer hub without coding?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              Yes. Think it Done is designed for non-technical users — just follow a simple setup process.
+              Yes. Think it Done is built for non-technical business owners. Just follow a guided setup to configure your brand, content, and customer tools.
             </p>
           </div>
 
@@ -502,14 +487,14 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   Speed
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">How long does it take to get my app?</h3>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">How long does it take to launch?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              Most apps can be built and ready to download in minutes.
+              Most customer hubs can be generated in minutes. Once ready, you get a live link you can open and share with customers.
             </p>
           </div>
 
@@ -526,7 +511,7 @@ export default function Home() {
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              Much lower than hiring developers, with a free trial available.
+              It costs much less than hiring developers. You can start with a free trial and upgrade when your customer hub is useful for your business.
             </p>
           </div>
 
@@ -536,14 +521,14 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   App Type
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Is this a real app or a web app?</h3>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Do customers need to install it from an app store?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              It’s a real Android app, not a web wrapper.
+              No. It is a branded PWA, which means customers can scan a QR code or open a link in their browser, save it to their home screen, and use it like a lightweight app — without going through an app store.
             </p>
           </div>
 
@@ -553,14 +538,14 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   Use Case
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Can I use this for my business?</h3>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Can I use this for my local business?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              Yes. It’s built for small businesses to manage customers and promotions.
+              Yes. It works best for local businesses that need customers to browse services, request bookings, ask questions, and receive updates from one branded place.
             </p>
           </div>
         </div>
@@ -570,10 +555,10 @@ export default function Home() {
         <div className="px-8 py-10 text-center md:px-12 md:py-12">
           <div className="text-sm font-medium tracking-[0.08em] text-indigo-400">Ready to start?</div>
           <h2 className="mt-3 text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a] md:text-4xl">
-            Build your native Android app and download your APK
+            Ready to launch your branded customer hub?
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-[17px] leading-[1.9] text-[#475569]">
-            Set up your app, choose your module and UI pack, and start building in just a few steps.
+            Set up your app name, icon, and admin account — then get a live PWA link ready to share.
           </p>
           <div className="mt-8 flex justify-center">
             <button
@@ -586,7 +571,7 @@ export default function Home() {
               <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.16)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
               <div className="relative flex items-center justify-center gap-2">
                 <span className="text-[15px] font-bold tracking-[-0.01em]">Enter Builder</span>
-                <ArrowRight className="h-[15px] w-[15px] text-white/80 transition-transform duration-300 group-hover:translate-x-0.5" />
+                <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
               </div>
             </button>
           </div>
@@ -594,7 +579,10 @@ export default function Home() {
       </section>
 
       <footer className="border-t border-white/10 px-6 py-8 text-center text-sm font-medium tracking-[0.02em] text-[#94a3b8]">
-        © 2026 Think it Done. Build faster, launch earlier.
+        <div>© 2026 Think it Done. Launch your customer hub faster.</div>
+        <div className="mt-2">
+          Need help, found a bug, or have a feature suggestion? Contact support@thinkitdone.com.
+        </div>
       </footer>
     </main>
   );

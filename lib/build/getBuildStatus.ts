@@ -949,9 +949,29 @@ export async function getBuildStatus(
   options?: { isPaidFlow?: boolean; requestStartTime?: number },
 ): Promise<BuildStatusResponse> {
   const localRecord = await getBuildRecordByRunId(supabase, runId);
+  const paidOrder = options?.isPaidFlow ? await getOrderByRunId(runId) : null;
+
+  const isLocalPwaSuccess =
+    localRecord?.status === "success" &&
+    localRecord.stage === "success" &&
+    typeof localRecord.downloadUrl === "string" &&
+    localRecord.downloadUrl.trim().length > 0 &&
+    typeof localRecord.artifactUrl === "string" &&
+    localRecord.artifactUrl.trim().length > 0 &&
+    typeof localRecord.storeId === "string" &&
+    localRecord.storeId.trim().length > 0 &&
+    localRecord.statusSource === "local_api";
+
+  if (isLocalPwaSuccess && localRecord) {
+    const response = mapRecordToResponse(localRecord, {
+      queueAheadCount: 0,
+    });
+
+    return withPaymentState(response, paidOrder);
+  }
+
   const remoteStatus = await safeReadRemoteStatusFile(runId);
   const workflowState = await safeResolveWorkflowState(runId);
-  const paidOrder = options?.isPaidFlow ? await getOrderByRunId(runId) : null;
 
   if (remoteStatus) {
     const merged = mergeStatus(runId, localRecord, remoteStatus);

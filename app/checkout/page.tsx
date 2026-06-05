@@ -15,7 +15,7 @@ const CHECKOUT_ADMIN_NAME_STORAGE_KEY = "ndjc_checkout_admin_name";
 const CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY = "ndjc_checkout_admin_password";
 
 export default function CheckoutPage() {
-  const [appName, setAppName] = useState("Untitled App");
+  const [appName, setAppName] = useState("Untitled Hub");
   const [moduleName, setModuleName] = useState("feature-showcase");
   const [uiPackName, setUiPackName] = useState("ui-pack-showcase-greenpink");
   const [plan, setPlan] = useState("pro");
@@ -33,7 +33,7 @@ export default function CheckoutPage() {
     const nextAppName =
       params.get("appName") ||
       sessionStorage.getItem(CHECKOUT_APP_NAME_STORAGE_KEY) ||
-      "Untitled App";
+      "Untitled Hub";
 
     const nextModuleName =
       params.get("module") ||
@@ -141,10 +141,10 @@ export default function CheckoutPage() {
         <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">
           <div className="mb-10 text-center">
             <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">
-              Complete your purchase
+              Review your customer hub
             </h1>
             <p className="mt-4 text-base text-[#64748b]">
-              Loading checkout details...
+              Loading customer hub details...
             </p>
           </div>
         </section>
@@ -163,10 +163,10 @@ export default function CheckoutPage() {
       <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">
         <div className="mb-10 text-center">
           <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">
-            Complete your purchase
+            Review your customer hub
           </h1>
           <p className="mt-4 text-base text-[#64748b]">
-            Review your selected build package and cloud access rules before continuing
+            Confirm your plan, cloud access, and customer hub package before continuing
           </p>
 
           <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-xs font-semibold text-slate-500 shadow backdrop-blur">
@@ -174,7 +174,7 @@ export default function CheckoutPage() {
             <span>→</span>
             <span className="text-fuchsia-600">Checkout</span>
             <span>→</span>
-            <span>Build</span>
+            <span>Generate</span>
             <span>→</span>
             <span>Download</span>
           </div>
@@ -187,11 +187,11 @@ export default function CheckoutPage() {
                 <div className="mb-3 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   Order Summary
                 </div>
-                <h2 className="text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">Your selected build</h2>
+                <h2 className="text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">Your selected customer hub</h2>
                 <p className="mt-2 text-sm leading-7 text-[#64748b]">
                   {plan === "free"
-                    ? "This checkout confirms your Think it Done free trial build package, including cloud backend lifecycle management: active during the included period, paused after expiry, read-only during retention, and permanently deleted on day 60."
-                    : "This payment unlocks one full Think it Done Pro build package for the configuration below, including cloud backend lifecycle management: active during the included period, paused after expiry, write-disabled until renewed, and permanently deleted on day 60 after expiry if not renewed."}
+                    ? "This checkout confirms your Think it Done free trial customer hub package, including cloud backend lifecycle management: active during the included period, read-only after expiry, and permanently deleted on day 60 after expiry."
+                    : "Review your customer hub setup and the Pro plan benefits before payment."}
                 </p>
               </div>
 <div className="hidden md:flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
@@ -201,10 +201,10 @@ export default function CheckoutPage() {
 
             <div className="space-y-4">
               <div className="rounded-[24px] bg-[linear-gradient(135deg,rgba(99,102,241,0.98),rgba(217,70,239,0.98))] p-5 text-white shadow-[0_18px_40px_rgba(124,58,237,0.20)]">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-white/75">Selected app</div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-white/75">Selected customer hub</div>
                 <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{appName}</div>
                 <div className="mt-2 text-sm leading-7 text-white/82">
-                  {moduleName} logic with {uiPackName}, prepared for full APK output.
+                  Local Business Customer Hub with Soft Green Pink Style, prepared as a shareable PWA package.
                 </div>
               </div>
 
@@ -221,12 +221,12 @@ export default function CheckoutPage() {
                   </div>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
-                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Logic Module</div>
-                  <div className="mt-2 text-sm font-semibold text-[#0f172a]">{moduleName}</div>
+                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Template</div>
+                  <div className="mt-2 text-sm font-semibold text-[#0f172a]">Local Business Customer Hub</div>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
-                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">UI Pack</div>
-                  <div className="mt-2 text-sm font-semibold text-[#0f172a]">{uiPackName}</div>
+                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Visual Style</div>
+                  <div className="mt-2 text-sm font-semibold text-[#0f172a]">Soft Green Pink Style</div>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)] sm:col-span-2">
                   <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">App Icon</div>
@@ -263,39 +263,89 @@ export default function CheckoutPage() {
               <div>
                 <div className="mb-4 flex items-center gap-2">
                   <ShieldCheck className="h-4.5 w-4.5 text-fuchsia-500" />
-                  <div className="text-sm font-semibold text-[#0f172a]">Included in {planLabel} build</div>
+                  <div className="text-sm font-semibold text-[#0f172a]">Included in {planLabel} plan</div>
                 </div>
-                <div className="space-y-3 text-sm text-[#475569]">
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Full APK build output</span>
-                    <Check className="h-4 w-4 text-emerald-500" />
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-fuchsia-500">
+                      Download package
+                    </div>
+                    <div className="mt-2 text-sm font-semibold leading-6 text-[#0f172a]">
+                      Guide, URL, and QR code
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-[#64748b]">
+                      Includes the launch guide, customer hub URL, and QR code.
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Downloadable build package</span>
-                    <Check className="h-4 w-4 text-emerald-500" />
+
+                  <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-fuchsia-500">
+                      Cloud service
+                    </div>
+                    <div className="mt-2 text-sm font-semibold leading-6 text-[#0f172a]">
+                      {plan === "free" ? "7 days included" : "30 days included"}
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-[#64748b]">
+                      Cloud backend and push notifications.
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Includes everything needed to publish your app on Google Play</span>
-                    <Check className="h-4 w-4 text-emerald-500" />
+
+                  <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-fuchsia-500">
+                      {plan === "free" ? "Upgrade" : "Renewal"}
+                    </div>
+                    <div className="mt-2 text-sm font-semibold leading-6 text-[#0f172a]">
+                      {plan === "free" ? "Generate a Pro hub later" : "Renew cloud after 30 days"}
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-[#64748b]">
+                      {plan === "free"
+                        ? "Generate a Pro hub for long-term cloud use."
+                        : "Renew cloud service after the included period."}
+                    </div>
                   </div>
-<div className="flex items-center justify-between gap-3">
-<div className="flex flex-col gap-0.5">
-  <span>
-    30-day cloud backend included · service pauses after expiry · write access disabled until renewed
-  </span>
-<span className="text-xs text-slate-500">
-  Permanently deleted on day 60 after expiry if not renewed
-</span>
-</div>
-  <Check className="h-4 w-4 text-emerald-500" />
-</div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Cloud status visible inside the app (active / paused / expired)</span>
-                    <Check className="h-4 w-4 text-emerald-500" />
+                </div>
+
+                <div className="mt-5">
+                  <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    After the included period
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Build mode</span>
-                    <span className="text-sm font-semibold text-[#0f172a]">{modeLabel}</span>
+
+                  <div className="space-y-3 text-sm text-[#475569]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-[#0f172a]">After expiry</span>
+                        <span className="text-xs leading-5 text-slate-500">
+                          Customers can still view your hub, but new bookings, chats, and updates are disabled.
+                        </span>
+                      </div>
+                      <Check className="h-4 w-4 shrink-0 text-emerald-500" />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-[#0f172a]">Data deletion</span>
+                        <span className="text-xs leading-5 text-slate-500">
+                          Cloud data is permanently deleted on day 60 after expiry if not renewed.
+                        </span>
+                      </div>
+                      <Check className="h-4 w-4 shrink-0 text-emerald-500" />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-[#0f172a]">Cloud status</span>
+                        <span className="text-xs leading-5 text-slate-500">
+                          Cloud status is visible inside your customer hub.
+                        </span>
+                      </div>
+                      <Check className="h-4 w-4 shrink-0 text-emerald-500" />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Generation mode</span>
+                      <span className="text-sm font-semibold text-[#0f172a]">{modeLabel}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -314,16 +364,16 @@ export default function CheckoutPage() {
                 <div className="mb-3 inline-flex rounded-full border border-fuchsia-200/70 bg-fuchsia-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-fuchsia-600">
                   Payment
                 </div>
-                <h2 className="text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">Pay and build</h2>
+                <h2 className="text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">Confirm and generate</h2>
               </div>
 
               <div className="space-y-5 px-6 py-6">
                 <div className="rounded-[24px] border border-slate-200/70 bg-white/90 p-5 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
-                  <div className="text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a]">
-                    {plan === "free" ? "$0.00" : "$59.00"}
-                  </div>
+<div className="text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a]">
+  {plan === "free" ? "$0.00" : "$99.00"}
+</div>
                   <div className="mt-1 text-xs text-slate-500">
-                    {plan === "free" ? "Free trial build" : "One-time app generation payment"}
+                    {plan === "free" ? "Free trial customer hub" : "One-time customer hub generation payment"}
                   </div>
                   <div className="mt-2 text-[11px] text-slate-400">
                     {plan === "free"
@@ -338,13 +388,13 @@ export default function CheckoutPage() {
                   </div>
                   <div className="text-sm font-semibold text-fuchsia-700">
                     {plan === "free"
-                      ? "Free trial build with 7-day cloud backend"
-                      : "One payment, one Pro build with 30-day cloud backend"}
+                      ? "Free trial customer hub with 7-day cloud backend"
+                      : "One payment, one Pro customer hub package with 30-day cloud backend"}
                   </div>
 <div className="mt-2 text-sm leading-7 text-fuchsia-700/72">
   {plan === "free"
-    ? "After build, cloud backend is active for 7 days. After expiry, the app becomes read-only. To move into long-term use, generate a new Pro app."
-    : "After payment, the flow continues directly into the Think it Done build pipeline. Cloud backend is included for 30 days. After expiry, the cloud service pauses and write access is disabled until renewed."}
+    ? "After generation, cloud service and push notifications are active for 7 days. After expiry, customers can still view your hub, but bookings, chats, and updates are disabled."
+    : "After payment, generation starts automatically. Pro includes 30 days of cloud service and push notifications. Renew to keep bookings, chats, and updates active after expiry."}
 </div>
 
 {plan === "free" ? null : (
@@ -353,7 +403,7 @@ export default function CheckoutPage() {
       CLOUD RENEWAL
     </div>
     <div className="mt-2 text-sm font-medium leading-7 text-fuchsia-700">
-      Sign in → Account → History → Select your build → Renew cloud
+      Sign in → Account → History → Select your hub → Renew cloud
     </div>
   </div>
 )}
@@ -401,36 +451,36 @@ export default function CheckoutPage() {
 
                           sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
                           sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
-                          window.location.href = `/generating?runId=${encodeURIComponent(data.runId)}`;
+                          window.location.href = `/result?runId=${encodeURIComponent(data.runId)}`;
                           return;
                         }
 
-                        const response = await fetch("/api/stripe/create-generate-session", {
-                          method: "POST",
-                          headers: {
-                            "Content-Type": "application/json",
-                          },
-                          body: JSON.stringify({
-                            appName,
-                            module: moduleName,
-                            uiPack: uiPackName,
-                            plan,
-                            adminName,
-                            adminPassword,
-                            iconDataUrl,
-                          }),
-                        });
+const response = await fetch("/api/paypal/create-generate-order", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    appName,
+    module: moduleName,
+    uiPack: uiPackName,
+    plan,
+    adminName,
+    adminPassword,
+    iconDataUrl,
+  }),
+});
 
-                        const data = await response.json().catch(() => null);
+const data = await response.json().catch(() => null);
 
-                        if (!response.ok || !data?.ok || !data?.url) {
-                          throw new Error(data?.error || `Failed to create Stripe checkout session. Status=${response.status}`);
-                        }
+if (!response.ok || !data?.ok || !data?.url) {
+  throw new Error(data?.error || `Failed to create PayPal checkout order. Status=${response.status}`);
+}
 
-                        sessionStorage.removeItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY);
-                        sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
-                        sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
-                        window.location.href = data.url;
+sessionStorage.removeItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY);
+sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
+sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
+window.location.href = data.url;
                       } catch (error) {
                         setSubmitError(error instanceof Error ? error.message : "Failed to continue to payment.");
                         setIsSubmitting(false);
@@ -441,20 +491,20 @@ export default function CheckoutPage() {
                     <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.16)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                     <div className="relative flex items-center justify-center gap-2">
                       <span className="text-[15px]">
-                        {isSubmitting
-                          ? plan === "free"
-                            ? "Starting build..."
-                            : "Redirecting to Stripe..."
-                          : plan === "free"
-                            ? "Start Free Build"
-                            : "Pay $59 & Build"}
+{isSubmitting
+  ? plan === "free"
+    ? "Generating..."
+    : "Redirecting to PayPal..."
+  : plan === "free"
+    ? "Generate Free Hub"
+    : "Pay $99 & Create Hub"}
                       </span>
                       <ArrowRight className="h-[15px] w-[15px] text-white/80 transition-transform duration-300 group-hover:translate-x-0.5" />
                     </div>
                   </button>
 
                   <p className="text-center text-xs leading-5 text-slate-500">
-                    By continuing, you agree that cloud service will pause after expiry, become read-only or write-disabled depending on plan, and all cloud data will be permanently deleted on day 60 after expiry if not renewed.
+                    By continuing, you agree that cloud access is included for the selected period. After expiry, your customer hub may become read-only or write-disabled depending on the plan, and cloud data will be permanently deleted on day 60 after expiry if not renewed.
                   </p>
 
                   <button
@@ -477,7 +527,7 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="text-center text-[11px] leading-6 text-[#94a3b8]">
-                  🔒 Secure checkout
+                  🔒 Secure PayPal checkout
                 </div>
               </div>
             </section>

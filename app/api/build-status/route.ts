@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     if (paid) {
       try {
-        await runAutoCompensation(20);
+        await runAutoCompensation(1);
       } catch (compensationError) {
         console.error("NDJC build-status: failed to run auto compensation", compensationError);
       }

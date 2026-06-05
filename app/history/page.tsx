@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock3, Download, History, LoaderCircle, TriangleAlert, ArrowRight } from "lucide-react";
+import { CheckCircle2, Download, History, TriangleAlert, ArrowRight } from "lucide-react";
 import AuthControls from "@/components/auth/AuthControls";
 import SiteHeader from "@/components/layout/SiteHeader";
 import { createClient } from "@/lib/supabase/client";
@@ -65,20 +65,17 @@ type BuildItem = {
   renewRefundedAt?: string | null;
 };
 
+type FinalBuildItem = BuildItem & {
+  stage: "success" | "failed";
+};
+
 type BuildListResponse = {
   ok: boolean;
   items?: BuildItem[];
   error?: string;
 };
 
-const FAILED_STEP_LABELS: Record<NonNullable<BuildItem["failedStep"]>, string> = {
-  preparing_request: "Preparing build request failed",
-  processing_identity: "Processing app identity failed",
-  matching_logic_module: "Matching logic module failed",
-  applying_ui_pack: "Applying UI pack failed",
-  preparing_services: "Preparing app services and signing failed",
-  building_apk: "Building and packaging APK failed",
-};
+const FAILED_SUPPORT_MESSAGE = "Please contact support through the chat in the bottom-right corner.";
 
 function formatTime(value: string) {
   const date = new Date(value);
@@ -92,7 +89,7 @@ function formatTime(value: string) {
   }).format(date);
 }
 
-function getStageMeta(stage: BuildItem["stage"]) {
+function getStageMeta(stage: FinalBuildItem["stage"]) {
   if (stage === "success") {
     return {
       label: "Completed",
@@ -102,30 +99,11 @@ function getStageMeta(stage: BuildItem["stage"]) {
     };
   }
 
-  if (stage === "failed") {
-    return {
-      label: "Failed",
-      icon: <TriangleAlert className="h-4 w-4 text-red-500" />,
-      chipClass: "bg-red-100 text-red-500",
-      cardClass: "border-red-200/80 bg-red-50/40 shadow-[0_14px_40px_rgba(239,68,68,0.10)]",
-    };
-  }
-
-  if (stage === "running") {
-    return {
-      label: "Running",
-      icon: <LoaderCircle className="h-4 w-4 animate-spin text-fuchsia-500" />,
-      chipClass: "bg-fuchsia-100 text-fuchsia-600",
-      cardClass:
-        "border-fuchsia-200/80 bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(255,255,255,0.98))] shadow-[0_14px_40px_rgba(217,70,239,0.16)] animate-pulse",
-    };
-  }
-
   return {
-    label: "Queued",
-    icon: <Clock3 className="h-4 w-4 text-slate-400" />,
-    chipClass: "bg-slate-100 text-slate-500",
-    cardClass: "border-slate-200/80 bg-white/70 shadow-[0_10px_24px_rgba(148,163,184,0.05)]",
+    label: "Failed",
+    icon: <TriangleAlert className="h-4 w-4 text-red-500" />,
+    chipClass: "bg-red-100 text-red-500",
+    cardClass: "border-red-200/80 bg-red-50/40 shadow-[0_14px_40px_rgba(239,68,68,0.10)]",
   };
 }
 
@@ -244,16 +222,23 @@ function getRenewCompensationMeta(item: BuildItem) {
 }
 
 function canDownloadBuild(item: BuildItem) {
-  if (item.stage !== "success" || !item.downloadUrl) return false;
+  return item.stage === "success" && Boolean(item.downloadUrl) && item.cloudStatus !== "deleted";
+}
 
-  const baseTime = item.completedAt ?? item.createdAt;
-  const completedTime = new Date(baseTime).getTime();
+function getTemplateDisplayName(moduleName: string) {
+  if (moduleName === "feature-showcase") {
+    return "Local Business Customer Hub";
+  }
 
-  if (Number.isNaN(completedTime)) return true;
+  return moduleName;
+}
 
-  const retentionDays = 1;
-  const expiresAt = completedTime + retentionDays * 24 * 60 * 60 * 1000;
-  return Date.now() < expiresAt;
+function getVisualStyleDisplayName(uiPackName: string) {
+  if (uiPackName === "ui-pack-showcase-greenpink") {
+    return "Soft Green Pink Style";
+  }
+
+  return uiPackName;
 }
 
 export default function HistoryPage() {
@@ -263,6 +248,14 @@ export default function HistoryPage() {
   const [isAuthed, setIsAuthed] = useState(false);
   const [error, setError] = useState("");
   const supabase = useMemo(() => createClient(), []);
+
+  const visibleItems = useMemo(
+    () =>
+      items.filter(
+        (item): item is FinalBuildItem => item.stage === "success" || item.stage === "failed",
+      ),
+    [items],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -312,7 +305,7 @@ export default function HistoryPage() {
         const data: BuildListResponse = await res.json();
 
         if (!res.ok || !data.ok) {
-          throw new Error(data.error || "Failed to load build history.");
+          throw new Error(data.error || "Failed to load customer hub history.");
         }
 
         if (cancelled) {
@@ -331,7 +324,7 @@ export default function HistoryPage() {
           return;
         }
 
-        setError(err instanceof Error ? err.message : "Failed to load build history.");
+        setError(err instanceof Error ? err.message : "Failed to load customer hub history.");
       } finally {
         if (cancelled) {
           return;
@@ -366,17 +359,17 @@ export default function HistoryPage() {
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/40 px-3 py-1 text-xs font-medium tracking-[0.06em] text-[#64748b] backdrop-blur">
               <History className="h-3.5 w-3.5" />
-              Build archive
+              Customer hub history
             </div>
-            <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-7xl">Your builds</h1>
-            <p className="mt-4 max-w-2xl text-lg leading-[1.9] text-[#475569]">
-              Review previous Think it Done build runs, re-open an in-progress generation, or download completed build packages again.
-            </p>
+            <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-7xl">Your customer hubs</h1>
+<p className="mt-4 max-w-2xl text-lg leading-[1.9] text-[#475569]">
+  Review your generated customer hubs, download launch packages, or renew cloud service.
+</p>
           </div>
 
           <div className="rounded-[28px] border border-white/50 bg-white/60 px-5 py-4 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
-            <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Total builds</div>
-            <div className="mt-2 text-3xl font-bold tracking-[-0.04em] text-[#0f172a]">{items.length}</div>
+            <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Total hubs</div>
+            <div className="mt-2 text-3xl font-bold tracking-[-0.04em] text-[#0f172a]">{visibleItems.length}</div>
           </div>
         </div>
 
@@ -392,10 +385,10 @@ export default function HistoryPage() {
               <History className="h-6 w-6" />
             </div>
             <div className="mt-5 text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">
-              Sign in to view your build history
+              Sign in to view your customer hub history
             </div>
             <div className="mt-3 text-sm leading-7 text-[#64748b]">
-              Your NDJC build history is only available after Google login.
+              Your Think it Done customer hub history is available after Google login.
             </div>
             <div className="mt-6 flex justify-center">
               <AuthControls nextPath="/history" />
@@ -405,7 +398,7 @@ export default function HistoryPage() {
 
         {isAuthed && loading ? (
           <div className="rounded-[32px] border border-white/50 bg-white/60 p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
-            <div className="text-sm text-slate-500">Loading build history...</div>
+            <div className="text-sm text-slate-500">Loading customer hub history...</div>
           </div>
         ) : null}
 
@@ -415,39 +408,51 @@ export default function HistoryPage() {
           </div>
         ) : null}
 
-        {isAuthed && !loading && items.length === 0 ? (
-          <div className="rounded-[32px] border border-white/50 bg-white/60 p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
-              <History className="h-6 w-6" />
-            </div>
-            <div className="mt-5 text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">No builds yet</div>
-            <div className="mt-3 text-sm leading-7 text-[#64748b]">
-              Start from the home page, generate your first app, and your build history will appear here.
-            </div>
-          </div>
-        ) : null}
+{isAuthed && !loading && visibleItems.length === 0 ? (
+  <div className="rounded-[32px] border border-white/50 bg-white/60 p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white shadow-[0_10px_22px_rgba(99,102,241,0.14)]">
+      <History className="h-6 w-6" />
+    </div>
+    <div className="mt-5 text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">No customer hubs yet</div>
+    <div className="mt-3 text-sm leading-7 text-[#64748b]">
+      Start from the builder, create your first customer hub, and it will appear here.
+    </div>
+  </div>
+) : null}
 
-        {isAuthed && !loading && items.length > 0 ? (
-          <div className="mx-auto grid w-full max-w-7xl gap-5">
-            {items.map((item) => {
+{isAuthed && !loading && visibleItems.length > 0 ? (
+  <div className="mx-auto grid w-full max-w-7xl gap-5">
+    {visibleItems.map((item) => {
               const meta = getStageMeta(item.stage);
               const cloudMeta = item.stage === "success" ? getCloudStatusMeta(item) : null;
               const buildCompensationMeta = getBuildCompensationMeta(item);
               const renewCompensationMeta = getRenewCompensationMeta(item);
-const showInlineFailedReason = item.stage === "failed" && item.failedStep;
-const showInlineCompletedTime = item.stage === "success" && item.completedAt;
-const canDownload = canDownloadBuild(item);
-const showFailedContinueButton =
-  item.stage === "failed" && item.buildOrderStatus !== "refunded";
-              const showRenewButton =
-                item.stage === "success" &&
-                item.mode === "Paid Purchase" &&
-                !(
-                  item.renewCompensationStatus === "pending_retry" ||
-                  item.renewCompensationStatus === "retrying" ||
-                  item.renewCompensationStatus === "manual_review_required" ||
-                  item.renewOrderStatus === "refund_pending"
-                );
+              const showFailedSupportMessage = item.stage === "failed";
+              const showInlineCompletedTime = item.stage === "success" && item.completedAt;
+              const isCloudDeleted = item.cloudStatus === "deleted";
+              const canDownload = canDownloadBuild(item);
+
+              const isPaidSuccess = item.stage === "success" && item.mode === "Paid Purchase";
+              const isRenewOrderBlocked =
+                item.renewCompensationStatus === "pending_retry" ||
+                item.renewCompensationStatus === "retrying" ||
+                item.renewCompensationStatus === "manual_review_required" ||
+                item.renewOrderStatus === "refund_pending";
+
+              const isRenewableCloudStatus =
+                item.cloudStatus === "active" || item.cloudStatus === "read_only";
+
+              const canStartRenewCloud =
+                isPaidSuccess &&
+                Boolean(item.storeId) &&
+                isRenewableCloudStatus &&
+                !isRenewOrderBlocked;
+
+              const showRenewUnavailable =
+                isPaidSuccess && (!item.storeId || !isRenewableCloudStatus);
+
+              const renewUnavailableLabel =
+                item.cloudStatus === "deleted" ? "Cloud deleted" : "Cloud unavailable";
 
               return (
                 <div
@@ -476,9 +481,9 @@ const showFailedContinueButton =
                               Completed · {formatTime(item.completedAt!)}
                             </div>
                           ) : null}
-                          {showInlineFailedReason ? (
-                            <div className="inline-flex shrink-0 items-center rounded-full border border-red-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-red-600 shadow-[0_6px_18px_rgba(239,68,68,0.06)] whitespace-nowrap">
-                              {FAILED_STEP_LABELS[item.failedStep!]}
+                          {showFailedSupportMessage ? (
+                            <div className="shrink-0 text-[12px] font-medium leading-6 text-red-600 whitespace-nowrap">
+                              {FAILED_SUPPORT_MESSAGE}
                             </div>
                           ) : null}
                           {buildCompensationMeta ? (
@@ -506,17 +511,17 @@ const showFailedContinueButton =
 
                       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Module</div>
-                          <div className="mt-2 text-sm font-semibold text-[#0f172a]">{item.moduleName}</div>
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Template</div>
+                          <div className="mt-2 text-sm font-semibold text-[#0f172a]">{getTemplateDisplayName(item.moduleName)}</div>
                         </div>
 
                         <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">UI Pack</div>
-                          <div className="mt-2 text-sm font-semibold text-[#0f172a]">{item.uiPackName}</div>
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Visual Style</div>
+                          <div className="mt-2 text-sm font-semibold text-[#0f172a]">{getVisualStyleDisplayName(item.uiPackName)}</div>
                         </div>
 
                         <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Mode</div>
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Generation mode</div>
                           <div className="mt-2 text-sm font-semibold text-[#0f172a]">{item.mode}</div>
                         </div>
 
@@ -535,32 +540,10 @@ const showFailedContinueButton =
                       ) : null}
                     </div>
 
-                    <div className="flex flex-wrap gap-3 lg:justify-end">
-                      {item.stage === "running" ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            window.location.href = `/generating?runId=${encodeURIComponent(item.runId)}`;
-                          }}
-                          className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-fuchsia-300/60 bg-gradient-to-r from-fuchsia-100 to-purple-100 px-5 text-sm font-semibold text-fuchsia-700 shadow-[0_8px_18px_rgba(217,70,239,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(217,70,239,0.14)]"
-                        >
-                          <ArrowRight className="h-4 w-4" />
-                          Continue
-                        </button>
-                      ) : item.stage === "queued" ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            window.location.href = `/generating?runId=${encodeURIComponent(item.runId)}`;
-                          }}
-                          className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-5 text-sm font-semibold text-slate-500 shadow-[0_6px_14px_rgba(148,163,184,0.06)] transition hover:bg-slate-100"
-                        >
-                          <ArrowRight className="h-4 w-4" />
-                          Continue
-                        </button>
-                      ) : null}
+                    <div className="flex flex-wrap gap-3 lg:w-[164px] lg:shrink-0 lg:justify-end">
 
-{item.stage === "success" && item.downloadUrl ? (
+
+{item.stage === "success" ? (
   <div className="flex flex-col items-end gap-2">
     {canDownload ? (
       <a
@@ -571,14 +554,17 @@ const showFailedContinueButton =
         Download
       </a>
     ) : (
-      <div className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-5 text-sm font-semibold text-slate-400 shadow-[0_6px_14px_rgba(148,163,184,0.06)]">
+      <div
+        aria-disabled="true"
+        className="inline-flex h-[40px] w-[164px] cursor-not-allowed items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-5 text-sm font-semibold text-slate-400 shadow-[0_6px_14px_rgba(148,163,184,0.06)]"
+      >
         <Download className="h-4 w-4" />
-        Expired
+        Unavailable
       </div>
     )}
 
-    {item.stage === "success" && item.mode === "Paid Purchase" ? (
-      showRenewButton ? (
+    {isPaidSuccess ? (
+      canStartRenewCloud ? (
         <button
           type="button"
           onClick={() => {
@@ -601,48 +587,25 @@ const showFailedContinueButton =
           className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-sky-200 bg-gradient-to-r from-sky-100 to-sky-50 px-5 text-sm font-semibold text-sky-700 shadow-[0_8px_18px_rgba(14,165,233,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(14,165,233,0.14)]"
         >
           <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
-          Renew Cloud
+          Renew cloud
         </button>
+      ) : showRenewUnavailable ? (
+        <div
+          aria-disabled="true"
+          className="inline-flex h-[40px] w-[164px] cursor-not-allowed items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-5 text-sm font-semibold text-slate-400 shadow-[0_6px_14px_rgba(148,163,184,0.06)]"
+        >
+          {renewUnavailableLabel}
+        </div>
       ) : (
         <div className="inline-flex h-[40px] w-[164px] items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-5 text-sm font-semibold text-amber-700 shadow-[0_6px_14px_rgba(245,158,11,0.08)]">
           Renewal processing
         </div>
       )
     ) : null}
-
-    {item.stage === "success" && item.mode === "Paid Purchase" ? (
-      <button
-        type="button"
-        onClick={() => {
-          window.location.href = `/app-download/${encodeURIComponent(item.runId)}`;
-        }}
-        className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-fuchsia-200 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-pink-50 px-5 text-sm font-semibold text-fuchsia-700 shadow-[0_8px_18px_rgba(217,70,239,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_22px_rgba(217,70,239,0.16)]"
-      >
-        <ArrowRight className="h-4 w-4 rotate-[-45deg]" />
-        Share App
-      </button>
-    ) : null}
-
-    <div className="w-[164px] text-center text-[11px] text-slate-400">
-      {canDownload
-        ? "Download available for 24 hours"
-        : "Download expired after 24 hours"}
-    </div>
   </div>
 ) : null}
 
-                      {showFailedContinueButton ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            window.location.href = `/generating?runId=${encodeURIComponent(item.runId)}`;
-                          }}
-                          className="inline-flex h-[40px] w-[164px] items-center justify-center gap-2 rounded-full border border-red-200 bg-red-50 px-5 text-sm font-semibold text-red-600 shadow-[0_6px_14px_rgba(239,68,68,0.06)] transition hover:bg-red-100"
-                        >
-                          <ArrowRight className="h-4 w-4" />
-                          Continue
-                        </button>
-                      ) : null}
+
                     </div>
                   </div>
                 </div>

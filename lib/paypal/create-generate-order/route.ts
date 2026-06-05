@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { insertOperationLog } from "@/lib/build/storage";
 import type { BuildRequest } from "@/lib/build/types";
@@ -7,16 +6,27 @@ import {
   attachStripeSessionToOrder,
   createGenerateOrder,
 } from "@/lib/stripe/orders";
+import {
+  createPayPalOrder,
+  getPayPalApprovalUrl,
+} from "@/lib/paypal/client";
+import {
+  getPayPalCurrency,
+  getPayPalGenerateAmountCents,
+} from "@/lib/paypal/pricing";
 
 export const runtime = "nodejs";
 
-function getGeneratePriceId(): string {
-  const value =
-    (process.env.STRIPE_PRICE_ID_GENERATE_PRO || "").trim() ||
-    (process.env.STRIPE_PRICE_ID_GENERATE || "").trim();
+type CreateGeneratePayPalOrderBody = Pick<
+  BuildRequest,
+  "appName" | "module" | "uiPack" | "plan" | "adminName" | "adminPassword" | "iconDataUrl"
+>;
+
+function getRequiredEnv(name: string): string {
+  const value = (process.env[name] || "").trim();
 
   if (!value) {
-    throw new Error("STRIPE_PRICE_ID_GENERATE_PRO or STRIPE_PRICE_ID_GENERATE is required.");
+    throw new Error(`${name} is required.`);
   }
 
   return value;
@@ -29,13 +39,9 @@ function createRunId(): string {
   return `ndjc-${iso}-${random}`;
 }
 
-type CreateGenerateSessionBody = Pick<
-  BuildRequest,
-  "appName" | "module" | "uiPack" | "plan" | "adminName" | "adminPassword" | "iconDataUrl"
->;
-
 function isValidAdminEmail(value: string): boolean {
   const normalized = value.trim().toLowerCase();
+
   return (
     normalized.length >= 5 &&
     normalized.length <= 100 &&
@@ -49,30 +55,11 @@ function isValidAdminPassword(value: string): boolean {
 
 export async function POST(request: NextRequest) {
   try {
-    const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
-    const siteUrl = (process.env.SITE_URL || "").trim();
+    const siteUrl = getRequiredEnv("SITE_URL");
+    const currency = getPayPalCurrency();
+    const amountCents = getPayPalGenerateAmountCents();
 
-    if (!stripeSecretKey) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Payment is temporarily unavailable.",
-        },
-        { status: 500 },
-      );
-    }
-
-    if (!siteUrl) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "SITE_URL is required.",
-        },
-        { status: 500 },
-      );
-    }
-
-    const body = (await request.json()) as CreateGenerateSessionBody;
+    const body = (await request.json()) as CreateGeneratePayPalOrderBody;
 
     const appName = String(body?.appName || "").trim();
     const moduleName = String(body?.module || "feature-showcase").trim();
@@ -89,7 +76,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Only paid Pro builds can create a Stripe generate session.",
+          error: "Only paid Pro builds can create a PayPal generate order.",
         },
         { status: 400 },
       );
@@ -177,68 +164,29 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    await insertOperationLog(supabase, {
-      userId: user.id,
-      runId,
-      eventName: "build_started",
-      pagePath: "/api/stripe/create-generate-session",
-      metadata: {
-        kind: "stripe_generate_checkout_created",
-        orderId: order.id,
-        appName,
-        module: moduleName,
-        uiPack: uiPackName,
-        plan,
-        adminName,
-        hasIcon: Boolean(iconDataUrl),
-      },
+    const paypalOrder = await createPayPalOrder({
+      orderId: order.id,
+      amountCents,
+      currency,
+      description: "Think It Done Pro customer hub setup with 30 days of cloud access.",
+      customId: order.id,
+      returnUrl: `${siteUrl}/result?runId=${encodeURIComponent(runId)}&paid=1&provider=paypal`,
+      cancelUrl: `${siteUrl}/checkout?canceled=1`,
     });
 
-    const stripe = new Stripe(stripeSecretKey);
-
-const session = await stripe.checkout.sessions.create({
-  mode: "payment",
-  line_items: [
-    {
-      price: getGeneratePriceId(),
-      quantity: 1,
-    },
-  ],
-  customer_email: user.email || undefined,
-  success_url: `${siteUrl}/result?runId=${encodeURIComponent(runId)}&paid=1&session_id={CHECKOUT_SESSION_ID}`,
-  cancel_url: `${siteUrl}/checkout?canceled=1`,
-  metadata: {
-    kind: "generate_app",
-    orderId: order.id,
-    userId: user.id,
-    runId,
-    plan,
-    module: moduleName,
-    uiPack: uiPackName,
-  },
-});
-
-    if (!session.id || !session.url) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Stripe checkout URL is empty.",
-        },
-        { status: 500 },
-      );
-    }
-
-    await attachStripeSessionToOrder(order.id, session.id);
+    await attachStripeSessionToOrder(order.id, paypalOrder.id);
 
     await insertOperationLog(supabase, {
       userId: user.id,
       runId,
-      eventName: "stripe_session_created",
-      pagePath: "/api/stripe/create-generate-session",
+      eventName: "paypal_order_created",
+      pagePath: "/api/paypal/create-generate-order",
       metadata: {
-        kind: "stripe_generate_session_created",
+        kind: "paypal_generate_order_created",
         orderId: order.id,
-        sessionId: session.id,
+        paypalOrderId: paypalOrder.id,
+        amountCents,
+        currency,
         appName,
         module: moduleName,
         uiPack: uiPackName,
@@ -250,21 +198,17 @@ const session = await stripe.checkout.sessions.create({
 
     return NextResponse.json({
       ok: true,
-      url: session.url,
+      url: getPayPalApprovalUrl(paypalOrder),
       runId,
+      paypalOrderId: paypalOrder.id,
     });
   } catch (error) {
-    console.error("NDJC create-generate-session error", error);
-
-    const message =
-      error instanceof Error
-        ? error.message.slice(0, 1000)
-        : "Failed to create Stripe checkout session.";
+    console.error("NDJC create PayPal generate order error", error);
 
     return NextResponse.json(
       {
         ok: false,
-        error: message,
+        error: error instanceof Error ? error.message.slice(0, 1000) : "Failed to create PayPal order.",
       },
       { status: 500 },
     );

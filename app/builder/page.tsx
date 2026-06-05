@@ -245,6 +245,7 @@ export default function BuilderPage() {
   const [adminName, setAdminName] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [iconFileName, setIconFileName] = useState("");
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
@@ -636,6 +637,8 @@ export default function BuilderPage() {
   const handleGenerate = async () => {
     if (isSubmitting || authLoading) return;
 
+    setSubmitError("");
+
     const nextValidationErrors = buildValidationErrors();
     setValidationErrors(nextValidationErrors);
 
@@ -685,9 +688,9 @@ export default function BuilderPage() {
           throw new Error(data?.error || "Failed to start build.");
         }
 
-        window.location.href = `/generating?runId=${encodeURIComponent(data.runId)}`;
+        window.location.href = `/result?runId=${encodeURIComponent(data.runId)}`;
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Failed to start build.");
+        setSubmitError(error instanceof Error ? error.message : "Failed to start build.");
         setIsSubmitting(false);
       }
 
@@ -719,7 +722,7 @@ export default function BuilderPage() {
                 <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-500">App icon crop</div>
                 <h2 className="mt-1 text-2xl font-extrabold tracking-[-0.04em] text-[#0f172a]">Adjust your icon</h2>
                 <p className="mt-1 text-sm leading-6 text-slate-500">
-                  Drag and zoom the image. The square crop will be used to generate Android and iOS home screen icons.
+                  Drag and zoom the image. The square crop will be used as your app icon. Keep the main subject centered and fill the square as much as possible.
                 </p>
               </div>
               <button
@@ -757,7 +760,6 @@ export default function BuilderPage() {
                 />
 
                 <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-2 ring-inset ring-white/90" />
-                <div className="pointer-events-none absolute inset-[42px] rounded-full border border-white/85 shadow-[0_0_0_999px_rgba(15,23,42,0.10)]" />
                 <div className="pointer-events-none absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/35" />
                 <div className="pointer-events-none absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-white/35" />
               </div>
@@ -821,10 +823,10 @@ export default function BuilderPage() {
       <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">
         <div className="mb-10 text-center">
           <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">
-            Build your native app in seconds
+            Create your customer hub in minutes
           </h1>
           <p className="mt-4 text-base text-[#64748b]">
-            Configure your app and generate a native APK instantly
+            Set up your business name, app icon, and admin account. We will generate a mobile-ready customer hub customers can open by link or QR code and save to their home screen.
           </p>
 
           <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-xs font-semibold text-slate-500 shadow backdrop-blur">
@@ -832,15 +834,11 @@ export default function BuilderPage() {
             <span>{"→"}</span>
             <span>Icon</span>
             <span>{"→"}</span>
-            <span>Module</span>
-            <span>{"→"}</span>
-            <span>UI</span>
-            <span>{"→"}</span>
             <span>Admin</span>
             <span>{"→"}</span>
             <span>Plan</span>
             <span>{"→"}</span>
-            <span>Build</span>
+            <span>Generate</span>
           </div>
         </div>
 
@@ -898,7 +896,7 @@ export default function BuilderPage() {
     />
 
     <div className="flex items-start gap-3">
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 text-[11px] font-semibold text-slate-500">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-none border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 text-[11px] font-semibold text-slate-500">
         {iconDataUrl ? (
           <img src={iconDataUrl} alt="App icon preview" className="h-full w-full object-cover" />
         ) : (
@@ -919,7 +917,7 @@ export default function BuilderPage() {
           </div>
         ) : null}
         <p className="mt-2 text-[11px] leading-5 text-slate-500">
-          Drag and zoom after upload. The cropped image will be converted into Android and iOS home screen icons automatically.
+          Drag and zoom after upload. Your cropped image will be used for home screen icons. The final icon shape is handled by each device and may appear as a circle, rounded square, squircle, or square.
         </p>
       </div>
 
@@ -964,10 +962,10 @@ export default function BuilderPage() {
 
                   <div ref={logicModuleSectionRef} className="space-y-2">
                     <div className="flex justify-between">
-                      <label className="text-sm font-semibold">Logic Module</label>
-                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
+                      <label className="text-sm font-semibold">Current Template</label>
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">INCLUDED</span>
                     </div>
-                    <p className="text-xs text-slate-400">Built for local businesses that serve customers in person—perfect for shops, studios, and services with repeat customers. More modules coming soon.</p>
+                    <p className="text-xs text-slate-400">Includes services, bookings, chat, updates, favorites, and merchant admin tools in one customer entry.</p>
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -977,20 +975,20 @@ export default function BuilderPage() {
                         }}
                         className={moduleName === "feature-showcase" ? selectedModuleClass : unselectedModuleClass}
                       >
-                        feature-showcase
+                        Local Business Customer Hub
                       </button>
                     </div>
                     {validationErrors.logicModule ? (
-                      <p className="text-xs font-medium text-rose-500">Logic module is required.</p>
+                      <p className="text-xs font-medium text-rose-500">Customer hub template is required.</p>
                     ) : null}
                   </div>
 
                   <div ref={uiPackSectionRef} className="space-y-2">
                     <div className="flex justify-between">
-                      <label className="text-sm font-semibold">UI Pack</label>
-                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
+                      <label className="text-sm font-semibold">Current Style</label>
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">INCLUDED</span>
                     </div>
-                    <p className="text-xs text-slate-400">Controls the visual style and layout of your app. More UI packs coming soon.</p>
+                    <p className="text-xs text-slate-400">A clean mobile-friendly layout with a soft gray-white background, rounded cards, and green-pink action buttons.</p>
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -1000,11 +998,11 @@ export default function BuilderPage() {
                         }}
                         className={uiPackName === "ui-pack-showcase-greenpink" ? selectedModuleClass : unselectedModuleClass}
                       >
-                        ui-pack-showcase-greenpink
+                        Soft Green Pink Style
                       </button>
                     </div>
                     {validationErrors.uiPack ? (
-                      <p className="text-xs font-medium text-rose-500">UI pack is required.</p>
+                      <p className="text-xs font-medium text-rose-500">Visual style is required.</p>
                     ) : null}
                   </div>
 
@@ -1013,7 +1011,7 @@ export default function BuilderPage() {
                       <label className="text-sm font-semibold">Admin Email</label>
                       <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
                     </div>
-                    <p className="text-xs text-slate-400">Used as your merchant login email inside the app. The same email can be reused across multiple apps. It cannot be changed after creation.</p>
+                    <p className="text-xs text-slate-400">Used as your merchant login email inside your customer hub. The same email can be reused across multiple hubs. It cannot be changed after creation.</p>
                     <div
                       className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
                         validationErrors.adminName
@@ -1045,7 +1043,7 @@ export default function BuilderPage() {
                       <label className="text-sm font-semibold">Admin Password</label>
                       <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
                     </div>
-                    <p className="text-xs text-slate-400">Used for merchant login inside the app. Use 6 to 64 characters. You can change this password later inside the app.</p>
+                    <p className="text-xs text-slate-400">Used for merchant login inside your customer hub. Use 6 to 64 characters. You can change this password later inside the hub.</p>
                     <div
                       className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
                         validationErrors.adminPassword
@@ -1083,6 +1081,7 @@ export default function BuilderPage() {
                         onClick={() => {
                           planRef.current = "free";
                           setPlan("free");
+                          setSubmitError("");
                           setValidationErrors((prev) => ({ ...prev, plan: false }));
                         }}
                         className={
@@ -1101,6 +1100,7 @@ export default function BuilderPage() {
                         onClick={() => {
                           planRef.current = "pro";
                           setPlan("pro");
+                          setSubmitError("");
                           setValidationErrors((prev) => ({ ...prev, plan: false }));
                         }}
                         className={
@@ -1128,25 +1128,25 @@ export default function BuilderPage() {
                     ) : null}
 
                     <div className="mb-3 text-center text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-                      Ready to build
+                      Ready to generate
                     </div>
 
                     {plan === "free" ? (
                       <div className="mb-3 text-center px-2 py-2">
                         <div className="text-[12px] font-medium text-slate-600">
-                          Free trial includes full app generation
+                          Free trial includes full customer hub generation
                         </div>
                         <div className="mt-1 text-[11px] text-slate-500">
-                          Cloud backend is included for 7 days. After expiry, the app becomes read-only. Upgrade requires generating a new app.
+                          Cloud backend is included for 7 days. After expiry, this hub becomes read-only. To upgrade, generate a new Pro hub.
                         </div>
                       </div>
                     ) : plan === "pro" ? (
                       <div className="mb-3 text-center px-2 py-2">
                         <div className="text-[12px] font-medium text-slate-600">
-                          App generation is a one-time payment
+                          Customer hub generation is a one-time payment
                         </div>
                         <div className="mt-1 text-[11px] text-slate-500">
-                          Cloud backend is included for 30 days. After expiry, the app becomes read-only until renewed.
+                          Cloud backend is included for 30 days. After expiry, the customer hub becomes read-only until renewed.
                         </div>
                       </div>
                     ) : null}
@@ -1160,12 +1160,18 @@ export default function BuilderPage() {
                       <div className="absolute inset-0 rounded-[22px] bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 opacity-30 blur-xl" />
                       <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.18)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                       <div className="relative flex items-center justify-center gap-2">
-                        {isSubmitting ? "Starting Build..." : "Generate APK"}
+                        {isSubmitting ? "Preparing..." : "Generate customer hub"}
                         <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
                       </div>
                     </button>
 
-                    <div className="mt-3 text-center text-xs text-slate-400">Build takes about 10 minutes · may queue during peak times</div>
+                    {submitError ? (
+                      <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-center text-[13px] font-medium leading-6 text-red-600">
+                        {submitError}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 text-center text-xs text-slate-400">Preparing usually takes about 10 seconds · please do not refresh</div>
                   </div>
                 </div>
               </section>
@@ -1191,7 +1197,7 @@ export default function BuilderPage() {
                           <div className="mt-1 text-sm font-medium text-white/90">{uiPackName}</div>
                         </div>
                         <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-white/65">
-                          Auto demo
+                          Live preview
                         </div>
                       </div>
 
@@ -1203,7 +1209,7 @@ export default function BuilderPage() {
                               <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
                                 {appName.trim() || "Beauty Studio"}
                               </div>
-                              <div className="mt-1 text-sm text-white/80">Storefront · Products · Announcements</div>
+                              <div className="mt-1 text-sm text-white/80">Services · Bookings · Updates</div>
                               <div className="mt-4 flex items-center gap-2">
                                 <div className="rounded-full bg-white/18 px-3 py-1 text-xs text-white/90">Open today</div>
                                 <div className="rounded-full bg-white/18 px-3 py-1 text-xs text-white/90">24 services</div>
@@ -1304,7 +1310,7 @@ export default function BuilderPage() {
                               </div>
 
                               <div className="rounded-[22px] border border-dashed border-white/10 bg-white/[0.03] px-4 py-3 text-center text-xs text-white/45">
-                                More cards continue below in the generated app
+                                More cards continue below in your customer hub
                               </div>
                             </div>
                           </div>
@@ -1364,10 +1370,10 @@ export default function BuilderPage() {
                             <div className="space-y-3">
                               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                                 <div className="text-sm font-medium text-white">Push notification ready</div>
-                                <div className="mt-1 text-xs text-white/45">Customers can receive updates directly from the generated app.</div>
+                                <div className="mt-1 text-xs text-white/45">Customers can receive updates directly from your customer hub.</div>
                               </div>
                               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                                <div className="text-sm font-medium text-white">Designed to match the UI pack</div>
+                                <div className="text-sm font-medium text-white">Designed to match the current visual style</div>
                                 <div className="mt-1 text-xs text-white/45">Brand styling, card rhythm, and content hierarchy stay consistent.</div>
                               </div>
                             </div>
