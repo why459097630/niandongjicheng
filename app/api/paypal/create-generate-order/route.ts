@@ -5,6 +5,7 @@ import type { BuildRequest } from "@/lib/build/types";
 import {
   attachStripeSessionToOrder,
   createGenerateOrder,
+  getRecentActiveGenerateOrder,
 } from "@/lib/stripe/orders";
 import {
   createPayPalOrder,
@@ -148,21 +149,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const runId = createRunId();
+const recentActiveGenerateOrder = await getRecentActiveGenerateOrder({
+  userId: user.id,
+  windowSeconds: 60,
+});
 
-    const order = await createGenerateOrder({
-      userId: user.id,
-      runId,
-      payload: {
-        appName,
-        module: moduleName,
-        uiPack: uiPackName,
-        plan,
-        adminName,
-        adminPassword,
-        iconDataUrl,
-      },
-    });
+if (recentActiveGenerateOrder) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error:
+        "A paid generation payment is already in progress. Please finish the current payment or wait one minute before trying again.",
+      status: recentActiveGenerateOrder.status,
+      runId: recentActiveGenerateOrder.run_id,
+    },
+    { status: 409 },
+  );
+}
+
+const runId = createRunId();
+
+const order = await createGenerateOrder({
+  userId: user.id,
+  runId,
+  payload: {
+    appName,
+    module: moduleName,
+    uiPack: uiPackName,
+    plan,
+    adminName,
+    adminPassword,
+    iconDataUrl,
+  },
+});
 
     const paypalOrder = await createPayPalOrder({
       orderId: order.id,
