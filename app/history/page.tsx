@@ -75,7 +75,7 @@ type BuildListResponse = {
   error?: string;
 };
 
-const FAILED_SUPPORT_MESSAGE = "Please contact support through the chat in the bottom-right corner.";
+const FAILED_SUPPORT_MESSAGE = "Generation failed. Contact support for help or refund review.";
 
 function formatTime(value: string) {
   const date = new Date(value);
@@ -482,8 +482,15 @@ export default function HistoryPage() {
                             </div>
                           ) : null}
                           {showFailedSupportMessage ? (
-                            <div className="shrink-0 text-[12px] font-medium leading-6 text-red-600 whitespace-nowrap">
-                              {FAILED_SUPPORT_MESSAGE}
+                            <div className="shrink-0 rounded-full border border-red-200 bg-white/80 px-3 py-1 text-[11px] font-semibold leading-5 text-red-600 shadow-[0_6px_18px_rgba(239,68,68,0.06)] whitespace-nowrap">
+                              {FAILED_SUPPORT_MESSAGE}{" "}
+                              <a className="underline underline-offset-4" href="mailto:support@thinkitdoneapp.com">
+                                Email support
+                              </a>{" "}
+                              ·{" "}
+                              <a className="underline underline-offset-4" href="/refund">
+                                Refund Policy
+                              </a>
                             </div>
                           ) : null}
                           {buildCompensationMeta ? (
@@ -533,9 +540,22 @@ export default function HistoryPage() {
 
                       {item.buildCompensationNote || item.renewCompensationNote ? (
                         <div className="mt-3 rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm text-slate-600">
-                          {item.buildCompensationNote ? `Build: ${item.buildCompensationNote}` : ""}
-                          {item.buildCompensationNote && item.renewCompensationNote ? " · " : ""}
-                          {item.renewCompensationNote ? `Renewal: ${item.renewCompensationNote}` : ""}
+                          <div>
+                            {item.buildCompensationNote ? `Build: ${item.buildCompensationNote}` : ""}
+                            {item.buildCompensationNote && item.renewCompensationNote ? " · " : ""}
+                            {item.renewCompensationNote ? `Renewal: ${item.renewCompensationNote}` : ""}
+                          </div>
+                          <div className="mt-2 text-xs leading-5 text-slate-500">
+                            For billing, refund, or manual review questions, contact{" "}
+                            <a className="font-semibold text-[#0f172a] underline underline-offset-4" href="mailto:support@thinkitdoneapp.com">
+                              support@thinkitdoneapp.com
+                            </a>{" "}
+                            or review the{" "}
+                            <a className="font-semibold text-[#0f172a] underline underline-offset-4" href="/refund">
+                              Refund Policy
+                            </a>
+                            .
+                          </div>
                         </div>
                       ) : null}
                     </div>

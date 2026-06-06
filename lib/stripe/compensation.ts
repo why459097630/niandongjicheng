@@ -487,13 +487,17 @@ async function executeGenerateOrder(order: StripeOrderRecord): Promise<void> {
     storeId = provisionResult.storeId;
   }
 
+  const iconUrl = String(buildPayload.iconUrl || "").trim() || null;
+  const legacyIconDataUrl = iconUrl ? null : buildPayload.iconDataUrl || null;
+
   const buildInput: BuildRequest = {
     appName: buildPayload.appName,
     module: buildPayload.module,
     uiPack: buildPayload.uiPack,
     plan: buildPayload.plan,
     adminName: buildPayload.adminName,
-    iconDataUrl: buildPayload.iconDataUrl,
+    iconUrl,
+    iconDataUrl: legacyIconDataUrl,
     runId: order.run_id,
     userId: order.user_id,
     storeId,

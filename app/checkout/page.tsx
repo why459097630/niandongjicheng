@@ -6,6 +6,7 @@ import SiteHeader from "@/components/layout/SiteHeader";
 import { createClient } from "@/lib/supabase/client";
 
 const ICON_DATA_URL_STORAGE_KEY = "ndjc_builder_icon_data_url";
+const ICON_URL_STORAGE_KEY = "ndjc_builder_icon_url";
 const ICON_FILE_NAME_STORAGE_KEY = "ndjc_builder_icon_file_name";
 const CHECKOUT_APP_NAME_STORAGE_KEY = "ndjc_checkout_app_name";
 const CHECKOUT_MODULE_STORAGE_KEY = "ndjc_checkout_module";
@@ -22,6 +23,7 @@ export default function CheckoutPage() {
   const [adminName, setAdminName] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
+  const [iconUrl, setIconUrl] = useState<string | null>(null);
   const [iconFileName, setIconFileName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -69,14 +71,17 @@ export default function CheckoutPage() {
     setAdminPassword(nextAdminPassword);
 
     const storedIconDataUrl = sessionStorage.getItem(ICON_DATA_URL_STORAGE_KEY);
+    const storedIconUrl = sessionStorage.getItem(ICON_URL_STORAGE_KEY);
     const storedIconFileName = sessionStorage.getItem(ICON_FILE_NAME_STORAGE_KEY) || "";
 
-    if (!storedIconDataUrl) {
+    if (!storedIconUrl) {
       setIconDataUrl(null);
+      setIconUrl(null);
       setIconFileName("");
       setSubmitError("App icon is missing. Please go back to Builder and upload the icon again.");
     } else {
-      setIconDataUrl(storedIconDataUrl);
+      setIconDataUrl(storedIconDataUrl || storedIconUrl);
+      setIconUrl(storedIconUrl);
       setIconFileName(storedIconFileName);
     }
 
@@ -422,7 +427,7 @@ export default function CheckoutPage() {
                           throw new Error("Admin password has expired for security reasons. Please go back to Builder and enter it again.");
                         }
 
-                        if (!iconDataUrl) {
+                        if (!iconUrl) {
                           throw new Error("App icon is missing. Please go back to Builder and upload the icon again.");
                         }
 
@@ -439,7 +444,7 @@ export default function CheckoutPage() {
                               plan,
                               adminName,
                               adminPassword,
-                              iconDataUrl,
+                              iconUrl,
                             }),
                           });
 
@@ -450,6 +455,7 @@ export default function CheckoutPage() {
                           }
 
                           sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
+                          sessionStorage.removeItem(ICON_URL_STORAGE_KEY);
                           sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
                           window.location.href = `/result?runId=${encodeURIComponent(data.runId)}`;
                           return;
@@ -467,7 +473,7 @@ const response = await fetch("/api/paypal/create-generate-order", {
     plan,
     adminName,
     adminPassword,
-    iconDataUrl,
+    iconUrl,
   }),
 });
 
@@ -479,6 +485,7 @@ if (!response.ok || !data?.ok || !data?.url) {
 
 sessionStorage.removeItem(CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY);
 sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
+sessionStorage.removeItem(ICON_URL_STORAGE_KEY);
 sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
 window.location.href = data.url;
                       } catch (error) {
@@ -504,7 +511,15 @@ window.location.href = data.url;
                   </button>
 
                   <p className="text-center text-xs leading-5 text-slate-500">
-                    By continuing, you agree that cloud access is included for the selected period. After expiry, your customer hub may become read-only or write-disabled depending on the plan, and cloud data will be permanently deleted on day 60 after expiry if not renewed.
+                    By continuing, you agree to the{" "}
+                    <a className="font-semibold text-[#0f172a] underline underline-offset-4" href="/terms">
+                      Terms of Service
+                    </a>{" "}
+                    and{" "}
+                    <a className="font-semibold text-[#0f172a] underline underline-offset-4" href="/refund">
+                      Refund Policy
+                    </a>
+                    . Cloud access is included for the selected period. After expiry, your customer hub may become read-only or write-disabled depending on the plan, and cloud data will be permanently deleted on day 60 after expiry if not renewed.
                   </p>
 
                   <button
@@ -527,7 +542,10 @@ window.location.href = data.url;
                 </div>
 
                 <div className="text-center text-[11px] leading-6 text-[#94a3b8]">
-                  🔒 Secure PayPal checkout
+                  🔒 Secure PayPal checkout · Support:{" "}
+                  <a className="font-semibold underline underline-offset-4" href="mailto:support@thinkitdoneapp.com">
+                    support@thinkitdoneapp.com
+                  </a>
                 </div>
               </div>
             </section>

@@ -68,7 +68,7 @@ export default function SiteHeader({
                 compact ? "mt-[3px] text-[10px]" : "mt-[4px] text-[11px]"
               }`}
             >
-              Build native Android apps in minutes
+              PWA customer hub for local businesses
             </div>
           </div>
         </div>

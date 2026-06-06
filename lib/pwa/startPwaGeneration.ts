@@ -88,15 +88,25 @@ function parseDataUrl(value: string | null | undefined): {
   extension: string;
   bytes: Buffer;
 } | null {
-  const trimmed = String(value || "").trim();
-  const match = trimmed.match(/^data:([^;]+);base64,(.+)$/);
+  const raw = typeof value === "string" ? value.trim() : "";
 
-  if (!match) {
+  if (!raw.startsWith("data:")) {
     return null;
   }
 
-  const mimeType = match[1].trim().toLowerCase();
-  const base64Content = match[2].trim();
+  const marker = ";base64,";
+  const markerIndex = raw.indexOf(marker);
+
+  if (markerIndex < 0) {
+    return null;
+  }
+
+  const mimeType = raw.slice("data:".length, markerIndex).trim().toLowerCase();
+  const base64Content = raw.slice(markerIndex + marker.length).trim();
+
+  if (!mimeType || !base64Content) {
+    return null;
+  }
 
   let extension = "png";
 
@@ -206,31 +216,126 @@ async function renderPwaIconPng(input: {
     .toBuffer();
 }
 
-async function uploadPwaIcon(input: {
-  storeId: string;
+async function downloadIconUrlSource(input: {
+  iconUrl: string;
+}): Promise<{
+  mimeType: string;
+  extension: string;
+  bytes: Buffer;
+}> {
+  const normalizedUrl = input.iconUrl.trim();
+
+  if (!normalizedUrl.startsWith("https://") && !normalizedUrl.startsWith("http://")) {
+    throw new Error("iconUrl must be an absolute http or https URL.");
+  }
+
+  const response = await fetch(normalizedUrl, {
+    method: "GET",
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to download iconUrl. Status=${response.status}. Body=${text}`);
+  }
+
+  const contentLength = Number(response.headers.get("content-length") || "0");
+  const maxBytes = 8 * 1024 * 1024;
+
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error("Icon image must be 8MB or smaller.");
+  }
+
+  const mimeType = String(response.headers.get("content-type") || "image/png")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+
+  if (!["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"].includes(mimeType)) {
+    throw new Error("Icon image must be PNG, JPG, WebP, or SVG.");
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+
+  if (bytes.length > maxBytes) {
+    throw new Error("Icon image must be 8MB or smaller.");
+  }
+
+  let extension = "png";
+
+  if (mimeType === "image/png") {
+    extension = "png";
+  } else if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+    extension = "jpg";
+  } else if (mimeType === "image/webp") {
+    extension = "webp";
+  } else if (mimeType === "image/svg+xml") {
+    extension = "svg";
+  }
+
+  return {
+    mimeType,
+    extension,
+    bytes,
+  };
+}
+
+async function resolvePwaIconSource(input: {
   iconDataUrl?: string | null;
   iconUrl?: string | null;
-}): Promise<StandardPwaIconAssets> {
-  const defaultAssets = getDefaultPwaIconAssets();
+}): Promise<{
+  sourceUrl: string | null;
+  mimeType: string;
+  extension: string;
+  bytes: Buffer;
+} | null> {
   const directIconUrl = String(input.iconUrl || "").trim();
 
   if (directIconUrl) {
+    const downloaded = await downloadIconUrlSource({
+      iconUrl: directIconUrl,
+    });
+
     return {
-      ...defaultAssets,
-      source: directIconUrl,
-      displayLogo: directIconUrl,
+      sourceUrl: directIconUrl,
+      mimeType: downloaded.mimeType,
+      extension: downloaded.extension,
+      bytes: downloaded.bytes,
     };
   }
 
   const parsed = parseDataUrl(input.iconDataUrl);
 
   if (!parsed) {
+    return null;
+  }
+
+  return {
+    sourceUrl: null,
+    mimeType: parsed.mimeType,
+    extension: parsed.extension,
+    bytes: parsed.bytes,
+  };
+}
+
+async function uploadPwaIcon(input: {
+  storeId: string;
+  iconDataUrl?: string | null;
+  iconUrl?: string | null;
+}): Promise<StandardPwaIconAssets> {
+  const defaultAssets = getDefaultPwaIconAssets();
+  const sourceInput = await resolvePwaIconSource({
+    iconDataUrl: input.iconDataUrl,
+    iconUrl: input.iconUrl,
+  });
+
+  if (!sourceInput) {
     return defaultAssets;
   }
 
   const { supabaseUrl, secretKey } = getAppCloudEnv();
   const bucket = process.env.PWA_ICON_BUCKET?.trim() || "store-images";
-  const sourceExtension = parsed.extension === "svg" ? "svg" : parsed.extension;
+  const sourceExtension = sourceInput.extension === "svg" ? "svg" : sourceInput.extension;
   const sourcePath = `${input.storeId}/source-logo.${sourceExtension}`;
   const displayLogoPath = `${input.storeId}/display-logo.png`;
   const icon192Path = `${input.storeId}/pwa-icon-192.png`;
@@ -249,36 +354,47 @@ async function uploadPwaIcon(input: {
       appleTouchIconBytes,
     ] = await Promise.all([
       renderPwaIconPng({
-        sourceBytes: parsed.bytes,
+        sourceBytes: sourceInput.bytes,
         size: 512,
         maskable: false,
       }),
       renderPwaIconPng({
-        sourceBytes: parsed.bytes,
+        sourceBytes: sourceInput.bytes,
         size: 192,
         maskable: false,
       }),
       renderPwaIconPng({
-        sourceBytes: parsed.bytes,
+        sourceBytes: sourceInput.bytes,
         size: 512,
         maskable: false,
       }),
       renderPwaIconPng({
-        sourceBytes: parsed.bytes,
+        sourceBytes: sourceInput.bytes,
         size: 192,
         maskable: true,
       }),
       renderPwaIconPng({
-        sourceBytes: parsed.bytes,
+        sourceBytes: sourceInput.bytes,
         size: 512,
         maskable: true,
       }),
       renderPwaIconPng({
-        sourceBytes: parsed.bytes,
+        sourceBytes: sourceInput.bytes,
         size: 180,
         maskable: false,
       }),
     ]);
+
+    const uploadedSourcePromise = sourceInput.sourceUrl
+      ? Promise.resolve(sourceInput.sourceUrl)
+      : uploadStorageObject({
+          supabaseUrl,
+          secretKey,
+          bucket,
+          objectPath: sourcePath,
+          contentType: sourceInput.mimeType,
+          bytes: sourceInput.bytes,
+        });
 
     const [
       source,
@@ -289,14 +405,7 @@ async function uploadPwaIcon(input: {
       maskable512,
       appleTouchIcon,
     ] = await Promise.all([
-      uploadStorageObject({
-        supabaseUrl,
-        secretKey,
-        bucket,
-        objectPath: sourcePath,
-        contentType: parsed.mimeType,
-        bytes: parsed.bytes,
-      }),
+      uploadedSourcePromise,
       uploadStorageObject({
         supabaseUrl,
         secretKey,
@@ -366,43 +475,51 @@ async function uploadPwaIcon(input: {
   }
 }
 
+function createPwaShortName(appName: string): string {
+  const normalized = appName.trim().replace(/\s+/g, " ");
+
+  if (!normalized) {
+    return "NDJC";
+  }
+
+  if (normalized.length <= 24) {
+    return normalized;
+  }
+
+  return normalized.slice(0, 24).trim();
+}
+
 async function upsertStorePwaProfile(input: {
   storeId: string;
   appName: string;
   iconAssets: StandardPwaIconAssets;
 }) {
   const { supabaseUrl, secretKey } = getAppCloudEnv();
+  const shortName = createPwaShortName(input.appName);
   const description = `${input.appName} official PWA app.`;
 
   const body = [
     {
       store_id: input.storeId,
-      title: input.appName,
-      title_i18n: {
-        en: input.appName,
-        zh: input.appName,
-      },
+      app_name: input.appName,
+      short_name: shortName,
       description,
-      description_i18n: {
-        en: description,
-        zh: description,
-      },
-      logo_url: input.iconAssets.displayLogo,
-      logo_image_variants: {
-        source: input.iconAssets.source,
-        displayLogo: input.iconAssets.displayLogo,
-        icon192: input.iconAssets.icon192,
-        icon512: input.iconAssets.icon512,
-        maskable192: input.iconAssets.maskable192,
-        maskable512: input.iconAssets.maskable512,
-        appleTouchIcon: input.iconAssets.appleTouchIcon,
-      },
+      icon_192_url: input.iconAssets.icon192,
+      icon_512_url: input.iconAssets.icon512,
+      maskable_192_url: input.iconAssets.maskable192,
+      maskable_512_url: input.iconAssets.maskable512,
+      apple_touch_icon_url: input.iconAssets.appleTouchIcon,
+      notification_icon_url: input.iconAssets.icon192,
+      source_icon_url: input.iconAssets.source,
+      display_logo_url: input.iconAssets.displayLogo,
+      theme_color: "#ffffff",
+      background_color: "#ffffff",
       updated_at: new Date().toISOString(),
     },
   ];
 
   const response = await fetch(
-    `${supabaseUrl}/rest/v1/store_profiles?on_conflict=store_id`,
+    `${supabaseUrl}/rest/v1/store_pwa_profiles?on_conflict=store_id`,
     {
       method: "POST",
       headers: {
@@ -418,9 +535,11 @@ async function upsertStorePwaProfile(input: {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Failed to upsert store_profiles for PWA. Status=${response.status}. Body=${text}`);
+    throw new Error(`Failed to upsert store_pwa_profiles for PWA. Status=${response.status}. Body=${text}`);
   }
 }
+
+
 
 export async function startPwaGeneration(
   supabase: SupabaseClient,
@@ -460,19 +579,45 @@ export async function startPwaGeneration(
   const pwaUrl = `${existingPwaBaseUrl}/pwa/${encodeURIComponent(storeId)}`;
   const downloadUrl = `/api/download-pwa-package?runId=${encodeURIComponent(runId)}`;
 
-  const iconAssets = await uploadPwaIcon({
-    storeId,
-    iconDataUrl: input.iconDataUrl,
-    iconUrl: input.iconUrl,
-  });
+  let iconAssets: StandardPwaIconAssets;
 
-  await upsertStorePwaProfile({
-    storeId,
-    appName,
-    iconAssets,
-  });
+  try {
+    console.log('NDJC startPwaGeneration: before uploadPwaIcon', { storeId });
+    iconAssets = await uploadPwaIcon({
+      storeId,
+      iconDataUrl: input.iconDataUrl,
+      iconUrl: input.iconUrl,
+    });
+    console.log('NDJC startPwaGeneration: after uploadPwaIcon', { storeId, iconAssets });
+  } catch (error) {
+    console.error('NDJC startPwaGeneration: uploadPwaIcon failed', error);
+    throw new Error(
+      `PWA generation failed at uploadPwaIcon. ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 
-  await insertBuildRecord(supabase, {
+  try {
+    console.log('NDJC startPwaGeneration: before upsertStorePwaProfile', { storeId });
+    await upsertStorePwaProfile({
+      storeId,
+      appName,
+      iconAssets,
+    });
+    console.log('NDJC startPwaGeneration: after upsertStorePwaProfile', { storeId });
+  } catch (error) {
+    console.error('NDJC startPwaGeneration: upsertStorePwaProfile failed', error);
+    throw new Error(
+      `PWA generation failed at upsertStorePwaProfile. ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  try {
+    console.log('NDJC startPwaGeneration: before insertBuildRecord', { storeId });
+    await insertBuildRecord(supabase, {
     userId,
     runId,
     appName,
@@ -492,6 +637,15 @@ export async function startPwaGeneration(
     statusSource: "local_api",
     lastSyncedAt: new Date().toISOString(),
   });
+    console.log('NDJC startPwaGeneration: after insertBuildRecord', { storeId });
+  } catch (error) {
+    console.error('NDJC startPwaGeneration: insertBuildRecord failed', error);
+    throw new Error(
+      `PWA generation failed at insertBuildRecord. ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 
   await insertOperationLogOnce(
     supabase,

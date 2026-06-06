@@ -20,7 +20,7 @@ export const runtime = "nodejs";
 
 type CreateGeneratePayPalOrderBody = Pick<
   BuildRequest,
-  "appName" | "module" | "uiPack" | "plan" | "adminName" | "adminPassword" | "iconDataUrl"
+  "appName" | "module" | "uiPack" | "plan" | "adminName" | "adminPassword" | "iconUrl"
 >;
 
 function getRequiredEnv(name: string): string {
@@ -68,9 +68,9 @@ export async function POST(request: NextRequest) {
     const plan = String(body?.plan || "pro").trim().toLowerCase();
     const adminName = String(body?.adminName || "").trim().toLowerCase();
     const adminPassword = String(body?.adminPassword || "");
-    const iconDataUrl =
-      typeof body?.iconDataUrl === "string" && body.iconDataUrl.trim().length > 0
-        ? body.iconDataUrl
+    const iconUrl =
+      typeof body?.iconUrl === "string" && body.iconUrl.trim().length > 0
+        ? body.iconUrl.trim()
         : null;
 
     if (plan !== "pro") {
@@ -179,7 +179,7 @@ const order = await createGenerateOrder({
     plan,
     adminName,
     adminPassword,
-    iconDataUrl,
+    iconUrl,
   },
 });
 
@@ -211,7 +211,7 @@ await insertOperationLog(supabase, {
     uiPack: uiPackName,
     plan,
     adminName,
-    hasIcon: Boolean(iconDataUrl),
+    hasIcon: Boolean(iconUrl),
   },
 });
 

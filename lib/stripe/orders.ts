@@ -25,7 +25,8 @@ export type GenerateOrderPayload = {
   plan: string;
   adminName: string;
   adminPassword: string;
-  iconDataUrl: string | null;
+  iconUrl: string | null;
+  iconDataUrl?: string | null;
 };
 
 export type RenewOrderPayload = {

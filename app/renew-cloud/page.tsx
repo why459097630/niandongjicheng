@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SiteHeader from "@/components/layout/SiteHeader";
 import { ArrowLeft, ArrowRight, CheckCircle2, Info } from "lucide-react";
 
@@ -8,6 +8,19 @@ const RENEW_APP_NAME_STORAGE_KEY = "ndjc_renew_app_name";
 const RENEW_STORE_ID_STORAGE_KEY = "ndjc_renew_store_id";
 const RENEW_CLOUD_STATUS_STORAGE_KEY = "ndjc_renew_cloud_status";
 const RENEW_CLOUD_EXPIRES_AT_STORAGE_KEY = "ndjc_renew_cloud_expires_at";
+
+type RenewCloudBuildItem = {
+  appName?: string | null;
+  storeId?: string | null;
+  cloudStatus?: string | null;
+  cloudExpiresAt?: string | null;
+};
+
+type RenewCloudBuildListResponse = {
+  ok?: boolean;
+  items?: RenewCloudBuildItem[];
+  error?: string;
+};
 
 function formatTime(value: string) {
   const date = new Date(value);
@@ -44,7 +57,10 @@ const RENEW_OPTIONS = [
   const [selectedRenewId, setSelectedRenewId] = useState<(typeof RENEW_OPTIONS)[number]["id"]>("180d");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const [isRefreshingCloudStatus, setIsRefreshingCloudStatus] = useState(false);
+  const [hasRenewSuccess, setHasRenewSuccess] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const paymentReturnHandledRef = useRef(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -87,6 +103,7 @@ useEffect(() => {
     setSelectedRenewId(nextRenewId);
   }
 
+  setHasRenewSuccess(params.get("renewed") === "1");
   setAppName(nextAppName);
   setStoreId(nextStoreId);
   setCloudStatus(nextCloudStatus);
@@ -104,20 +121,152 @@ useEffect(() => {
   const paypalOrderId = params.get("token") || "";
   const paypalRenewId = params.get("renewId") || "";
 
+  if (paymentReturnHandledRef.current) {
+    return;
+  }
+
+  if (paypalSuccess !== "1" && stripeSuccess !== "1") {
+    return;
+  }
+
+  paymentReturnHandledRef.current = true;
+
   let cancelled = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let inFlight = false;
 
-  const redirectAfterRenewal = (input: {
+  const wait = (delayMs: number) =>
+    new Promise((resolve) => {
+      window.setTimeout(resolve, delayMs);
+    });
+
+  const refreshLatestCloudStatus = async (input: {
     finalStoreId: string;
-    finalRenewId: string;
+    previousCloudExpiresAt: string;
   }) => {
-    window.location.href = `/history?renewed=1&storeId=${encodeURIComponent(input.finalStoreId)}&renewPlan=${encodeURIComponent(input.finalRenewId)}`;
+    if (!input.finalStoreId) return;
+
+    setIsRefreshingCloudStatus(true);
+
+    const previousExpiryMs = input.previousCloudExpiresAt
+      ? new Date(input.previousCloudExpiresAt).getTime()
+      : Number.NaN;
+
+    const retryDelays = [0, 800, 1600];
+
+    try {
+      for (let attemptIndex = 0; attemptIndex < retryDelays.length; attemptIndex += 1) {
+        const delayMs = retryDelays[attemptIndex];
+
+        if (delayMs > 0) {
+          await wait(delayMs);
+        }
+
+        if (cancelled) return;
+
+        const response = await fetch(`/api/build-list?renewRefresh=${Date.now()}`, {
+          cache: "no-store",
+        });
+
+        const data = (await response.json().catch(() => null)) as RenewCloudBuildListResponse | null;
+
+        if (cancelled) return;
+
+        if (!response.ok || !data?.ok || !Array.isArray(data.items)) {
+          if (attemptIndex === retryDelays.length - 1) {
+            throw new Error(data?.error || "Failed to refresh latest cloud status.");
+          }
+
+          continue;
+        }
+
+        const latestItem = data.items.find((item) => item.storeId === input.finalStoreId);
+
+        if (!latestItem) {
+          if (attemptIndex === retryDelays.length - 1) {
+            throw new Error("Renewed customer hub was not found in your history.");
+          }
+
+          continue;
+        }
+
+        const nextCloudExpiresAt =
+          typeof latestItem.cloudExpiresAt === "string" && latestItem.cloudExpiresAt.trim()
+            ? latestItem.cloudExpiresAt.trim()
+            : "";
+
+        const nextExpiryMs = nextCloudExpiresAt ? new Date(nextCloudExpiresAt).getTime() : Number.NaN;
+
+        if (typeof latestItem.appName === "string" && latestItem.appName.trim()) {
+          setAppName(latestItem.appName.trim());
+          sessionStorage.setItem(RENEW_APP_NAME_STORAGE_KEY, latestItem.appName.trim());
+        }
+
+        if (typeof latestItem.storeId === "string" && latestItem.storeId.trim()) {
+          setStoreId(latestItem.storeId.trim());
+          sessionStorage.setItem(RENEW_STORE_ID_STORAGE_KEY, latestItem.storeId.trim());
+        }
+
+        if (typeof latestItem.cloudStatus === "string" && latestItem.cloudStatus.trim()) {
+          setCloudStatus(latestItem.cloudStatus.trim());
+          sessionStorage.setItem(RENEW_CLOUD_STATUS_STORAGE_KEY, latestItem.cloudStatus.trim());
+        }
+
+        if (nextCloudExpiresAt) {
+          setCloudExpiresAt(nextCloudExpiresAt);
+          sessionStorage.setItem(RENEW_CLOUD_EXPIRES_AT_STORAGE_KEY, nextCloudExpiresAt);
+        }
+
+        const hasNewerExpiry =
+          Number.isFinite(previousExpiryMs) &&
+          Number.isFinite(nextExpiryMs) &&
+          nextExpiryMs > previousExpiryMs;
+
+        if (hasNewerExpiry || attemptIndex === retryDelays.length - 1 || !Number.isFinite(previousExpiryMs)) {
+          return;
+        }
+      }
+    } finally {
+      if (!cancelled) {
+        setIsRefreshingCloudStatus(false);
+      }
+    }
+  };
+
+  const markRenewalSuccessOnCurrentPage = async (input: {
+    finalStoreId: string;
+    finalRenewId: (typeof RENEW_OPTIONS)[number]["id"];
+  }) => {
+    if (!input.finalStoreId) {
+      throw new Error("Missing renewed cloud store ID.");
+    }
+
+    const previousCloudExpiresAt = cloudExpiresAt;
+
+    setSelectedRenewId(input.finalRenewId);
+    sessionStorage.setItem(RENEW_STORE_ID_STORAGE_KEY, input.finalStoreId);
+
+    const successUrl = new URL(window.location.href);
+    successUrl.search = new URLSearchParams({
+      storeId: input.finalStoreId,
+      renewId: input.finalRenewId,
+      renewed: "1",
+    }).toString();
+
+    window.history.replaceState(null, "", successUrl.toString());
+    setHasRenewSuccess(true);
+
+    await refreshLatestCloudStatus({
+      finalStoreId: input.finalStoreId,
+      previousCloudExpiresAt,
+    });
   };
 
   if (paypalSuccess === "1") {
     if (!paypalOrderId) {
       setSubmitError("Missing PayPal order token in return URL.");
+      setIsVerifyingPayment(false);
+      setIsRefreshingCloudStatus(false);
       return;
     }
 
@@ -128,52 +277,61 @@ useEffect(() => {
 
         const captureKey = `ndjc_paypal_capture_${paypalOrderId}`;
 
-        if (window.sessionStorage.getItem(captureKey) !== "1") {
-          window.sessionStorage.setItem(captureKey, "1");
+        if (window.sessionStorage.getItem(captureKey) === "1") {
+          const fallbackRenewId =
+            paypalRenewId === "30d" || paypalRenewId === "90d" || paypalRenewId === "180d"
+              ? paypalRenewId
+              : selectedRenewId;
 
-          const response = await fetch("/api/paypal/capture-order", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              paypalOrderId,
-              expectedKind: "renew_cloud",
-            }),
+          await markRenewalSuccessOnCurrentPage({
+            finalStoreId: storeId,
+            finalRenewId: fallbackRenewId,
           });
-
-          const data = await response.json().catch(() => null);
-
-          if (cancelled) return;
-
-          if (!response.ok || !data?.ok) {
-            window.sessionStorage.removeItem(captureKey);
-            throw new Error(data?.error || "Failed to capture PayPal renewal payment.");
-          }
-
-          const finalStoreId =
-            typeof data?.storeId === "string" && data.storeId.trim()
-              ? data.storeId.trim()
-              : storeId;
-
-          const finalRenewId =
-            data?.renewId === "30d" ||
-            data?.renewId === "90d" ||
-            data?.renewId === "180d"
-              ? data.renewId
-              : paypalRenewId === "30d" ||
-                  paypalRenewId === "90d" ||
-                  paypalRenewId === "180d"
-                ? paypalRenewId
-                : selectedRenewId;
-
-          if (finalStoreId) {
-            redirectAfterRenewal({
-              finalStoreId,
-              finalRenewId,
-            });
-          }
+          return;
         }
+
+        window.sessionStorage.setItem(captureKey, "1");
+
+        const response = await fetch("/api/paypal/capture-order", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            paypalOrderId,
+            expectedKind: "renew_cloud",
+          }),
+        });
+
+        const data = await response.json().catch(() => null);
+
+        if (cancelled) return;
+
+        if (!response.ok || !data?.ok) {
+          window.sessionStorage.removeItem(captureKey);
+          throw new Error(data?.error || "Failed to capture PayPal renewal payment.");
+        }
+
+        const finalStoreId =
+          typeof data?.storeId === "string" && data.storeId.trim()
+            ? data.storeId.trim()
+            : storeId;
+
+        const finalRenewId =
+          data?.renewId === "30d" ||
+          data?.renewId === "90d" ||
+          data?.renewId === "180d"
+            ? data.renewId
+            : paypalRenewId === "30d" ||
+                paypalRenewId === "90d" ||
+                paypalRenewId === "180d"
+              ? paypalRenewId
+              : selectedRenewId;
+
+        await markRenewalSuccessOnCurrentPage({
+          finalStoreId,
+          finalRenewId,
+        });
       } catch (error) {
         if (!cancelled) {
           setSubmitError(error instanceof Error ? error.message : "Failed to renew cloud access.");
@@ -181,6 +339,7 @@ useEffect(() => {
       } finally {
         if (!cancelled) {
           setIsVerifyingPayment(false);
+          setIsRefreshingCloudStatus(false);
         }
       }
     };
@@ -192,12 +351,10 @@ useEffect(() => {
     };
   }
 
-  if (stripeSuccess !== "1") {
-    return;
-  }
-
   if (!sessionId) {
     setSubmitError("Missing Stripe session_id in return URL.");
+    setIsVerifyingPayment(false);
+    setIsRefreshingCloudStatus(false);
     return;
   }
 
@@ -263,7 +420,7 @@ useEffect(() => {
             ? data.renewId
             : selectedRenewId;
 
-        redirectAfterRenewal({
+        await markRenewalSuccessOnCurrentPage({
           finalStoreId,
           finalRenewId,
         });
@@ -290,6 +447,7 @@ useEffect(() => {
 
       if (!cancelled) {
         setIsVerifyingPayment(false);
+        setIsRefreshingCloudStatus(false);
       }
     }
   };
@@ -302,7 +460,7 @@ useEffect(() => {
       clearTimeout(timer);
     }
   };
-}, [isPageReady, selectedRenewId, storeId]);
+}, [isPageReady]);
 
   const selectedRenewOption =
     RENEW_OPTIONS.find((option) => option.id === selectedRenewId) ?? RENEW_OPTIONS[0];
@@ -319,6 +477,9 @@ useEffect(() => {
       : daysUntilExpiry === 0
         ? "Less than 1 day left"
         : `${daysUntilExpiry} day${daysUntilExpiry === 1 ? "" : "s"} left`;
+
+  const isWaitingForLatestCloudStatus = hasRenewSuccess && isRefreshingCloudStatus;
+
   const statusBadgeLabel =
     cloudStatus === "active"
       ? "Cloud Active"
@@ -455,7 +616,17 @@ useEffect(() => {
                     </div>
 
                     <div className="mt-3">
-                      {expiryCountdownLabel && cloudStatus !== "deleted" ? (
+                      {hasRenewSuccess ? (
+                        <div className="mb-3 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700 shadow-[0_10px_24px_rgba(16,185,129,0.08)]">
+                          Cloud renewed successfully
+                        </div>
+                      ) : null}
+
+                      {isWaitingForLatestCloudStatus ? (
+                        <div className="text-[30px] font-extrabold leading-none tracking-[-0.05em] text-[#0f172a]">
+                          Updating latest expiry...
+                        </div>
+                      ) : expiryCountdownLabel && cloudStatus !== "deleted" ? (
                         <div className="text-[30px] font-extrabold leading-none tracking-[-0.05em] text-[#0f172a]">
                           {cloudStatus === "active" ? expiryCountdownLabel : `⚠ ${expiryCountdownLabel}`}
                         </div>
@@ -465,17 +636,27 @@ useEffect(() => {
                         </div>
                       )}
 
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <div className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${statusBadgeClassName}`}>
-                          {cloudStatusHintLabel}
+                      {isWaitingForLatestCloudStatus ? (
+                        <div className="mt-4 text-sm leading-6 text-slate-500">
+                          Waiting for the latest cloud expiry from the server.
                         </div>
-                        <div className="text-sm leading-6 text-slate-500">
-                          {cloudStatusLine}
+                      ) : (
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <div className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${statusBadgeClassName}`}>
+                            {cloudStatusHintLabel}
+                          </div>
+                          <div className="text-sm leading-6 text-slate-500">
+                            {cloudStatusLine}
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       <div className="mt-3 text-[13px] leading-6 text-slate-600">
-                        Renewal extends this cloud service from the current expiry date.
+                        {isWaitingForLatestCloudStatus
+                          ? "Refreshing the latest cloud service status..."
+                          : hasRenewSuccess
+                            ? "Your latest cloud expiry has been updated."
+                            : "Renewal extends this cloud service from the current expiry date."}
                       </div>
                     </div>
                   </div>
@@ -501,7 +682,11 @@ useEffect(() => {
                           Current expiry
                         </div>
                         <div className="mt-2 text-[15px] font-semibold tracking-tight text-[#0f172a]">
-                          {cloudExpiresAt ? formatTime(cloudExpiresAt) : "Unknown"}
+                          {isWaitingForLatestCloudStatus
+                            ? "Updating..."
+                            : cloudExpiresAt
+                              ? formatTime(cloudExpiresAt)
+                              : "Unknown"}
                         </div>
                       </div>
 
@@ -516,7 +701,11 @@ useEffect(() => {
                           New expiry
                         </div>
                         <div className="mt-2 text-[15px] font-semibold tracking-tight text-fuchsia-700">
-                          {nextExpiry ? formatTime(nextExpiry) : "Pending calculation"}
+                          {isWaitingForLatestCloudStatus
+                            ? "Updating..."
+                            : nextExpiry
+                              ? formatTime(nextExpiry)
+                              : "Pending calculation"}
                         </div>
                       </div>
                     </div>
@@ -524,7 +713,9 @@ useEffect(() => {
                     <div className="relative z-10 mt-4 h-px bg-fuchsia-100/80" />
 
                     <div className="relative z-10 mt-3 text-[13px] leading-6 text-slate-500">
-                      Your cloud service will be extended from the current expiry date.
+                      {isWaitingForLatestCloudStatus
+                        ? "The latest expiry is being refreshed after this renewal."
+                        : "Your cloud service will be extended from the current expiry date."}
                     </div>
                   </div>
                   <div className="mt-5">
@@ -588,7 +779,18 @@ useEffect(() => {
 
             {submitError ? (
               <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                {submitError}
+                <div>{submitError}</div>
+                <div className="mt-2 text-xs leading-5 text-red-500">
+                  If this is a billing or renewal issue, contact{" "}
+                  <a className="font-semibold underline underline-offset-4" href="mailto:support@thinkitdoneapp.com">
+                    support@thinkitdoneapp.com
+                  </a>{" "}
+                  or review the{" "}
+                  <a className="font-semibold underline underline-offset-4" href="/refund">
+                    Refund Policy
+                  </a>
+                  .
+                </div>
               </div>
             ) : null}
             </div>
@@ -661,12 +863,14 @@ useEffect(() => {
               </div>
 
               <div className="text-center text-[12px] font-medium text-slate-500">
-                Keep your customer hub active
+                {hasRenewSuccess
+                  ? "Need more time? You can renew again to extend your cloud service."
+                  : "Keep your customer hub active"}
               </div>
 
               <button
                 type="button"
-                disabled={isSubmitting || isVerifyingPayment || !canRenewCloud}
+                disabled={isSubmitting || isVerifyingPayment || isRefreshingCloudStatus || !canRenewCloud}
                 onClick={async () => {
                   if (!canRenewCloud) {
                     setSubmitError("This cloud store is no longer renewable.");
@@ -710,16 +914,33 @@ window.location.href = data.url;
                       ? "Cloud not renewable"
                       : isVerifyingPayment
                         ? "Verifying payment..."
-: isSubmitting
-  ? "Redirecting to PayPal..."
-  : `Confirm and pay ${renewPrice}`}
+                        : isRefreshingCloudStatus
+                          ? "Refreshing cloud status..."
+                          : isSubmitting
+                            ? "Redirecting to PayPal..."
+                            : hasRenewSuccess
+                              ? `Extend again for ${renewPrice}`
+                              : `Confirm and pay ${renewPrice}`}
                   </span>
                   <ArrowRight className="h-[15px] w-[15px] text-white/80 transition-transform duration-300 group-hover:translate-x-0.5" />
                 </div>
               </button>
 
-              <div className="text-center text-[12px] text-slate-500">
-                Secure payment · Instant activation · Keep cloud features active
+              <div className="space-y-2 text-center text-[12px] leading-5 text-slate-500">
+                <div>
+                  By continuing, you agree to the{" "}
+                  <a className="font-semibold text-[#0f172a] underline underline-offset-4" href="/terms">
+                    Terms of Service
+                  </a>{" "}
+                  and{" "}
+                  <a className="font-semibold text-[#0f172a] underline underline-offset-4" href="/refund">
+                    Refund Policy
+                  </a>
+                  .
+                </div>
+                <div>
+                  Secure PayPal payment · Cloud renewal payments are generally non-refundable once the renewed cloud service period starts.
+                </div>
               </div>
 
               <button

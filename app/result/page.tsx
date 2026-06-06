@@ -25,7 +25,7 @@ const CHECKOUT_PLAN_STORAGE_KEY = "ndjc_checkout_plan";
 const CHECKOUT_ADMIN_NAME_STORAGE_KEY = "ndjc_checkout_admin_name";
 const CHECKOUT_ADMIN_PASSWORD_STORAGE_KEY = "ndjc_checkout_admin_password";
 
-const RESULT_SUPPORT_MESSAGE = "Please contact support through the chat in the bottom-right corner.";
+const RESULT_SUPPORT_MESSAGE = "This generation could not be completed. Please contact support for help or refund review.";
 
 export default function ResultPage() {
   const [runId, setRunId] = useState("");
@@ -252,8 +252,19 @@ useEffect(() => {
         ) : null}
 
         {error ? (
-          <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-            {error}
+          <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm font-medium text-red-600">
+            <div>{error}</div>
+            <div className="mt-2 text-xs font-normal leading-5 text-red-500">
+              Email{" "}
+              <a className="font-semibold underline underline-offset-4" href="mailto:support@thinkitdoneapp.com">
+                support@thinkitdoneapp.com
+              </a>{" "}
+              and include your Run ID if available. You can also review the{" "}
+              <a className="font-semibold underline underline-offset-4" href="/refund">
+                Refund Policy
+              </a>
+              .
+            </div>
           </div>
         ) : null}
 
@@ -282,8 +293,10 @@ useEffect(() => {
             </button>
           )}
 
-          <div className="mt-1 text-xs text-[#94a3b8]">
-            The package includes your launch guide, customer hub URL, and QR code.
+          <div className="mt-1 text-xs leading-5 text-[#94a3b8]">
+            {hasError
+              ? "If generation fails and the issue cannot be fixed after review, you may request a refund according to the Refund Policy."
+              : "The package includes your launch guide, customer hub URL, and QR code."}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -6,6 +6,7 @@ import SiteHeader from "@/components/layout/SiteHeader";
 import { createClient } from "@/lib/supabase/client";
 
 const ICON_DATA_URL_STORAGE_KEY = "ndjc_builder_icon_data_url";
+const ICON_URL_STORAGE_KEY = "ndjc_builder_icon_url";
 const ICON_FILE_NAME_STORAGE_KEY = "ndjc_builder_icon_file_name";
 const BUILDER_DRAFT_STORAGE_KEY = "ndjc_builder_draft";
 const CHECKOUT_APP_NAME_STORAGE_KEY = "ndjc_checkout_app_name";
@@ -199,6 +200,33 @@ async function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+async function dataUrlToFile(dataUrl: string, fileName: string): Promise<File> {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+
+  return new File([blob], fileName, {
+    type: blob.type || ICON_CROP_OUTPUT_TYPE,
+  });
+}
+
+async function uploadSourceIconFile(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("iconFile", file);
+
+  const response = await fetch("/api/pwa-icons/upload-source", {
+    method: "POST",
+    body: formData,
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data?.ok || typeof data.iconUrl !== "string" || !data.iconUrl.trim()) {
+    throw new Error(data?.error || "Failed to upload icon.");
+  }
+
+  return data.iconUrl.trim();
+}
+
 function isValidAdminEmail(value: string): boolean {
   const normalized = value.trim().toLowerCase();
   return (
@@ -249,6 +277,7 @@ export default function BuilderPage() {
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [iconFileName, setIconFileName] = useState("");
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
+  const [iconUrl, setIconUrl] = useState<string | null>(null);
   const [pendingIconFile, setPendingIconFile] = useState<File | null>(null);
   const [pendingIconFileName, setPendingIconFileName] = useState("");
   const [pendingIconDataUrl, setPendingIconDataUrl] = useState<string | null>(null);
@@ -347,7 +376,7 @@ export default function BuilderPage() {
 
   const buildValidationErrors = (): ValidationErrors => ({
     appName: appName.trim().length === 0,
-    appIcon: !iconDataUrl,
+    appIcon: !iconUrl,
     logicModule: moduleName.trim().length === 0,
     uiPack: uiPackName.trim().length === 0,
     adminName: !isValidAdminEmail(adminName),
@@ -468,12 +497,16 @@ export default function BuilderPage() {
         scale: iconCropScale,
         offset: safeOffset,
       });
+      const croppedIconFile = await dataUrlToFile(croppedDataUrl, "pwa-source-icon.png");
+      const uploadedIconUrl = await uploadSourceIconFile(croppedIconFile);
 
       setIconFile(pendingIconFile);
       setIconFileName(pendingIconFileName);
       setIconDataUrl(croppedDataUrl);
+      setIconUrl(uploadedIconUrl);
       setValidationErrors((prev) => ({ ...prev, appIcon: false }));
       sessionStorage.setItem(ICON_DATA_URL_STORAGE_KEY, croppedDataUrl);
+      sessionStorage.setItem(ICON_URL_STORAGE_KEY, uploadedIconUrl);
       sessionStorage.setItem(ICON_FILE_NAME_STORAGE_KEY, pendingIconFileName);
       void logIconUploaded(pendingIconFileName);
       resetPendingIconCrop();
@@ -567,8 +600,10 @@ export default function BuilderPage() {
 
     setIconFile(null);
     setIconDataUrl(null);
+    setIconUrl(null);
     setIconFileName("");
     sessionStorage.removeItem(ICON_DATA_URL_STORAGE_KEY);
+    sessionStorage.removeItem(ICON_URL_STORAGE_KEY);
     sessionStorage.removeItem(ICON_FILE_NAME_STORAGE_KEY);
 
     setIsDraftHydrated(true);
@@ -631,7 +666,7 @@ export default function BuilderPage() {
     plan: planRef.current,
     adminName: adminName.trim(),
     adminPassword,
-    iconDataUrl,
+    iconUrl,
   };
 
   const handleGenerate = async () => {

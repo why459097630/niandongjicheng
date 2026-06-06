@@ -8,9 +8,10 @@ const ACQUISITION_SESSION_KEY = "ndjc_acquisition_session_id";
 export default function Home() {
   const previewScreens = ["home", "services", "chat", "announcement"] as const;
   const navItems = [
-    { id: "features", label: "Features" },
+    { id: "features", label: "Customer Hub" },
     { id: "how-it-works", label: "How it works" },
     { id: "faq", label: "FAQ" },
+    { id: "trust", label: "Trust" },
   ] as const;
 
   const [activePreview, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
@@ -266,7 +267,7 @@ export default function Home() {
         </section>
       </div>
 
-      <section className="mx-auto max-w-7xl px-6 py-24">
+      <section id="features" className="scroll-mt-28 mx-auto max-w-7xl px-6 py-24">
         <div className="mx-auto max-w-3xl text-center">
           <div className="mb-4 text-sm font-semibold tracking-[0.14em] text-indigo-400">
             Customer hub system
@@ -404,9 +405,9 @@ export default function Home() {
         </div>
       </section>
 
-      
 
-            <section id="how-it-works" className="scroll-mt-28 mx-auto max-w-7xl px-6 py-20">
+
+      <section id="how-it-works" className="scroll-mt-28 mx-auto max-w-7xl px-6 py-20">
         <div className="mb-12">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">How it works</div>
           <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">Launch in 3 simple steps</h2>
@@ -548,7 +549,78 @@ export default function Home() {
               Yes. It works best for local businesses that need customers to browse services, request bookings, ask questions, and receive updates from one branded place.
             </p>
           </div>
+
+          <div className="group rounded-[30px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)] md:p-7">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
+                  Data
+                </div>
+                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">How is my business data handled?</h3>
+              </div>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
+                <HelpCircle className="h-4.5 w-4.5" />
+              </div>
+            </div>
+            <p className="text-[17px] leading-[1.85] text-[#475569]">
+              Store data is separated by business account. Uploaded content, customer messages, appointments, announcements, and related records are used to generate and operate your customer hub. Think it Done does not sell customer data.
+            </p>
+
+          </div>
         </div>
+      </section>
+
+      <section id="trust" className="scroll-mt-28 mx-auto max-w-4xl px-6 pb-12 pt-2">
+        <div className="mb-10 text-center">
+          <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">
+            Trust &amp; Security
+          </div>
+          <h2 className="text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a] md:text-4xl">
+            Review the essentials before you launch
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-[17px] leading-[1.9] text-[#475569]">
+            Before starting, you can review how payment, support, refund review, cloud service, and business data handling work.
+          </p>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-3">
+          <div className="group rounded-[30px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)]">
+            <div className="mb-3 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
+              Payment
+            </div>
+            <h3 className="text-xl font-semibold tracking-[-0.03em] text-[#0f172a]">
+              Clear payment path
+            </h3>
+            <p className="mt-3 text-sm leading-7 text-[#64748b]">
+              Review setup payment, cloud renewal, and refund review rules before using the builder.
+            </p>
+          </div>
+
+          <div className="group rounded-[30px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)]">
+            <div className="mb-3 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
+              Data
+            </div>
+            <h3 className="text-xl font-semibold tracking-[-0.03em] text-[#0f172a]">
+              Business data handling
+            </h3>
+            <p className="mt-3 text-sm leading-7 text-[#64748b]">
+              Store data is separated by business account. Customer data is not sold.
+            </p>
+          </div>
+
+          <div className="group rounded-[30px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)]">
+            <div className="mb-3 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
+              Support
+            </div>
+            <h3 className="text-xl font-semibold tracking-[-0.03em] text-[#0f172a]">
+              Support and issue review
+            </h3>
+            <p className="mt-3 text-sm leading-7 text-[#64748b]">
+              Bugs, payment issues, generation issues, and feature suggestions can be reviewed through support.
+            </p>
+          </div>
+        </div>
+
       </section>
 
       <section className="mx-auto max-w-5xl px-6 pb-20 pt-4">
@@ -580,8 +652,28 @@ export default function Home() {
 
       <footer className="border-t border-white/10 px-6 py-8 text-center text-sm font-medium tracking-[0.02em] text-[#94a3b8]">
         <div>© 2026 Think it Done. Launch your customer hub faster.</div>
-        <div className="mt-2">
-          Need help, found a bug, or have a feature suggestion? Contact support@thinkitdone.com.
+
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+          <a className="transition hover:text-[#0f172a]" href="/trust">
+            Trust &amp; Security
+          </a>
+          <a className="transition hover:text-[#0f172a]" href="/privacy">
+            Privacy Policy
+          </a>
+          <a className="transition hover:text-[#0f172a]" href="/terms">
+            Terms of Service
+          </a>
+          <a className="transition hover:text-[#0f172a]" href="/refund">
+            Refund Policy
+          </a>
+        </div>
+
+        <div className="mt-3">
+          Need help, found a bug, or have a feature suggestion? Contact{" "}
+          <a className="transition hover:text-[#0f172a]" href="mailto:support@thinkitdoneapp.com">
+            support@thinkitdoneapp.com
+          </a>
+          .
         </div>
       </footer>
     </main>

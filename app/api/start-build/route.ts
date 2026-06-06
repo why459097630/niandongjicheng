@@ -10,6 +10,7 @@ import { assertAdminAccess } from '@/lib/chat/assertAdminAccess';
 type StartBuildRequestBody = Partial<BuildRequest> & {
   adminName?: string;
   adminPassword?: string;
+  iconUrl?: string | null;
   iconDataUrl?: string | null;
 };
 
@@ -220,6 +221,7 @@ export async function POST(request: NextRequest) {
       adminName?: string;
       merchantEmail?: string;
       storeId: string;
+      iconUrl?: string | null;
       iconDataUrl?: string | null;
       userId: string;
       buildPriority: "admin" | "free";

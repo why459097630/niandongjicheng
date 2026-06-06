@@ -125,11 +125,18 @@ export async function GET(request: NextRequest) {
       }
 
       if (result.downloadUrl) {
-        const redirectUrl = /^https?:\/\//i.test(result.downloadUrl)
-          ? result.downloadUrl
-          : new URL(result.downloadUrl, request.url).toString();
+        const downloadUrl = result.downloadUrl.trim();
 
-        return NextResponse.redirect(redirectUrl, { status: 302 });
+        if (/^https?:\/\//i.test(downloadUrl)) {
+          return NextResponse.redirect(downloadUrl, { status: 302 });
+        }
+
+        return new NextResponse(null, {
+          status: 302,
+          headers: {
+            Location: downloadUrl.startsWith("/") ? downloadUrl : `/${downloadUrl}`,
+          },
+        });
       }
 
       try {
