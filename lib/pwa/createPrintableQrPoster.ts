@@ -1,4 +1,14 @@
+import { createRequire } from "node:module";
 import sharp from "sharp";
+import { Resvg } from "@resvg/resvg-js";
+
+const require = createRequire(import.meta.url);
+
+const interFontFiles = [
+  require.resolve("@fontsource/inter/files/inter-latin-400-normal.woff2"),
+  require.resolve("@fontsource/inter/files/inter-latin-700-normal.woff2"),
+  require.resolve("@fontsource/inter/files/inter-latin-800-normal.woff2"),
+];
 
 function escapeXml(value: string) {
   return value
@@ -56,6 +66,22 @@ function splitTitle(value: string) {
   return lines.slice(0, 2);
 }
 
+function renderSvgToPng(svg: string, width: number) {
+  return new Resvg(svg, {
+    fitTo: {
+      mode: "width",
+      value: width,
+    },
+    font: {
+      fontFiles: interFontFiles,
+      defaultFontFamily: "Inter",
+      loadSystemFonts: false,
+    },
+  })
+    .render()
+    .asPng();
+}
+
 export async function createPrintableQrPoster(options: {
   businessName: string;
   qrCodeBuffer: Buffer;
@@ -85,7 +111,7 @@ export async function createPrintableQrPoster(options: {
 
   const titleSvg = titleLines
     .map((line, index) => {
-      return `<text x="${cardCenterX}" y="${titleStartY + index * titleLineHeight}" text-anchor="middle" font-family="sans" font-size="56" font-weight="800" letter-spacing="-1.7" fill="#0f172a">${escapeXml(line)}</text>`;
+      return `<text x="${cardCenterX}" y="${titleStartY + index * titleLineHeight}" text-anchor="middle" font-family="Inter" font-size="56" font-weight="800" letter-spacing="-1.7" fill="#0f172a">${escapeXml(line)}</text>`;
     })
     .join("");
 
@@ -95,19 +121,19 @@ export async function createPrintableQrPoster(options: {
 
   <rect x="${badgeX}" y="${badgeY}" width="${badgeWidth}" height="${badgeHeight}" rx="22" fill="#f8fafc"/>
   <rect x="${badgeX}" y="${badgeY}" width="${badgeWidth}" height="${badgeHeight}" rx="22" stroke="#dbe4ff" stroke-width="2"/>
-  <text x="${cardCenterX}" y="203" text-anchor="middle" font-family="sans" font-size="17" font-weight="800" letter-spacing="3.2" fill="#6366f1">CUSTOMER HUB</text>
+  <text x="${cardCenterX}" y="203" text-anchor="middle" font-family="Inter" font-size="17" font-weight="800" letter-spacing="3.2" fill="#6366f1">CUSTOMER HUB</text>
 
   ${titleSvg}
 
-  <text x="${cardCenterX}" y="${scanTextY}" text-anchor="middle" font-family="sans" font-size="32" font-weight="700" letter-spacing="0.1" fill="#334155">Scan to access our customer hub</text>
-  <text x="${cardCenterX}" y="${scanTextY + 48}" text-anchor="middle" font-family="sans" font-size="23" font-weight="700" letter-spacing="0.1" fill="#818cf8">No app download needed</text>
+  <text x="${cardCenterX}" y="${scanTextY}" text-anchor="middle" font-family="Inter" font-size="32" font-weight="700" letter-spacing="0.1" fill="#334155">Scan to access our customer hub</text>
+  <text x="${cardCenterX}" y="${scanTextY + 48}" text-anchor="middle" font-family="Inter" font-size="23" font-weight="700" letter-spacing="0.1" fill="#818cf8">No app download needed</text>
 
   <rect x="${qrContainerX}" y="${qrContainerY}" width="${qrContainerSize}" height="${qrContainerSize}" rx="56" fill="#ffffff"/>
   <rect x="${qrContainerX}" y="${qrContainerY}" width="${qrContainerSize}" height="${qrContainerSize}" rx="56" stroke="#e0e7ff" stroke-width="2"/>
 
-  <text x="${cardCenterX}" y="1238" text-anchor="middle" font-family="sans" font-size="23" font-weight="700" letter-spacing="0.1" fill="#64748b">Scan with your phone camera</text>
+  <text x="${cardCenterX}" y="1238" text-anchor="middle" font-family="Inter" font-size="23" font-weight="700" letter-spacing="0.1" fill="#64748b">Scan with your phone camera</text>
 
-  <text x="${cardCenterX}" y="1338" text-anchor="middle" font-family="sans" font-size="34" font-weight="800" letter-spacing="0.2" fill="#0f172a">Services · Booking · Updates</text>
+  <text x="${cardCenterX}" y="1338" text-anchor="middle" font-family="Inter" font-size="34" font-weight="800" letter-spacing="0.2" fill="#0f172a">Services · Booking · Updates</text>
 
   <defs>
     <linearGradient id="footerAccentGradient" x1="408" y1="1418" x2="672" y2="1418" gradientUnits="userSpaceOnUse">
@@ -119,10 +145,12 @@ export async function createPrintableQrPoster(options: {
 
   <rect x="380" y="1418" width="320" height="4" rx="2" fill="url(#footerAccentGradient)"/>
 
-  <text x="${cardCenterX}" y="1492" text-anchor="middle" font-family="sans" font-size="22" font-weight="700" letter-spacing="0.8" fill="#a8b1c1">Powered by Think It Done</text>
+  <text x="${cardCenterX}" y="1492" text-anchor="middle" font-family="Inter" font-size="22" font-weight="700" letter-spacing="0.8" fill="#a8b1c1">Powered by Think It Done</text>
 </svg>`;
 
-  const posterBuffer = await sharp(Buffer.from(svg))
+  const posterBackgroundBuffer = renderSvgToPng(svg, width);
+
+  const posterBuffer = await sharp(posterBackgroundBuffer)
     .composite([
       {
         input: await sharp(options.qrCodeBuffer)
