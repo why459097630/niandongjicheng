@@ -9,6 +9,8 @@ import {
 } from "@/lib/build/storage";
 import { createPrintableQrPoster } from "@/lib/pwa/createPrintableQrPoster";
 
+export const runtime = "nodejs";
+
 function getPwaUrlFromRecord(record: {
   artifactUrl: string | null;
   storeId?: string | null;
