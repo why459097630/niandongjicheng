@@ -138,12 +138,12 @@ export default function Home() {
             <h1 className="mb-8 text-5xl font-extrabold tracking-[-0.04em] leading-[0.96] md:text-7xl">
               Create a branded customer hub
               <br />
-              <span className="text-4xl md:text-6xl text-[#0f172a]/60">For your local business — ready to share</span>
+              <span className="text-4xl md:text-6xl text-[#0f172a]/60">for your local business — ready to share</span>
             </h1>
 
             
             <p className="mb-10 max-w-[600px] text-lg leading-[1.9] text-[#475569]">
-              Generate a mobile-ready customer hub customers can open by link or QR code, save to their home screen, and use like a lightweight app.
+              Create a branded customer entry your customers can open from a link or QR code, use to browse your services, book appointments, and return to later.
             </p>
 
             <div className="max-w-[560px]">
@@ -273,10 +273,10 @@ export default function Home() {
             Customer hub system
           </div>
           <h2 className="text-4xl font-extrabold tracking-[-0.045em] leading-[1.04] text-[#0f172a] md:text-[54px]">
-            Your own customer hub, without app store friction
+            Everything customers need in one branded place
           </h2>
           <p className="mx-auto mt-6 max-w-2xl text-[17px] leading-[1.9] text-[#64748b]">
-            Create a branded PWA where customers can browse services, book appointments, chat with you, and receive updates — all under your own name and icon.
+            Give customers one branded place to browse services, book appointments, ask questions, and receive updates — all under your own name and icon.
           </p>
         </div>
 
@@ -362,11 +362,11 @@ export default function Home() {
               </div>
 
               <h3 className="mt-8 text-3xl font-extrabold tracking-[-0.04em] leading-[1.06] text-[#0f172a]">
-                Bring customers back
+                Keep customers engaged
               </h3>
 
               <p className="mt-4 text-[15px] leading-[1.85] text-[#64748b]">
-                Keep a direct customer channel where people can return for updates, promotions, and repeat visits.
+                Share announcements, send reminders, and keep your business visible after the first visit.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-2">
@@ -381,6 +381,170 @@ export default function Home() {
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-6 py-16">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="mb-3 text-sm font-semibold tracking-[0.14em] text-indigo-400">
+            Customer hub advantage
+          </div>
+          <h2 className="text-3xl font-extrabold tracking-[-0.04em] leading-[1.08] text-[#0f172a] md:text-4xl">
+            Built for easier local business promotion
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl text-[17px] leading-[1.9] text-[#64748b]">
+            Regular websites are easy to open, but customers often leave. Native apps feel complete, but downloads create friction. Your customer hub combines both advantages: easy to open, easy to save, and easier to bring customers back.
+          </p>
+        </div>
+
+        <div className="mt-10 overflow-hidden rounded-[32px] border border-white/50 bg-white/62 shadow-[0_20px_62px_rgba(15,23,42,0.07)] backdrop-blur-xl">
+          <div className="overflow-x-auto">
+            <table className="min-w-[760px] w-full border-collapse text-left">
+              <thead>
+                <tr className="border-b border-slate-200/80">
+                  <th className="w-[42%] px-5 py-4 text-[13px] font-extrabold tracking-[-0.01em] text-[#0f172a]">
+                    Promotion Advantage
+                  </th>
+                  <th className="px-5 py-4 text-center text-[13px] font-extrabold tracking-[-0.01em] text-[#0f172a]">
+                    Regular Web
+                  </th>
+                  <th className="px-5 py-4 text-center text-[13px] font-extrabold tracking-[-0.01em] text-[#0f172a]">
+                    Native App
+                  </th>
+                  <th className="px-5 py-4 text-center text-[13px] font-extrabold tracking-[-0.01em] text-[#0f172a]">
+                    Customer Hub
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-slate-100/90">
+                  <td className="px-5 py-4 text-[14px] font-bold tracking-[-0.015em] text-[#0f172a]">
+                    Instant link access
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="text-[25px] font-black leading-none text-rose-500">
+                      ×
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                </tr>
+
+                <tr className="border-b border-slate-100/90">
+                  <td className="px-5 py-4 text-[14px] font-bold tracking-[-0.015em] text-[#0f172a]">
+                    No download friction
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="text-[25px] font-black leading-none text-rose-500">
+                      ×
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                </tr>
+
+                <tr className="border-b border-slate-100/90">
+                  <td className="px-5 py-4 text-[14px] font-bold tracking-[-0.015em] text-[#0f172a]">
+                    App-like home screen entry
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="text-[25px] font-black leading-none text-rose-500">
+                      ×
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                </tr>
+
+                <tr className="border-b border-slate-100/90">
+                  <td className="px-5 py-4 text-[14px] font-bold tracking-[-0.015em] text-[#0f172a]">
+                    Easier customer return
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="text-[25px] font-black leading-none text-rose-500">
+                      ×
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                </tr>
+
+                <tr className="border-b border-slate-100/90">
+                  <td className="px-5 py-4 text-[14px] font-bold tracking-[-0.015em] text-[#0f172a]">
+                    Push updates to customers
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="text-[25px] font-black leading-none text-rose-500">
+                      ×
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td className="px-5 py-4 text-[14px] font-bold tracking-[-0.015em] text-[#0f172a]">
+                    Lower-cost app-like experience
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="text-[25px] font-black leading-none text-rose-500">
+                      ×
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="text-[25px] font-black leading-none text-rose-500">
+                      ×
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-[13px] font-black leading-none text-white">
+                      ✓
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -435,7 +599,7 @@ export default function Home() {
               <Sparkles className="h-5 w-5" />
             </div>
             <div className="relative z-10 mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-indigo-400">Generate</div>
-            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Create your PWA link</h3>
+            <h3 className="relative z-10 mb-3 text-xl font-semibold tracking-tight text-[#0f172a]">Create your live link</h3>
             <p className="relative z-10 mb-5 text-[17px] leading-[1.85] text-[#475569]">
               Generate your branded customer hub and get a live link or QR code customers can open in their browser.
             </p>
@@ -630,7 +794,7 @@ export default function Home() {
             Ready to launch your branded customer hub?
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-[17px] leading-[1.9] text-[#475569]">
-            Set up your app name, icon, and admin account — then get a live PWA link ready to share.
+            Set up your business name, icon, and admin account — then get a live customer hub ready to share.
           </p>
           <div className="mt-8 flex justify-center">
             <button

@@ -489,9 +489,40 @@ function createPwaShortName(appName: string): string {
   return normalized.slice(0, 24).trim();
 }
 
+async function resolveNdjcLoginEmail(
+  supabase: SupabaseClient,
+  userId: string,
+  fallbackEmail: string,
+): Promise<string> {
+  const normalizedUserId = userId.trim();
+  const normalizedFallback = fallbackEmail.trim().toLowerCase();
+
+  if (!normalizedUserId) {
+    return normalizedFallback;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", normalizedUserId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    const email = String(data?.email || "").trim().toLowerCase();
+    return email || normalizedFallback;
+  } catch {
+    return normalizedFallback;
+  }
+}
+
 async function upsertStorePwaProfile(input: {
   storeId: string;
   appName: string;
+  merchantEmail: string;
   iconAssets: StandardPwaIconAssets;
 }) {
   const { supabaseUrl, secretKey } = getAppCloudEnv();
@@ -502,6 +533,7 @@ async function upsertStorePwaProfile(input: {
     {
       store_id: input.storeId,
       app_name: input.appName,
+      merchant_email: input.merchantEmail,
       short_name: shortName,
       description,
       icon_192_url: input.iconAssets.icon192,
@@ -575,6 +607,12 @@ export async function startPwaGeneration(
     };
   }
 
+  const merchantEmail = await resolveNdjcLoginEmail(
+    supabase,
+    userId,
+    input.merchantEmail || "",
+  );
+
   const existingPwaBaseUrl = getPwaBaseUrl();
   const pwaUrl = `${existingPwaBaseUrl}/pwa/${encodeURIComponent(storeId)}`;
   const downloadUrl = `/api/download-pwa-package?runId=${encodeURIComponent(runId)}`;
@@ -599,13 +637,20 @@ export async function startPwaGeneration(
   }
 
   try {
-    console.log('NDJC startPwaGeneration: before upsertStorePwaProfile', { storeId });
+    console.log('NDJC startPwaGeneration: before upsertStorePwaProfile', {
+      storeId,
+      merchantEmail,
+    });
     await upsertStorePwaProfile({
       storeId,
       appName,
+      merchantEmail,
       iconAssets,
     });
-    console.log('NDJC startPwaGeneration: after upsertStorePwaProfile', { storeId });
+    console.log('NDJC startPwaGeneration: after upsertStorePwaProfile', {
+      storeId,
+      merchantEmail,
+    });
   } catch (error) {
     console.error('NDJC startPwaGeneration: upsertStorePwaProfile failed', error);
     throw new Error(
@@ -659,6 +704,7 @@ export async function startPwaGeneration(
         runId,
         storeId,
         appName,
+        merchantEmail,
         moduleName,
         uiPackName,
         plan,
