@@ -34,18 +34,33 @@ function formatTime(value: string) {
   }).format(date);
 }
 
-function addDays(value: string, days: number) {
-  const date = new Date(value);
+function addDays(value: string | Date, days: number) {
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   date.setDate(date.getDate() + days);
   return date.toISOString();
 }
 
+function getRenewalBaseDate(cloudExpiresAt: string, cloudStatus: string) {
+  const now = new Date();
+  const currentExpiryDate = new Date(cloudExpiresAt);
+
+  if (
+    cloudStatus === "active" &&
+    !Number.isNaN(currentExpiryDate.getTime()) &&
+    currentExpiryDate.getTime() > now.getTime()
+  ) {
+    return currentExpiryDate;
+  }
+
+  return now;
+}
+
 export default function CloudRenewPage() {
 const RENEW_OPTIONS = [
-  { id: "30d", label: "30 days", priceLabel: "$39", days: 30 },
-  { id: "90d", label: "90 days", priceLabel: "$117", days: 90 },
-  { id: "180d", label: "180 days", priceLabel: "$234", days: 180 },
+  { id: "30d", label: "30 days", priceLabel: "$49", days: 30 },
+  { id: "90d", label: "90 days", priceLabel: "$139", days: 90 },
+  { id: "180d", label: "180 days", priceLabel: "$269", days: 180 },
 ] as const;
 
   const [appName, setAppName] = useState("");
@@ -466,8 +481,15 @@ useEffect(() => {
     RENEW_OPTIONS.find((option) => option.id === selectedRenewId) ?? RENEW_OPTIONS[0];
   const renewDays = selectedRenewOption.days;
   const renewPrice = selectedRenewOption.priceLabel;
-  const nextExpiry = addDays(cloudExpiresAt, renewDays);
+  const renewalBaseDate = getRenewalBaseDate(cloudExpiresAt, cloudStatus);
+  const nextExpiry = addDays(renewalBaseDate, renewDays);
   const currentExpiryDate = new Date(cloudExpiresAt);
+  const isCurrentExpiryValid = !Number.isNaN(currentExpiryDate.getTime());
+  const isRenewalFromCurrentExpiry =
+    cloudStatus === "active" &&
+    isCurrentExpiryValid &&
+    currentExpiryDate.getTime() > Date.now();
+  const renewalBaseLabel = isRenewalFromCurrentExpiry ? "Current expiry" : "Today";
   const daysUntilExpiry = Number.isNaN(currentExpiryDate.getTime())
     ? null
     : Math.max(0, Math.floor((currentExpiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
@@ -535,10 +557,10 @@ useEffect(() => {
       <main className="relative min-h-screen bg-[#f8fafc] text-[#0f172a]">
       <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
       <SiteHeader compact={isHeaderCompact} navItems={[]} nextPath="/" />
-        <section className="relative z-10 mx-auto max-w-5xl px-6 pb-20 pt-16">
-          <div className="text-center">
-            <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">Renew cloud service</h1>
-            <p className="mt-4 text-base text-[#64748b]">Loading renewal details...</p>
+        <section className="relative z-10 mx-auto max-w-5xl px-4 pb-16 pt-10 sm:px-6 md:pb-20 md:pt-16">
+          <div className="text-left sm:text-center">
+            <h1 className="text-[34px] font-extrabold leading-[1.04] tracking-[-0.05em] sm:text-5xl md:text-6xl">Renew cloud service</h1>
+            <p className="mt-4 text-sm leading-7 text-[#64748b] md:text-base">Loading renewal details...</p>
           </div>
         </section>
       </main>
@@ -550,15 +572,15 @@ useEffect(() => {
       <div className="fixed inset-0 -z-10 bg-[linear-gradient(135deg,#ffffff_0%,#f1f5f9_48%,#d7dde8_100%),radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_38%)]" />
       <SiteHeader compact={isHeaderCompact} navItems={[]} nextPath="/" />
 
-      <section className="relative z-10 mx-auto max-w-5xl px-6 pb-20 pt-16">
-        <div className="mb-10 text-center">
-          <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">Renew cloud service</h1>
-          <p className="mt-4 text-base text-[#64748b]">
+      <section className="relative z-10 mx-auto max-w-5xl px-4 pb-16 pt-10 sm:px-6 md:pb-20 md:pt-16">
+        <div className="mb-8 text-left sm:text-center md:mb-10">
+          <h1 className="text-[34px] font-extrabold leading-[1.04] tracking-[-0.05em] sm:text-5xl md:text-6xl">Renew cloud service</h1>
+          <p className="mt-4 text-sm leading-7 text-[#64748b] md:text-base">
             Extend cloud service to keep bookings, chats, updates, and push notifications active.
           </p>
         </div>
 
-        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start xl:gap-12">
+        <div className="grid gap-6 md:gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start xl:gap-12">
           <section className="relative space-y-6">
             <div className="space-y-6">
               <div>
@@ -566,14 +588,14 @@ useEffect(() => {
                   Customer hub info
                 </div>
 
-                <div className="relative overflow-hidden rounded-[28px] border border-slate-200/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(248,250,252,0.84)_42%,rgba(239,246,255,0.72)_100%)] px-6 py-6 shadow-[0_24px_70px_rgba(15,23,42,0.08),0_0_46px_rgba(99,102,241,0.10)] backdrop-blur-xl">
+                <div className="relative overflow-hidden rounded-[24px] border border-slate-200/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(248,250,252,0.84)_42%,rgba(239,246,255,0.72)_100%)] px-4 py-5 shadow-[0_24px_70px_rgba(15,23,42,0.08),0_0_46px_rgba(99,102,241,0.10)] backdrop-blur-xl md:rounded-[28px] md:px-6 md:py-6">
                   <div className="pointer-events-none absolute -left-16 -top-20 h-48 w-48 rounded-full bg-sky-200/28 blur-3xl" />
                   <div className="pointer-events-none absolute -right-20 top-10 h-52 w-52 rounded-full bg-fuchsia-200/20 blur-3xl" />
                   <div className="pointer-events-none absolute bottom-0 left-1/2 h-28 w-72 -translate-x-1/2 rounded-full bg-emerald-100/24 blur-3xl" />
                   <svg
                     aria-hidden="true"
                     viewBox="0 0 104 72"
-                    className="pointer-events-none absolute right-6 top-5 h-24 w-28 text-sky-100/70"
+                    className="pointer-events-none absolute right-6 top-5 hidden h-24 w-28 text-sky-100/70 sm:block"
                     fill="none"
                   >
                     <path
@@ -585,12 +607,12 @@ useEffect(() => {
                     />
                   </svg>
 
-                  <div className="relative z-10 flex flex-wrap items-start justify-between gap-4 pr-24">
+                  <div className="relative z-10 flex flex-wrap items-start justify-between gap-4 sm:pr-24">
                     <div className="min-w-0">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                         Customer hub
                       </div>
-                      <div className="mt-2 text-[28px] font-bold leading-none tracking-[-0.04em] text-[#0f172a]">
+                      <div className="mt-2 break-words text-[24px] font-bold leading-[1.08] tracking-[-0.04em] text-[#0f172a] md:text-[28px] md:leading-none">
                         {appName}
                       </div>
                     </div>
@@ -623,15 +645,15 @@ useEffect(() => {
                       ) : null}
 
                       {isWaitingForLatestCloudStatus ? (
-                        <div className="text-[30px] font-extrabold leading-none tracking-[-0.05em] text-[#0f172a]">
+                        <div className="text-[24px] font-extrabold leading-[1.08] tracking-[-0.05em] text-[#0f172a] md:text-[30px] md:leading-none">
                           Updating latest expiry...
                         </div>
                       ) : expiryCountdownLabel && cloudStatus !== "deleted" ? (
-                        <div className="text-[30px] font-extrabold leading-none tracking-[-0.05em] text-[#0f172a]">
+                        <div className="text-[24px] font-extrabold leading-[1.08] tracking-[-0.05em] text-[#0f172a] md:text-[30px] md:leading-none">
                           {cloudStatus === "active" ? expiryCountdownLabel : `⚠ ${expiryCountdownLabel}`}
                         </div>
                       ) : (
-                        <div className="text-[30px] font-extrabold leading-none tracking-[-0.05em] text-[#0f172a]">
+                        <div className="text-[24px] font-extrabold leading-[1.08] tracking-[-0.05em] text-[#0f172a] md:text-[30px] md:leading-none">
                           Status pending
                         </div>
                       )}
@@ -656,19 +678,21 @@ useEffect(() => {
                           ? "Refreshing the latest cloud service status..."
                           : hasRenewSuccess
                             ? "Your latest cloud expiry has been updated."
-                            : "Renewal extends this cloud service from the current expiry date."}
+                            : isRenewalFromCurrentExpiry
+                              ? "Renewal extends this cloud service from the current expiry date."
+                              : "This cloud service has expired or is read-only. Renewal starts from today."}
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div>
-                <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  After this renewal
-                </div>
-                <div>
-                  <div className="relative overflow-hidden rounded-[28px] border border-fuchsia-100/90 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(253,244,255,0.74)_46%,rgba(255,241,242,0.58)_100%)] px-6 py-5 text-sm text-fuchsia-700 shadow-[0_24px_70px_rgba(217,70,239,0.10),0_0_42px_rgba(244,114,182,0.12)] backdrop-blur-xl">
+              <div className="flex flex-col gap-5">
+                <div className="order-2 md:order-1">
+                  <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    After this renewal
+                  </div>
+                  <div className="relative overflow-hidden rounded-[24px] border border-fuchsia-100/90 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(253,244,255,0.74)_46%,rgba(255,241,242,0.58)_100%)] px-4 py-4 text-sm text-fuchsia-700 shadow-[0_24px_70px_rgba(217,70,239,0.10),0_0_42px_rgba(244,114,182,0.12)] backdrop-blur-xl md:rounded-[28px] md:px-6 md:py-5">
                     <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-fuchsia-200/24 blur-3xl" />
                     <div className="pointer-events-none absolute -left-16 bottom-0 h-40 w-40 rounded-full bg-rose-100/28 blur-3xl" />
 
@@ -679,14 +703,14 @@ useEffect(() => {
                     <div className="relative z-10 mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)] sm:items-center">
                       <div className="text-center">
                         <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                          Current expiry
+                          {renewalBaseLabel}
                         </div>
                         <div className="mt-2 text-[15px] font-semibold tracking-tight text-[#0f172a]">
                           {isWaitingForLatestCloudStatus
                             ? "Updating..."
-                            : cloudExpiresAt
+                            : isRenewalFromCurrentExpiry
                               ? formatTime(cloudExpiresAt)
-                              : "Unknown"}
+                              : formatTime(renewalBaseDate.toISOString())}
                         </div>
                       </div>
 
@@ -715,70 +739,73 @@ useEffect(() => {
                     <div className="relative z-10 mt-3 text-[13px] leading-6 text-slate-500">
                       {isWaitingForLatestCloudStatus
                         ? "The latest expiry is being refreshed after this renewal."
-                        : "Your cloud service will be extended from the current expiry date."}
+                        : isRenewalFromCurrentExpiry
+                          ? "Your cloud service will be extended from the current expiry date."
+                          : "Your cloud service will restart from today."}
                     </div>
                   </div>
-                  <div className="mt-5">
-                    <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                      What stays active
-                    </div>
+                </div>
 
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="flex items-center gap-3 rounded-[22px] border border-slate-200/70 bg-white/80 px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.04)] backdrop-blur-xl">
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                        <div>
-                          <div className="text-sm font-semibold text-[#0f172a]">Bookings</div>
-                          <div className="mt-0.5 text-xs leading-5 text-slate-500">Booking requests stay active.</div>
-                        </div>
-                      </div>
+                <div className="order-1 md:order-2">
+                  <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    What stays active
+                  </div>
 
-                      <div className="flex items-center gap-3 rounded-[22px] border border-slate-200/70 bg-white/80 px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.04)] backdrop-blur-xl">
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                        <div>
-                          <div className="text-sm font-semibold text-[#0f172a]">Chats</div>
-                          <div className="mt-0.5 text-xs leading-5 text-slate-500">Customer conversations stay active.</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 rounded-[22px] border border-slate-200/70 bg-white/80 px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.04)] backdrop-blur-xl">
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                        <div>
-                          <div className="text-sm font-semibold text-[#0f172a]">Updates</div>
-                          <div className="mt-0.5 text-xs leading-5 text-slate-500">Content updates stay available.</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 rounded-[22px] border border-slate-200/70 bg-white/80 px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.04)] backdrop-blur-xl">
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                        <div>
-                          <div className="text-sm font-semibold text-[#0f172a]">Push notifications</div>
-                          <div className="mt-0.5 text-xs leading-5 text-slate-500">Push notifications stay active.</div>
-                        </div>
+                  <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                    <div className="flex items-center gap-2 rounded-[18px] border border-slate-200/70 bg-white/80 px-3 py-3 shadow-[0_12px_28px_rgba(15,23,42,0.04)] backdrop-blur-xl md:gap-3 md:rounded-[22px] md:px-4 md:py-4">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                      <div>
+                        <div className="text-sm font-semibold text-[#0f172a]">Bookings</div>
+                        <div className="mt-0.5 text-xs leading-5 text-slate-500">Booking requests stay active.</div>
                       </div>
                     </div>
 
-                    <div className="mt-3 flex items-start gap-2 text-[12px] leading-5 text-slate-400">
-                      <div className="relative group shrink-0">
-                        <div className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-200 text-slate-600">
-                          <Info className="h-3 w-3" />
-                        </div>
-                        <div className="pointer-events-none absolute left-6 top-0 z-10 w-[260px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] text-slate-600 shadow-lg opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                          Cloud stores customer hub data such as bookings, chats, updates, items, and interactions.
-                          <br />
-                          Without active cloud service, new bookings, chats, updates, and push notifications are disabled.
-                        </div>
+                    <div className="flex items-center gap-2 rounded-[18px] border border-slate-200/70 bg-white/80 px-3 py-3 shadow-[0_12px_28px_rgba(15,23,42,0.04)] backdrop-blur-xl md:gap-3 md:rounded-[22px] md:px-4 md:py-4">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                      <div>
+                        <div className="text-sm font-semibold text-[#0f172a]">Chats</div>
+                        <div className="mt-0.5 text-xs leading-5 text-slate-500">Customer conversations stay active.</div>
                       </div>
-                      <div className="space-y-1">
-                        <div>Cloud data stays available while the service is active.</div>
-                        <div>Renewal extends the current cloud service for this customer hub.</div>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-[18px] border border-slate-200/70 bg-white/80 px-3 py-3 shadow-[0_12px_28px_rgba(15,23,42,0.04)] backdrop-blur-xl md:gap-3 md:rounded-[22px] md:px-4 md:py-4">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                      <div>
+                        <div className="text-sm font-semibold text-[#0f172a]">Updates</div>
+                        <div className="mt-0.5 text-xs leading-5 text-slate-500">Content updates stay available.</div>
                       </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-[18px] border border-slate-200/70 bg-white/80 px-3 py-3 shadow-[0_12px_28px_rgba(15,23,42,0.04)] backdrop-blur-xl md:gap-3 md:rounded-[22px] md:px-4 md:py-4">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                      <div>
+                        <div className="text-sm font-semibold text-[#0f172a]">Push notifications</div>
+                        <div className="mt-0.5 text-xs leading-5 text-slate-500">Push notifications stay active.</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-start gap-2 text-[12px] leading-5 text-slate-400">
+                    <div className="relative group shrink-0">
+                      <div className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-200 text-slate-600">
+                        <Info className="h-3 w-3" />
+                      </div>
+                      <div className="pointer-events-none absolute left-6 top-0 z-10 w-[260px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] text-slate-600 shadow-lg opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                        Cloud stores customer hub data such as bookings, chats, updates, items, and interactions.
+                        <br />
+                        Without active cloud service, new bookings, chats, updates, and push notifications are disabled.
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div>Cloud data stays available while the service is active.</div>
+                      <div>Renewal extends the current cloud service for this customer hub.</div>
                     </div>
                   </div>
                 </div>
               </div>
 
             {submitError ? (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+              <div className="mt-4 break-words rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-600">
                 <div>{submitError}</div>
                 <div className="mt-2 text-xs leading-5 text-red-500">
                   If this is a billing or renewal issue, contact{" "}
@@ -796,13 +823,13 @@ useEffect(() => {
             </div>
           </section>
 
-          <aside className="relative overflow-hidden rounded-[34px] bg-white/78 shadow-[0_24px_60px_rgba(236,72,153,0.14)] ring-1 ring-white/60 backdrop-blur-xl">
-            <div className="border-b border-slate-200/70 px-6 py-5">
-              <h2 className="text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">Choose renewal period</h2>
+          <aside className="relative overflow-hidden rounded-[26px] bg-white/78 shadow-[0_24px_60px_rgba(236,72,153,0.14)] ring-1 ring-white/60 backdrop-blur-xl md:rounded-[34px]">
+            <div className="border-b border-slate-200/70 px-5 py-4 md:px-6 md:py-5">
+              <h2 className="text-xl font-bold tracking-[-0.03em] text-[#0f172a] md:text-2xl">Choose renewal period</h2>
               <p className="mt-2 text-sm leading-6 text-slate-500">Applies to this customer hub only. No new hub will be generated.</p>
             </div>
 
-            <div className="space-y-5 px-6 py-6">
+            <div className="space-y-5 px-5 py-5 md:px-6 md:py-6">
               <div className="grid gap-3">
                 {RENEW_OPTIONS.map((option) => {
                   const isSelected = option.id === selectedRenewId;
@@ -814,7 +841,7 @@ useEffect(() => {
                       key={option.id}
                       type="button"
                       onClick={() => setSelectedRenewId(option.id)}
-                      className={`rounded-[22px] border px-5 py-4 text-left transition-all ${
+                      className={`rounded-[20px] border px-4 py-3.5 text-left transition-all md:rounded-[22px] md:px-5 md:py-4 ${
                         isSelected
                           ? "scale-[1.015] border-fuchsia-400 bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(253,242,248,0.98))] shadow-[0_16px_34px_rgba(217,70,239,0.13)]"
                           : "border-slate-200/70 bg-white/92 shadow-[0_10px_24px_rgba(15,23,42,0.04)] hover:border-fuchsia-200"
@@ -823,7 +850,7 @@ useEffect(() => {
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <div className="text-[23px] font-extrabold leading-none tracking-[-0.03em] text-[#0f172a]">{option.priceLabel}</div>
+                            <div className="text-[21px] font-extrabold leading-none tracking-[-0.03em] text-[#0f172a] md:text-[23px]">{option.priceLabel}</div>
                             {isBestValue ? (
                               <div className="inline-flex items-center rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-fuchsia-600">
                                 Best value
@@ -926,7 +953,7 @@ window.location.href = data.url;
                 </div>
               </button>
 
-              <div className="space-y-2 text-center text-[12px] leading-5 text-slate-500">
+              <div className="space-y-2 break-words text-center text-[12px] leading-5 text-slate-500">
                 <div>
                   By continuing, you agree to the{" "}
                   <a className="font-semibold text-[#0f172a] underline underline-offset-4" href="/terms">
