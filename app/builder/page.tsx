@@ -754,10 +754,10 @@ export default function BuilderPage() {
           <div className="w-full max-w-md rounded-[28px] border border-white/70 bg-white p-5 shadow-[0_28px_80px_rgba(15,23,42,0.28)]">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-500">App icon crop</div>
-                <h2 className="mt-1 text-2xl font-extrabold tracking-[-0.04em] text-[#0f172a]">Adjust your icon</h2>
+                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-500">Customer Hub icon</div>
+                <h2 className="mt-1 text-2xl font-extrabold tracking-[-0.04em] text-[#0f172a]">Crop your Customer Hub icon</h2>
                 <p className="mt-1 text-sm leading-6 text-slate-500">
-                  Drag and zoom the image. The square crop will be used as your app icon. Keep the main subject centered and fill the square as much as possible.
+                  Move and zoom the image to fit the square. This icon will appear on your Customer Hub and phone home screen.
                 </p>
               </div>
               <button
@@ -855,16 +855,16 @@ export default function BuilderPage() {
         nextPath="/builder"
       />
 
-      <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">
-        <div className="mb-10 text-center">
-          <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">
+      <section className="relative z-10 mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 md:pb-20 md:pt-10">
+        <div className="mb-8 text-left sm:text-center md:mb-10">
+          <h1 className="text-[34px] font-extrabold leading-[1.04] tracking-[-0.05em] sm:text-5xl md:text-6xl">
             Create your customer hub in minutes
           </h1>
-          <p className="mt-4 text-base text-[#64748b]">
+          <p className="mt-4 max-w-3xl text-sm leading-7 text-[#64748b] sm:mx-auto sm:text-base">
             Set up your business name, app icon, and admin account. We will generate a mobile-ready customer hub customers can open by link or QR code and save to their home screen.
           </p>
 
-          <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-xs font-semibold text-slate-500 shadow backdrop-blur">
+          <div className="mt-6 hidden items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-xs font-semibold text-slate-500 shadow backdrop-blur md:inline-flex">
             <span className="text-indigo-500">Name</span>
             <span>{"→"}</span>
             <span>Icon</span>
@@ -877,18 +877,18 @@ export default function BuilderPage() {
           </div>
         </div>
 
-        <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-center lg:gap-12">
           <div className="min-w-0">
-            <div className="mx-auto max-w-xl lg:mx-0">
-              <section className="relative p-2 md:p-4">
-                <div className="space-y-7">
+            <div className="mx-auto w-full max-w-xl lg:mx-0">
+              <section className="relative p-0 md:p-4">
+                <div className="space-y-6 md:space-y-7">
                   <div ref={appNameSectionRef} className="space-y-2">
                     <div className="flex justify-between">
                       <label className="text-sm font-semibold">App Name</label>
                       <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
                     </div>
                     <div
-                      className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
+                      className={`rounded-2xl border bg-white px-4 py-3.5 text-base shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 md:py-4 md:text-lg ${
                         validationErrors.appName
                           ? "border-rose-300 focus-within:border-rose-400 focus-within:ring-rose-100/80"
                           : "border-slate-200 focus-within:border-indigo-400 focus-within:ring-indigo-100/80"
@@ -911,10 +911,10 @@ export default function BuilderPage() {
 
 <div ref={appIconSectionRef} className="space-y-2">
   <div className="flex justify-between">
-    <label className="text-sm font-semibold">App Icon</label>
+    <label className="text-sm font-semibold">Customer Hub Icon</label>
     <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
   </div>
-  <p className="text-xs text-slate-400">Upload any image, then adjust the crop area for your home screen app icon.</p>
+  <p className="text-xs text-slate-400">Upload an image, then crop it for your Customer Hub and phone home screen.</p>
   <div
     className={`group rounded-2xl border bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:shadow-[0_14px_30px_rgba(15,23,42,0.06)] ${
       validationErrors.appIcon
@@ -930,21 +930,21 @@ export default function BuilderPage() {
       onChange={handleIconChange}
     />
 
-    <div className="flex items-start gap-3">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
       <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-none border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 text-[11px] font-semibold text-slate-500">
         {iconDataUrl ? (
-          <img src={iconDataUrl} alt="App icon preview" className="h-full w-full object-cover" />
+          <img src={iconDataUrl} alt="Customer Hub icon preview" className="h-full w-full object-cover" />
         ) : (
           "Icon"
         )}
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold text-[#0f172a]">Upload app icon</div>
-        <div className="mt-0.5 text-xs text-slate-400">
+        <div className="text-sm font-semibold text-[#0f172a]">Upload Customer Hub icon</div>
+        <div className="mt-0.5 break-words text-xs text-slate-400">
           {iconFileName
             ? `${iconFileName}`
-            : "PNG / JPG / WEBP / SVG · square crop will be generated"}
+            : "PNG / JPG / WEBP / SVG · square crop included"}
         </div>
         {iconDataUrl ? (
           <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-600">
@@ -959,7 +959,7 @@ export default function BuilderPage() {
       <button
         type="button"
         onClick={handleChooseIcon}
-        className="rounded-xl border border-slate-200 bg-slate-100/80 px-3 py-1.5 text-xs font-medium text-[#0f172a] transition group-hover:border-indigo-200 group-hover:bg-indigo-50 group-hover:text-indigo-600"
+        className="w-full rounded-xl border border-slate-200 bg-slate-100/80 px-3 py-2 text-xs font-medium text-[#0f172a] transition group-hover:border-indigo-200 group-hover:bg-indigo-50 group-hover:text-indigo-600 sm:w-auto sm:py-1.5"
       >
         {iconDataUrl ? "Replace" : "Choose"}
       </button>
@@ -1001,7 +1001,7 @@ export default function BuilderPage() {
                       <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">INCLUDED</span>
                     </div>
                     <p className="text-xs text-slate-400">Includes services, bookings, chat, updates, favorites, and merchant admin tools in one customer entry.</p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -1010,7 +1010,7 @@ export default function BuilderPage() {
                         }}
                         className={moduleName === "feature-showcase" ? selectedModuleClass : unselectedModuleClass}
                       >
-                        Local Business Customer Hub
+                        Showcase Hub
                       </button>
                     </div>
                     {validationErrors.logicModule ? (
@@ -1024,7 +1024,7 @@ export default function BuilderPage() {
                       <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">INCLUDED</span>
                     </div>
                     <p className="text-xs text-slate-400">A clean mobile-friendly layout with a soft gray-white background, rounded cards, and green-pink action buttons.</p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -1033,7 +1033,7 @@ export default function BuilderPage() {
                         }}
                         className={uiPackName === "ui-pack-showcase-greenpink" ? selectedModuleClass : unselectedModuleClass}
                       >
-                        Soft Green Pink Style
+                        Clean Neutral Style
                       </button>
                     </div>
                     {validationErrors.uiPack ? (
@@ -1048,7 +1048,7 @@ export default function BuilderPage() {
                     </div>
                     <p className="text-xs text-slate-400">Used as your merchant login email inside your customer hub. The same email can be reused across multiple hubs. It cannot be changed after creation.</p>
                     <div
-                      className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
+                      className={`rounded-2xl border bg-white px-4 py-3.5 text-base shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 md:py-4 md:text-lg ${
                         validationErrors.adminName
                           ? "border-rose-300 focus-within:border-rose-400 focus-within:ring-rose-100/80"
                           : "border-slate-200 focus-within:border-indigo-400 focus-within:ring-indigo-100/80"
@@ -1080,7 +1080,7 @@ export default function BuilderPage() {
                     </div>
                     <p className="text-xs text-slate-400">Used for merchant login inside your customer hub. Use 6 to 64 characters. You can change this password later inside the hub.</p>
                     <div
-                      className={`rounded-2xl border bg-white px-4 py-4 text-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 ${
+                      className={`rounded-2xl border bg-white px-4 py-3.5 text-base shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 md:py-4 md:text-lg ${
                         validationErrors.adminPassword
                           ? "border-rose-300 focus-within:border-rose-400 focus-within:ring-rose-100/80"
                           : "border-slate-200 focus-within:border-indigo-400 focus-within:ring-indigo-100/80"
@@ -1110,7 +1110,7 @@ export default function BuilderPage() {
                       <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
                     </div>
 
-                    <div className="mb-6 grid grid-cols-2 gap-3">
+                    <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -1190,7 +1190,7 @@ export default function BuilderPage() {
                       type="button"
                       onClick={handleGenerate}
                       disabled={isSubmitting}
-                      className="group relative w-full overflow-hidden rounded-[22px] bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 py-5 text-lg font-semibold text-white shadow-[0_25px_60px_rgba(236,72,153,0.3)] transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-70"
+                      className="group relative w-full overflow-hidden rounded-[22px] bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 py-4 text-base font-semibold text-white shadow-[0_25px_60px_rgba(236,72,153,0.3)] transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-70 md:py-5 md:text-lg"
                     >
                       <div className="absolute inset-0 rounded-[22px] bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 opacity-30 blur-xl" />
                       <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.18)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />

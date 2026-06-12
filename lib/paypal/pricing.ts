@@ -36,16 +36,16 @@ export function getPayPalRenewAmountCents(renewId: string): number {
   if (renewId === "30d") {
     return readAmountFromEnv(
       "PAYPAL_RENEW_30D_AMOUNT",
-      process.env.PAYPAL_CLOUD_MONTHLY_AMOUNT || "39.00",
+      process.env.PAYPAL_CLOUD_MONTHLY_AMOUNT || "49.00",
     );
   }
 
   if (renewId === "90d") {
-    return readAmountFromEnv("PAYPAL_RENEW_90D_AMOUNT", "117.00");
+    return readAmountFromEnv("PAYPAL_RENEW_90D_AMOUNT", "139.00");
   }
 
   if (renewId === "180d") {
-    return readAmountFromEnv("PAYPAL_RENEW_180D_AMOUNT", "234.00");
+    return readAmountFromEnv("PAYPAL_RENEW_180D_AMOUNT", "269.00");
   }
 
   throw new Error("Invalid renewId.");

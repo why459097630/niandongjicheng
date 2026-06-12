@@ -1,12 +1,28 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { listBuildRecordsByUser } from "./storage";
-import { BuildHistoryItem, BuildListResponse } from "./types";
+import { countBuildRecordsByUser, listBuildRecordsByUser } from "./storage";
+import { BuildHistoryItem, BuildListResponse, BuildStatusValue } from "./types";
+
+type GetBuildListOptions = {
+  limit?: number;
+  offset?: number;
+  status?: BuildStatusValue[];
+};
 
 export async function getBuildList(
   supabase: SupabaseClient,
   userId: string,
+  options: GetBuildListOptions = {},
 ): Promise<BuildListResponse> {
-  const records = await listBuildRecordsByUser(supabase, userId);
+  const [records, totalCount] = await Promise.all([
+    listBuildRecordsByUser(supabase, userId, {
+      limit: options.limit,
+      offset: options.offset,
+      status: options.status,
+    }),
+    countBuildRecordsByUser(supabase, userId, {
+      status: options.status,
+    }),
+  ]);
 
   const items: BuildHistoryItem[] = records.map((record) => ({
     runId: record.runId,
@@ -27,5 +43,6 @@ export async function getBuildList(
   return {
     ok: true,
     items,
+    totalCount,
   };
 }

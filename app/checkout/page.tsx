@@ -143,12 +143,12 @@ export default function CheckoutPage() {
           nextPath="/checkout"
         />
 
-        <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">
-          <div className="mb-10 text-center">
-            <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">
+        <section className="relative z-10 mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 md:pb-20 md:pt-10">
+          <div className="mb-8 text-left md:mb-10 md:text-center">
+            <h1 className="text-[34px] font-extrabold leading-[1.04] tracking-[-0.05em] sm:text-5xl md:text-6xl">
               Review your customer hub
             </h1>
-            <p className="mt-4 text-base text-[#64748b]">
+            <p className="mt-4 text-sm leading-7 text-[#64748b] md:text-base">
               Loading customer hub details...
             </p>
           </div>
@@ -166,15 +166,15 @@ export default function CheckoutPage() {
       />
 
       <section className="relative z-10 mx-auto max-w-7xl px-6 pb-20 pt-10">
-        <div className="mb-10 text-center">
+        <div className="mb-8 text-left md:mb-10 md:text-center">
           <h1 className="text-5xl font-extrabold tracking-[-0.05em] md:text-6xl">
             Review your customer hub
           </h1>
-          <p className="mt-4 text-base text-[#64748b]">
+          <p className="mt-4 text-sm leading-7 text-[#64748b] md:text-base">
             Confirm your plan, cloud access, and customer hub package before continuing
           </p>
 
-          <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-xs font-semibold text-slate-500 shadow backdrop-blur">
+          <div className="mt-6 hidden items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-xs font-semibold text-slate-500 shadow backdrop-blur md:inline-flex">
             <span>Builder</span>
             <span>→</span>
             <span className="text-fuchsia-600">Checkout</span>
@@ -185,14 +185,14 @@ export default function CheckoutPage() {
           </div>
         </div>
 
-        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
-          <div className="p-2 md:p-4">
+        <div className="grid gap-6 md:gap-8 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
+          <div className="p-0 md:p-4">
             <div className="mb-6 flex items-start justify-between gap-4">
               <div>
                 <div className="mb-3 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   Order Summary
                 </div>
-                <h2 className="text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">Your selected customer hub</h2>
+                <h2 className="text-xl font-bold tracking-[-0.03em] text-[#0f172a] md:text-2xl">Your selected customer hub</h2>
                 <p className="mt-2 text-sm leading-7 text-[#64748b]">
                   {plan === "free"
                     ? "This checkout confirms your Think it Done free trial customer hub package, including cloud backend lifecycle management: active during the included period, read-only after expiry, and permanently deleted on day 60 after expiry."
@@ -205,36 +205,36 @@ export default function CheckoutPage() {
             </div>
 
             <div className="space-y-4">
-              <div className="rounded-[24px] bg-[linear-gradient(135deg,rgba(99,102,241,0.98),rgba(217,70,239,0.98))] p-5 text-white shadow-[0_18px_40px_rgba(124,58,237,0.20)]">
+              <div className="rounded-[22px] bg-[linear-gradient(135deg,rgba(99,102,241,0.98),rgba(217,70,239,0.98))] p-4 text-white shadow-[0_18px_40px_rgba(124,58,237,0.20)] md:rounded-[24px] md:p-5">
                 <div className="text-[11px] uppercase tracking-[0.16em] text-white/75">Selected customer hub</div>
-                <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{appName}</div>
+                <div className="mt-2 break-words text-xl font-semibold tracking-[-0.03em] md:text-2xl">{appName}</div>
                 <div className="mt-2 text-sm leading-7 text-white/82">
-                  Local Business Customer Hub with Soft Green Pink Style, prepared as a shareable PWA package.
+                  Showcase Hub with Clean Neutral Style, prepared as a shareable PWA package.
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
-                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">App Name</div>
-                  <div className="mt-2 text-sm font-semibold text-[#0f172a]">{appName}</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.03)] sm:px-4 sm:py-4">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400 sm:text-[11px]">App Name</div>
+                  <div className="mt-1.5 break-words text-[13px] font-semibold text-[#0f172a] sm:mt-2 sm:text-sm">{appName}</div>
                 </div>
-                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
-                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Plan</div>
-                  <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-fuchsia-600">
+                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.03)] sm:px-4 sm:py-4">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400 sm:text-[11px]">Plan</div>
+                  <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-fuchsia-600 sm:mt-2 sm:gap-2">
                     <Check className="h-3.5 w-3.5" />
                     {planLabel}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
-                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Template</div>
-                  <div className="mt-2 text-sm font-semibold text-[#0f172a]">Local Business Customer Hub</div>
+                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.03)] sm:px-4 sm:py-4">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400 sm:text-[11px]">Template</div>
+                  <div className="mt-1.5 break-words text-[13px] font-semibold text-[#0f172a] sm:mt-2 sm:text-sm">Showcase Hub</div>
                 </div>
-                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
-                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">Visual Style</div>
-                  <div className="mt-2 text-sm font-semibold text-[#0f172a]">Soft Green Pink Style</div>
+                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.03)] sm:px-4 sm:py-4">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400 sm:text-[11px]">Visual Style</div>
+                  <div className="mt-1.5 break-words text-[13px] font-semibold text-[#0f172a] sm:mt-2 sm:text-sm">Clean Neutral Style</div>
                 </div>
-                <div className="rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)] sm:col-span-2">
-                  <div className="text-[11px] uppercase tracking-[0.12em] text-slate-400">App Icon</div>
+                <div className="col-span-2 rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.03)] sm:px-4 sm:py-4">
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400 sm:text-[11px]">App Icon</div>
 
                   {iconDataUrl ? (
                     <div className="mt-3 flex items-center gap-4">
@@ -247,7 +247,7 @@ export default function CheckoutPage() {
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold text-[#0f172a]">
+                        <div className="break-words text-sm font-semibold text-[#0f172a] sm:truncate">
                           {iconFileName || "Custom icon selected"}
                         </div>
                         <div className="mt-1 text-xs text-slate-500">
@@ -356,25 +356,25 @@ export default function CheckoutPage() {
               </div>
 
               {submitError ? (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                <div className="break-words rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-600">
                   {submitError}
                 </div>
               ) : null}
             </div>
           </div>
 
-          <aside className="space-y-6 xl:sticky xl:top-8 scale-[1.04]">
-            <section className="overflow-hidden rounded-[32px] bg-white/50 shadow-[0_18px_50px_rgba(236,72,153,0.14)] backdrop-blur-xl">
-              <div className="border-b border-slate-200/70 px-6 py-5">
+          <aside className="space-y-6 xl:sticky xl:top-8 xl:scale-[1.04]">
+            <section className="overflow-hidden rounded-[26px] bg-white/50 shadow-[0_18px_50px_rgba(236,72,153,0.14)] backdrop-blur-xl md:rounded-[32px]">
+              <div className="border-b border-slate-200/70 px-5 py-4 md:px-6 md:py-5">
                 <div className="mb-3 inline-flex rounded-full border border-fuchsia-200/70 bg-fuchsia-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-fuchsia-600">
                   Payment
                 </div>
-                <h2 className="text-2xl font-bold tracking-[-0.03em] text-[#0f172a]">Confirm and generate</h2>
+                <h2 className="text-xl font-bold tracking-[-0.03em] text-[#0f172a] md:text-2xl">Confirm and generate</h2>
               </div>
 
-              <div className="space-y-5 px-6 py-6">
-                <div className="rounded-[24px] border border-slate-200/70 bg-white/90 p-5 shadow-[0_10px_24px_rgba(15,23,42,0.03)]">
-<div className="text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a]">
+              <div className="space-y-5 px-5 py-5 md:px-6 md:py-6">
+                <div className="rounded-[22px] border border-slate-200/70 bg-white/90 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.03)] md:rounded-[24px] md:p-5">
+<div className="text-2xl font-extrabold tracking-[-0.03em] text-[#0f172a] md:text-3xl">
   {plan === "free" ? "$0.00" : "$99.00"}
 </div>
                   <div className="mt-1 text-xs text-slate-500">
@@ -387,7 +387,7 @@ export default function CheckoutPage() {
                   </div>
                 </div>
 
-                <div className="rounded-[24px] bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(253,242,248,0.98))] p-5 shadow-[0_18px_40px_rgba(217,70,239,0.10)]">
+                <div className="rounded-[22px] bg-[linear-gradient(135deg,rgba(250,245,255,0.98),rgba(253,242,248,0.98))] p-4 shadow-[0_18px_40px_rgba(217,70,239,0.10)] md:rounded-[24px] md:p-5">
                   <div className="mb-2 inline-flex rounded-full border border-fuchsia-200/80 bg-white/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-fuchsia-600">
                     Most popular
                   </div>
@@ -407,7 +407,7 @@ export default function CheckoutPage() {
     <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fuchsia-600">
       CLOUD RENEWAL
     </div>
-    <div className="mt-2 text-sm font-medium leading-7 text-fuchsia-700">
+    <div className="mt-2 break-words text-sm font-medium leading-7 text-fuchsia-700">
       Sign in → Account → History → Select your hub → Renew cloud
     </div>
   </div>
@@ -510,7 +510,7 @@ window.location.href = data.url;
                     </div>
                   </button>
 
-                  <p className="text-center text-xs leading-5 text-slate-500">
+                  <p className="break-words text-center text-xs leading-5 text-slate-500">
                     By continuing, you agree to the{" "}
                     <a className="font-semibold text-[#0f172a] underline underline-offset-4" href="/terms">
                       Terms of Service
@@ -541,7 +541,7 @@ window.location.href = data.url;
                   </button>
                 </div>
 
-                <div className="text-center text-[11px] leading-6 text-[#94a3b8]">
+                <div className="break-words text-center text-[11px] leading-6 text-[#94a3b8]">
                   🔒 Secure PayPal checkout · Support:{" "}
                   <a className="font-semibold underline underline-offset-4" href="mailto:support@thinkitdoneapp.com">
                     support@thinkitdoneapp.com

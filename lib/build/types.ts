@@ -212,5 +212,8 @@ export type BuildHistoryItem = {
 export type BuildListResponse = {
   ok: boolean;
   items: BuildHistoryItem[];
+  hasMore?: boolean;
+  nextOffset?: number | null;
+  totalCount?: number;
   error?: string;
 };

@@ -328,7 +328,7 @@ useEffect(() => {
         <div className="mt-12 text-center">
           <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-slate-400">Customer Hub Info</div>
           <div className="text-sm text-slate-500">
-            {appName} · Local Business Customer Hub · Soft Green Pink Style
+            {appName} · Showcase Hub · Clean Neutral Style
           </div>
           <div className="mt-2 text-sm text-slate-500">
             Admin: {adminName || "Not set"}

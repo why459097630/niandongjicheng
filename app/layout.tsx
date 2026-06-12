@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NDJC",
-  description: "NDJC web frontend",
+  title: "Think it Done",
+  description: "Think it Done helps local businesses create a branded PWA customer hub.",
 };
 
 export default function RootLayout({

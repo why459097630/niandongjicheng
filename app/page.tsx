@@ -129,21 +129,21 @@ export default function Home() {
       />
 
       <div className="relative">
-        <section className="relative z-10 mx-auto grid min-h-[78vh] max-w-7xl items-center gap-12 px-6 py-16 md:grid-cols-[minmax(0,640px)_1fr]">
+        <section className="relative z-10 mx-auto grid max-w-7xl items-center gap-10 px-5 pb-14 pt-10 sm:px-6 md:min-h-[78vh] md:grid-cols-[minmax(0,640px)_1fr] md:gap-12 md:py-16">
           <div className="max-w-[640px]">
             <div className="mb-4 inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium tracking-[0.06em] text-[#64748b]">
               Built for local businesses
             </div>
 
-            <h1 className="mb-8 text-5xl font-extrabold tracking-[-0.04em] leading-[0.96] md:text-7xl">
+            <h1 className="mb-6 text-[38px] font-extrabold leading-[0.98] tracking-[-0.045em] sm:text-5xl md:mb-8 md:text-7xl md:leading-[0.96]">
               Create a branded customer hub
               <br />
-              <span className="text-4xl md:text-6xl text-[#0f172a]/60">for your local business — ready to share</span>
+              <span className="text-[28px] text-[#0f172a]/60 sm:text-4xl md:text-6xl">for your local business — ready to share</span>
             </h1>
 
             
-            <p className="mb-10 max-w-[600px] text-lg leading-[1.9] text-[#475569]">
-              Create a branded customer entry your customers can open from a link or QR code, use to browse your services, book appointments, and return to later.
+            <p className="mb-8 max-w-[600px] text-base leading-[1.8] text-[#475569] md:mb-10 md:text-lg md:leading-[1.9]">
+              A mobile-friendly customer hub that opens from a link or QR code, no app store required. Customers can browse services, book appointments, message you, receive updates, and get reminders — all in one branded hub instead of scattered links and separate tools.
             </p>
 
             <div className="max-w-[560px]">
@@ -159,13 +159,13 @@ export default function Home() {
                 No coding required · Create a branded customer entry for your local business
               </p>
 
-              <div className="mt-8 flex items-center gap-4">
+              <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
 <button
   type="button"
   onClick={() => {
     window.location.href = "/builder";
   }}
-  className="group relative inline-flex overflow-hidden rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-7 py-3.5 text-sm font-semibold text-white shadow-[0_18px_42px_rgba(236,72,153,0.22)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_52px_rgba(236,72,153,0.30)] active:scale-[0.985]"
+  className="group relative inline-flex w-full justify-center overflow-hidden rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-7 py-3.5 text-sm font-semibold text-white shadow-[0_18px_42px_rgba(236,72,153,0.22)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_52px_rgba(236,72,153,0.30)] active:scale-[0.985] sm:w-auto"
 >
   <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.16)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
   <div className="relative flex items-center justify-center gap-2">
@@ -182,6 +182,8 @@ export default function Home() {
                   <span>Launch</span>
                 </div>
               </div>
+
+
             </div>
           </div>
 
@@ -267,21 +269,21 @@ export default function Home() {
         </section>
       </div>
 
-      <section id="features" className="scroll-mt-28 mx-auto max-w-7xl px-6 py-24">
+      <section id="features" className="scroll-mt-28 mx-auto max-w-7xl px-5 py-14 sm:px-6 md:py-24">
         <div className="mx-auto max-w-3xl text-center">
           <div className="mb-4 text-sm font-semibold tracking-[0.14em] text-indigo-400">
             Customer hub system
           </div>
-          <h2 className="text-4xl font-extrabold tracking-[-0.045em] leading-[1.04] text-[#0f172a] md:text-[54px]">
+          <h2 className="text-[34px] font-extrabold leading-[1.06] tracking-[-0.045em] text-[#0f172a] sm:text-4xl md:text-[54px] md:leading-[1.04]">
             Everything customers need in one branded place
           </h2>
-          <p className="mx-auto mt-6 max-w-2xl text-[17px] leading-[1.9] text-[#64748b]">
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-[1.8] text-[#64748b] md:mt-6 md:text-[17px] md:leading-[1.9]">
             Give customers one branded place to browse services, book appointments, ask questions, and receive updates — all under your own name and icon.
           </p>
         </div>
 
-        <div className="mt-14 grid gap-5 lg:grid-cols-3">
-          <div className="group relative overflow-hidden rounded-[34px] border border-indigo-100/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(246,248,255,0.92)_100%)] p-8 shadow-[0_24px_70px_rgba(99,102,241,0.12)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_82px_rgba(99,102,241,0.16)]">
+        <div className="mt-10 grid gap-4 md:mt-14 md:gap-5 lg:grid-cols-3">
+          <div className="group relative overflow-hidden rounded-[26px] border border-indigo-100/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(246,248,255,0.92)_100%)] p-6 shadow-[0_24px_70px_rgba(99,102,241,0.12)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_82px_rgba(99,102,241,0.16)] md:rounded-[34px] md:p-8">
             <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-indigo-100/70 blur-3xl" />
             <div className="absolute -bottom-20 left-8 h-48 w-48 rounded-full bg-fuchsia-100/50 blur-3xl" />
             <div className="absolute right-8 top-7 text-6xl font-semibold tracking-[-0.06em] text-indigo-100/80">01</div>
@@ -315,7 +317,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="group relative overflow-hidden rounded-[34px] border border-sky-100/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(240,249,255,0.90)_100%)] p-8 shadow-[0_24px_70px_rgba(14,165,233,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_82px_rgba(14,165,233,0.14)]">
+          <div className="group relative overflow-hidden rounded-[26px] border border-sky-100/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(240,249,255,0.90)_100%)] p-6 shadow-[0_24px_70px_rgba(14,165,233,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_82px_rgba(14,165,233,0.14)] md:rounded-[34px] md:p-8">
             <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-sky-100/70 blur-3xl" />
             <div className="absolute -bottom-20 left-8 h-48 w-48 rounded-full bg-cyan-100/50 blur-3xl" />
             <div className="absolute right-8 top-7 text-6xl font-semibold tracking-[-0.06em] text-sky-100/90">02</div>
@@ -349,7 +351,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="group relative overflow-hidden rounded-[34px] border border-fuchsia-100/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(253,244,255,0.90)_100%)] p-8 shadow-[0_24px_70px_rgba(217,70,239,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_82px_rgba(217,70,239,0.14)]">
+          <div className="group relative overflow-hidden rounded-[26px] border border-fuchsia-100/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(253,244,255,0.90)_100%)] p-6 shadow-[0_24px_70px_rgba(217,70,239,0.10)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_82px_rgba(217,70,239,0.14)] md:rounded-[34px] md:p-8">
             <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-fuchsia-100/70 blur-3xl" />
             <div className="absolute -bottom-20 left-8 h-48 w-48 rounded-full bg-rose-100/50 blur-3xl" />
             <div className="absolute right-8 top-7 text-6xl font-semibold tracking-[-0.06em] text-fuchsia-100/90">03</div>
@@ -361,7 +363,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <h3 className="mt-8 text-3xl font-extrabold tracking-[-0.04em] leading-[1.06] text-[#0f172a]">
+              <h3 className="mt-7 text-[24px] font-extrabold leading-[1.08] tracking-[-0.04em] text-[#0f172a] md:mt-8 md:text-3xl md:leading-[1.06]">
                 Keep customers engaged
               </h3>
 
@@ -385,7 +387,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 py-16">
+      <section className="mx-auto max-w-6xl px-5 py-14 sm:px-6 md:py-16">
         <div className="mx-auto max-w-3xl text-center">
           <div className="mb-3 text-sm font-semibold tracking-[0.14em] text-indigo-400">
             Customer hub advantage
@@ -398,7 +400,7 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="mt-10 overflow-hidden rounded-[32px] border border-white/50 bg-white/62 shadow-[0_20px_62px_rgba(15,23,42,0.07)] backdrop-blur-xl">
+        <div className="mt-8 overflow-hidden rounded-[24px] border border-white/50 bg-white/62 shadow-[0_20px_62px_rgba(15,23,42,0.07)] backdrop-blur-xl md:mt-10 md:rounded-[32px]">
           <div className="overflow-x-auto">
             <table className="min-w-[760px] w-full border-collapse text-left">
               <thead>
@@ -549,7 +551,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-5xl px-6 py-14">
+      <section className="mx-auto max-w-5xl px-5 py-12 sm:px-6 md:py-14">
         <div className="text-center">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">Use cases</div>
           <h2 className="text-2xl font-extrabold tracking-[-0.03em] md:text-3xl">
@@ -571,8 +573,8 @@ export default function Home() {
 
 
 
-      <section id="how-it-works" className="scroll-mt-28 mx-auto max-w-7xl px-6 py-20">
-        <div className="mb-12">
+      <section id="how-it-works" className="scroll-mt-28 mx-auto max-w-7xl px-5 py-14 sm:px-6 md:py-20">
+        <div className="mb-9 md:mb-12">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">How it works</div>
           <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">Launch in 3 simple steps</h2>
           <div className="mt-6 h-px w-10 bg-gradient-to-r from-indigo-300/22 via-indigo-200/16 to-transparent" />
@@ -621,8 +623,8 @@ export default function Home() {
         </div>
       </section>
 
-            <section id="faq" className="scroll-mt-28 mx-auto max-w-4xl px-6 py-20">
-        <div className="mb-12 text-center">
+            <section id="faq" className="scroll-mt-28 mx-auto max-w-4xl px-5 py-14 sm:px-6 md:py-20">
+        <div className="mb-9 text-center md:mb-12">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">FAQ</div>
           <h2 className="text-3xl font-extrabold tracking-[-0.03em] md:text-4xl">Common questions</h2>
           <div className="mx-auto mt-6 h-px w-10 bg-gradient-to-r from-indigo-300/22 via-indigo-200/16 to-transparent" />
@@ -635,7 +637,7 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   No Code
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Can I create a customer hub without coding?</h3>
+                <h3 className="text-[20px] font-semibold leading-[1.18] tracking-[-0.03em] text-[#0f172a] md:text-[30px] md:leading-[1.12]">Can I create a customer hub without coding?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
@@ -652,7 +654,7 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   Speed
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">How long does it take to launch?</h3>
+                <h3 className="text-[20px] font-semibold leading-[1.18] tracking-[-0.03em] text-[#0f172a] md:text-[30px] md:leading-[1.12]">How long does it take to launch?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
@@ -669,7 +671,7 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   Pricing
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">How much does it cost?</h3>
+                <h3 className="text-[20px] font-semibold leading-[1.18] tracking-[-0.03em] text-[#0f172a] md:text-[30px] md:leading-[1.12]">How much does it cost?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
@@ -686,14 +688,14 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   App Type
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Do customers need to install it from an app store?</h3>
+                <h3 className="text-[20px] font-semibold leading-[1.18] tracking-[-0.03em] text-[#0f172a] md:text-[30px] md:leading-[1.12]">Do customers need to install it from an app store?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              No. It is a branded PWA, which means customers can scan a QR code or open a link in their browser, save it to their home screen, and use it like a lightweight app — without going through an app store.
+              No. It is a branded customer hub built as a PWA, so customers can scan a QR code or open a link in their browser, save it to their home screen, and use it like a lightweight app — without going through an app store.
             </p>
           </div>
 
@@ -703,7 +705,7 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   Use Case
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">Can I use this for my local business?</h3>
+                <h3 className="text-[20px] font-semibold leading-[1.18] tracking-[-0.03em] text-[#0f172a] md:text-[30px] md:leading-[1.12]">Can I use this for my local business?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
@@ -720,7 +722,7 @@ export default function Home() {
                 <div className="mb-2 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
                   Data
                 </div>
-                <h3 className="text-[26px] font-semibold tracking-[-0.03em] text-[#0f172a] md:text-[30px]">How is my business data handled?</h3>
+                <h3 className="text-[20px] font-semibold leading-[1.18] tracking-[-0.03em] text-[#0f172a] md:text-[30px] md:leading-[1.12]">How is my business data handled?</h3>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6172d6] to-[#7c88e8] text-white shadow-[0_8px_18px_rgba(99,102,241,0.11)]">
                 <HelpCircle className="h-4.5 w-4.5" />
@@ -734,7 +736,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="trust" className="scroll-mt-28 mx-auto max-w-4xl px-6 pb-12 pt-2">
+      <section id="trust" className="scroll-mt-28 mx-auto max-w-4xl px-5 pb-12 pt-2 sm:px-6">
         <div className="mb-10 text-center">
           <div className="mb-3 text-sm font-medium tracking-[0.08em] text-indigo-400">
             Trust &amp; Security
@@ -748,7 +750,7 @@ export default function Home() {
         </div>
 
         <div className="grid gap-5 md:grid-cols-3">
-          <div className="group rounded-[30px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)]">
+          <div className="group rounded-[24px] border border-white/40 bg-white/55 p-5 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)] md:rounded-[30px] md:p-6">
             <div className="mb-3 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
               Payment
             </div>
@@ -760,7 +762,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="group rounded-[30px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)]">
+          <div className="group rounded-[24px] border border-white/40 bg-white/55 p-5 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)] md:rounded-[30px] md:p-6">
             <div className="mb-3 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
               Data
             </div>
@@ -772,7 +774,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="group rounded-[30px] border border-white/40 bg-white/55 p-6 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)]">
+          <div className="group rounded-[24px] border border-white/40 bg-white/55 p-5 shadow-[0_14px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200/60 hover:shadow-[0_18px_40px_rgba(99,102,241,0.06)] md:rounded-[30px] md:p-6">
             <div className="mb-3 inline-flex rounded-full border border-indigo-200/55 bg-indigo-50/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-indigo-500">
               Support
             </div>
@@ -787,8 +789,8 @@ export default function Home() {
 
       </section>
 
-      <section className="mx-auto max-w-5xl px-6 pb-20 pt-4">
-        <div className="px-8 py-10 text-center md:px-12 md:py-12">
+      <section className="mx-auto max-w-5xl px-5 pb-16 pt-4 sm:px-6 md:pb-20">
+        <div className="px-0 py-8 text-center md:px-12 md:py-12">
           <div className="text-sm font-medium tracking-[0.08em] text-indigo-400">Ready to start?</div>
           <h2 className="mt-3 text-3xl font-extrabold tracking-[-0.03em] text-[#0f172a] md:text-4xl">
             Ready to launch your branded customer hub?
@@ -802,7 +804,7 @@ export default function Home() {
               onClick={() => {
                 window.location.href = "/builder";
               }}
-              className="group relative inline-flex overflow-hidden rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-7 py-3.5 text-sm font-semibold text-white shadow-[0_18px_42px_rgba(236,72,153,0.22)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_52px_rgba(236,72,153,0.30)] active:scale-[0.985]"
+              className="group relative inline-flex w-full justify-center overflow-hidden rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-7 py-3.5 text-sm font-semibold text-white shadow-[0_18px_42px_rgba(236,72,153,0.22)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_52px_rgba(236,72,153,0.30)] active:scale-[0.985] sm:w-auto"
             >
               <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.16)_40%,transparent_72%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
               <div className="relative flex items-center justify-center gap-2">
@@ -814,7 +816,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="border-t border-white/10 px-6 py-8 text-center text-sm font-medium tracking-[0.02em] text-[#94a3b8]">
+      <footer className="border-t border-white/10 px-5 py-8 text-center text-sm font-medium tracking-[0.02em] text-[#94a3b8] sm:px-6">
         <div>© 2026 Think it Done. Launch your customer hub faster.</div>
 
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">

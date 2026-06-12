@@ -26,13 +26,13 @@ export default function SiteHeader({
   rightSlot,
 }: SiteHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 mx-auto max-w-7xl px-6 pt-4 transition-all duration-300">
+    <header className="sticky top-0 z-30 mx-auto max-w-7xl px-4 pt-3 transition-all duration-300 sm:px-6 sm:pt-4">
       <div
-        className={`grid grid-cols-[1fr_auto_1fr] items-center rounded-full border backdrop-blur-2xl transition-all duration-300 ${
-          compact
-            ? "border-white/45 bg-white/28 px-4 py-2 shadow-[0_14px_34px_rgba(15,23,42,0.10)] ring-1 ring-white/20"
-            : "border-white/35 bg-white/18 px-5 py-2.5 shadow-[0_18px_44px_rgba(15,23,42,0.08)] ring-1 ring-white/16"
-        }`}
+className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-full border backdrop-blur-2xl transition-all duration-300 md:grid-cols-[1fr_auto_1fr] ${
+  compact
+    ? "border-white/45 bg-white/28 px-3 py-2 shadow-[0_14px_34px_rgba(15,23,42,0.10)] ring-1 ring-white/20 sm:px-4"
+    : "border-white/35 bg-white/18 px-3.5 py-2.5 shadow-[0_18px_44px_rgba(15,23,42,0.08)] ring-1 ring-white/16 sm:px-5"
+}`}
       >
         <div
           className={`flex items-center justify-self-start transition-all duration-300 ${
@@ -57,16 +57,16 @@ export default function SiteHeader({
 
           <div className="flex flex-col justify-center self-center leading-none -translate-y-[1px]">
             <div
-              className={`font-semibold tracking-[0.01em] text-[#0f172a] transition-all duration-300 ${
-                compact ? "text-[15px]" : "text-[15px]"
-              }`}
+className={`truncate font-semibold tracking-[0.01em] text-[#0f172a] transition-all duration-300 ${
+  compact ? "text-[15px]" : "text-[15px]"
+}`}
             >
               Think it Done
             </div>
             <div
-              className={`font-medium text-[#8a96b2] transition-all duration-300 ${
-                compact ? "mt-[3px] text-[10px]" : "mt-[4px] text-[11px]"
-              }`}
+className={`hidden font-medium text-[#8a96b2] transition-all duration-300 sm:block ${
+  compact ? "mt-[3px] text-[10px]" : "mt-[4px] text-[11px]"
+}`}
             >
               PWA customer hub for local businesses
             </div>
@@ -126,7 +126,7 @@ export default function SiteHeader({
           })}
         </nav>
 
-        <div className="flex items-center justify-self-end gap-3">
+        <div className="flex min-w-0 items-center justify-self-end gap-2 sm:gap-3">
           {rightSlot}
           {showAuthControls ? <AuthControls nextPath={nextPath} /> : null}
         </div>

@@ -312,21 +312,68 @@ export async function getBuildRecordByRunId(
   return mapBuildRow(data as BuildRow);
 }
 
+type BuildRecordListOptions = {
+  limit?: number;
+  offset?: number;
+  status?: BuildStatusValue[];
+};
+
+type BuildRecordCountOptions = {
+  status?: BuildStatusValue[];
+};
+
 export async function listBuildRecordsByUser(
   supabase: SupabaseClient,
   userId: string,
+  options: BuildRecordListOptions = {},
 ): Promise<InternalBuildRecord[]> {
-  const { data, error } = await supabase
+  const limit = Number.isFinite(options.limit) && options.limit && options.limit > 0 ? options.limit : undefined;
+  const offset = Number.isFinite(options.offset) && options.offset && options.offset > 0 ? options.offset : 0;
+
+  let query = supabase
     .from("builds")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
+
+  if (options.status && options.status.length > 0) {
+    query = query.in("status", options.status);
+  }
+
+  if (limit) {
+    query = query.range(offset, offset + limit - 1);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(error.message);
   }
 
   return (data || []).map((row) => mapBuildRow(row as BuildRow));
+}
+
+export async function countBuildRecordsByUser(
+  supabase: SupabaseClient,
+  userId: string,
+  options: BuildRecordCountOptions = {},
+): Promise<number> {
+  let query = supabase
+    .from("builds")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+
+  if (options.status && options.status.length > 0) {
+    query = query.in("status", options.status);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return count || 0;
 }
 
 export async function insertOperationLog(

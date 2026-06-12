@@ -110,6 +110,26 @@ function keepLatestByUpdatedAt(rows: StripeOrderLiteRow[]): Map<string, StripeOr
   return map;
 }
 
+function readPositiveIntParam(value: string | null, fallback: number, max: number): number {
+  const parsed = Number.parseInt(value || "", 10);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(parsed, max);
+}
+
+function readNonNegativeIntParam(value: string | null): number {
+  const parsed = Number.parseInt(value || "", 10);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return parsed;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -162,18 +182,39 @@ export async function GET(request: NextRequest) {
       console.error("NDJC build-list: failed to run auto compensation", compensationError);
     }
 
-    const result = await getBuildList(supabase, user.id);
+    const requestedLimit = readPositiveIntParam(request.nextUrl.searchParams.get("limit"), 10, 30);
+    const requestedOffset = readNonNegativeIntParam(request.nextUrl.searchParams.get("offset"));
+    const queryLimit = requestedLimit + 1;
+
+    const result = await getBuildList(supabase, user.id, {
+      limit: queryLimit,
+      offset: requestedOffset,
+      status: ["success", "failed"],
+    });
 
     if (!result.ok || !result.items || result.items.length === 0) {
-      return NextResponse.json(result, { status: 200 });
+      return NextResponse.json(
+        {
+          ...result,
+          items: [],
+          hasMore: false,
+          nextOffset: null,
+          totalCount: result.totalCount || 0,
+        },
+        { status: 200 },
+      );
     }
+
+    const hasMore = result.items.length > requestedLimit;
+    const pageItems = hasMore ? result.items.slice(0, requestedLimit) : result.items;
+    const nextOffset = hasMore ? requestedOffset + requestedLimit : null;
 
     const appCloudUrl = (process.env.APP_CLOUD_SUPABASE_URL || "").trim();
     const appCloudSecretKey = (process.env.APP_CLOUD_SUPABASE_SECRET_KEY || "").trim();
 
     const storeIds = Array.from(
       new Set(
-        result.items
+        pageItems
           .map((item) => item.storeId)
           .filter((value): value is string => typeof value === "string" && value.trim().length > 0),
       ),
@@ -181,7 +222,7 @@ export async function GET(request: NextRequest) {
 
     const runIds = Array.from(
       new Set(
-        result.items
+        pageItems
           .map((item) => item.runId)
           .filter((value): value is string => typeof value === "string" && value.trim().length > 0),
       ),
@@ -287,7 +328,7 @@ export async function GET(request: NextRequest) {
 
     const nowMs = Date.now();
 
-    const mergedItems: BuildHistoryItem[] = result.items.map((item) => {
+    const mergedItems: BuildHistoryItem[] = pageItems.map((item) => {
       const store = item.storeId ? storeMap.get(item.storeId) : undefined;
       const buildOrder = buildOrderMap.get(item.runId);
       const renewOrder = item.storeId ? renewOrderMap.get(item.storeId) : undefined;
@@ -319,6 +360,9 @@ export async function GET(request: NextRequest) {
       {
         ok: true,
         items: mergedItems,
+        hasMore,
+        nextOffset,
+        totalCount: result.totalCount || 0,
       },
       { status: 200 },
     );
