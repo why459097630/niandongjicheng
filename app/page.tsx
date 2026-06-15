@@ -143,7 +143,7 @@ export default function Home() {
 
             
             <p className="mb-8 max-w-[600px] text-base leading-[1.8] text-[#475569] md:mb-10 md:text-lg md:leading-[1.9]">
-              A mobile-friendly customer hub that opens from a link or QR code, no app store required. Customers can browse services, book appointments, message you, receive updates, and get reminders — all in one branded hub instead of scattered links and separate tools.
+              A mobile-friendly customer hub that opens from a link or QR code, no app store required. Customers can browse, book, chat, and receive updates — all in one branded hub for your local business.
             </p>
 
             <div className="max-w-[560px]">
@@ -334,7 +334,7 @@ export default function Home() {
               </h3>
 
               <p className="mt-4 text-[15px] leading-[1.85] text-[#64748b]">
-                Show what you offer, receive bookings, and keep customer conversations organized in one branded hub.
+                Customers browse, book, chat, and receive updates from the shared hub. You manage content, bookings, conversations, and announcements from the built-in admin area.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-2">
@@ -678,7 +678,7 @@ export default function Home() {
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              It costs much less than hiring developers. You can start with a free trial and upgrade when your customer hub is useful for your business.
+              The setup price is $99. It includes your generated customer hub and 30 days of cloud service. That is far lower than hiring developers to build a custom app from scratch. Cloud renewal is available after that: 30 days for $49, 90 days for $139, or 180 days for $269.
             </p>
           </div>
 
@@ -695,7 +695,7 @@ export default function Home() {
               </div>
             </div>
             <p className="text-[17px] leading-[1.85] text-[#475569]">
-              No. It is a branded customer hub built as a PWA, so customers can scan a QR code or open a link in their browser, save it to their home screen, and use it like a lightweight app — without going through an app store.
+              No. It is a branded customer hub built as a PWA, so customers can scan a QR code or open a link in their browser, save it to their home screen, and use it like a lightweight app — without going through an app store. It works on iPhone, Android, and desktop browsers.
             </p>
           </div>
 
