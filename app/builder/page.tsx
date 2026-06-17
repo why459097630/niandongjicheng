@@ -263,9 +263,56 @@ const ICON_SHAPE_PREVIEWS = [
   },
 ] as const;
 
+const LUNA_BEAUTY_EXAMPLE_SCREENS = [
+  {
+    key: "store-home",
+    label: "Store",
+    title: "Customer store page",
+    src: "/builder-examples/luna-beauty-studio/store-home.jpg",
+  },
+  {
+    key: "store-profile",
+    label: "Profile",
+    title: "Business profile",
+    src: "/builder-examples/luna-beauty-studio/store-profile.jpg",
+  },
+  {
+    key: "service-detail",
+    label: "Service",
+    title: "Service detail",
+    src: "/builder-examples/luna-beauty-studio/service-detail.jpg",
+  },
+  {
+    key: "chat",
+    label: "Chat",
+    title: "Customer chat",
+    src: "/builder-examples/luna-beauty-studio/chat.jpg",
+  },
+  {
+    key: "updates",
+    label: "Updates",
+    title: "Business updates",
+    src: "/builder-examples/luna-beauty-studio/updates.jpg",
+  },
+  {
+    key: "appointments",
+    label: "Bookings",
+    title: "Booking management",
+    src: "/builder-examples/luna-beauty-studio/appointments.jpg",
+  },
+  {
+    key: "appointment-detail",
+    label: "Detail",
+    title: "Booking detail",
+    src: "/builder-examples/luna-beauty-studio/appointment-detail.jpg",
+  },
+] as const;
+
 export default function BuilderPage() {
-  const previewScreens = ["home", "services", "chat", "announcement"] as const;
-  const [activePreview, setActivePreview] = useState<(typeof previewScreens)[number]>("home");
+  const [activePreview, setActivePreview] = useState<(typeof LUNA_BEAUTY_EXAMPLE_SCREENS)[number]["key"]>("store-home");
+  const activeExampleScreen = useMemo(() => {
+    return LUNA_BEAUTY_EXAMPLE_SCREENS.find((screen) => screen.key === activePreview) || LUNA_BEAUTY_EXAMPLE_SCREENS[0];
+  }, [activePreview]);
   const [appName, setAppName] = useState("");
   const [moduleName, setModuleName] = useState("feature-showcase");
   const [uiPackName, setUiPackName] = useState("ui-pack-showcase-greenpink");
@@ -877,7 +924,7 @@ export default function BuilderPage() {
           </div>
         </div>
 
-        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-center lg:gap-12">
+        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,600px)_minmax(0,560px)] lg:items-start lg:gap-8">
           <div className="min-w-0">
             <div className="mx-auto w-full max-w-xl lg:mx-0">
               <section className="relative p-0 md:p-4">
@@ -887,6 +934,7 @@ export default function BuilderPage() {
                       <label className="text-sm font-semibold">App Name</label>
                       <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
                     </div>
+                    <p className="text-xs text-slate-400">Used as the generated Customer Hub name. It cannot be changed after creation.</p>
                     <div
                       className={`rounded-2xl border bg-white px-4 py-3.5 text-base shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_24px_rgba(15,23,42,0.04)] transition focus-within:ring-4 md:py-4 md:text-lg ${
                         validationErrors.appName
@@ -914,7 +962,7 @@ export default function BuilderPage() {
     <label className="text-sm font-semibold">Customer Hub Icon</label>
     <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">REQUIRED</span>
   </div>
-  <p className="text-xs text-slate-400">Upload an image, then crop it for your Customer Hub and phone home screen.</p>
+  <p className="text-xs text-slate-400">Used as the generated hub icon and home screen icon. It cannot be changed after creation.</p>
   <div
     className={`group rounded-2xl border bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:shadow-[0_14px_30px_rgba(15,23,42,0.06)] ${
       validationErrors.appIcon
@@ -1213,234 +1261,55 @@ export default function BuilderPage() {
             </div>
           </div>
 
-          <div className="relative hidden lg:flex lg:items-center">
-            <div className="w-full">
-              <div className="relative w-full max-w-[420px]">
-                <div className="pointer-events-none absolute -inset-14 rounded-[64px] bg-[radial-gradient(70%_60%_at_50%_40%,rgba(236,72,153,0.24),rgba(168,85,247,0.18),rgba(99,102,241,0.14),transparent_72%)] blur-[90px] opacity-85" />
-                <div className="pointer-events-none absolute inset-x-10 top-10 h-28 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.18),transparent_72%)] blur-3xl" />
+          <div className="hidden lg:flex lg:items-start">
+            <section className="w-full max-w-[560px] border-l border-slate-100 pl-14">
+              <div className="mb-6">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  Example store
+                </div>
+                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                  Luna Beauty Studio
+                </h2>
+                <p className="mt-3 max-w-[420px] text-sm leading-6 text-slate-500">
+                  A sample customer hub showing services, chat, updates, and booking management.
+                </p>
+              </div>
 
-                <div className="relative mx-auto aspect-[9/19.5] w-[306px] rounded-[44px] border border-[#2d3442] bg-[linear-gradient(180deg,#4b5563_0%,#171b24_14%,#0a0d14_56%,#1b2230_100%)] p-[6px] shadow-[0_16px_32px_rgba(15,23,42,0.22),0_42px_100px_rgba(15,23,42,0.24)]">
-                  <div className="pointer-events-none absolute inset-0 rounded-[44px] bg-[linear-gradient(180deg,rgba(255,255,255,0.22)_0%,rgba(255,255,255,0.03)_18%,transparent_36%,transparent_100%)]" />
-                  <div className="pointer-events-none absolute inset-[1px] rounded-[43px] border border-white/10" />
-                  <div className="relative flex h-full flex-col rounded-[38px] border border-black/70 bg-[#05070c] p-[4px] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),inset_0_0_0_1px_rgba(255,255,255,0.03)]">
-                    <div className="relative flex h-full flex-col overflow-hidden rounded-[34px] bg-[#0a0d14] text-white">
-                      <div className="absolute top-0 left-0 right-0 h-14 bg-gradient-to-b from-white/[0.08] to-transparent pointer-events-none" />
+              <div className="mb-3">
+                <div className="text-sm font-semibold text-slate-950">
+                  {activeExampleScreen.title}
+                </div>
+              </div>
 
-                      <div className="flex items-center justify-between border-b border-white/8 px-4 pb-3 pt-6">
-                        <div>
-                          <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">Preview</div>
-                          <div className="mt-1 text-sm font-medium text-white/90">{uiPackName}</div>
-                        </div>
-                        <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-white/65">
-                          Live preview
-                        </div>
-                      </div>
+              <div className="grid grid-cols-[72px_minmax(0,1fr)] items-start gap-3">
+                <div className="sticky top-24">
+                  {LUNA_BEAUTY_EXAMPLE_SCREENS.map((screen) => (
+                    <button
+                      key={screen.key}
+                      type="button"
+                      onClick={() => setActivePreview(screen.key)}
+                      className={`block w-full px-3 py-2 text-left text-xs font-semibold transition ${
+                        activePreview === screen.key
+                          ? "text-slate-950"
+                          : "text-slate-400 hover:text-slate-950"
+                      }`}
+                    >
+                      {screen.label}
+                    </button>
+                  ))}
+                </div>
 
-                      <div className="flex-1 overflow-hidden px-4 py-4">
-                        {activePreview === "home" && (
-                          <div className="space-y-4">
-                            <div className="rounded-[24px] bg-gradient-to-r from-fuchsia-500 to-pink-500 p-4 text-white shadow-[0_18px_40px_rgba(236,72,153,0.28)]">
-                              <div className="text-[11px] uppercase tracking-[0.18em] text-white/75">Store home</div>
-                              <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
-                                {appName.trim() || "Beauty Studio"}
-                              </div>
-                              <div className="mt-1 text-sm text-white/80">Services · Bookings · Updates</div>
-                              <div className="mt-4 flex items-center gap-2">
-                                <div className="rounded-full bg-white/18 px-3 py-1 text-xs text-white/90">Open today</div>
-                                <div className="rounded-full bg-white/18 px-3 py-1 text-xs text-white/90">24 services</div>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                                <div className="text-[11px] uppercase tracking-[0.16em] text-white/45">Top card</div>
-                                <div className="mt-2 text-sm font-medium text-white">Featured services</div>
-                              </div>
-                              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                                <div className="text-[11px] uppercase tracking-[0.16em] text-white/45">Live chat</div>
-                                <div className="mt-2 text-sm font-medium text-white">Customer support</div>
-                              </div>
-                            </div>
-
-                            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                              <div className="mb-3 flex items-center justify-between">
-                                <div>
-                                  <div className="text-sm font-medium text-white">Popular services</div>
-                                  <div className="text-xs text-white/45">What customers see first</div>
-                                </div>
-                                <div className="rounded-full bg-white/10 px-2 py-1 text-[10px] text-white/70">3 cards</div>
-                              </div>
-                              <div className="space-y-3">
-                                <div className="rounded-xl bg-white/6 p-3">
-                                  <div className="flex items-center gap-3">
-                                    <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-pink-400 to-fuchsia-500" />
-                                    <div className="min-w-0 flex-1">
-                                      <div className="truncate text-sm font-medium text-white">Skin Care Package</div>
-                                      <div className="text-xs text-white/45">Popular card component preview</div>
-                                    </div>
-                                    <div className="text-xs text-white/75">$29</div>
-                                  </div>
-                                </div>
-                                <div className="rounded-xl bg-white/6 p-3">
-                                  <div className="flex items-center gap-3">
-                                    <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-400 to-indigo-500" />
-                                    <div className="min-w-0 flex-1">
-                                      <div className="truncate text-sm font-medium text-white">Hair Styling</div>
-                                      <div className="text-xs text-white/45">List row and detail entry preview</div>
-                                    </div>
-                                    <div className="text-xs text-white/75">$18</div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {activePreview === "services" && (
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">Services</div>
-                                <div className="mt-1 text-xl font-semibold tracking-[-0.03em] text-white">Browse treatments</div>
-                              </div>
-                              <div className="rounded-full border border-white/10 bg-white/6 px-3 py-1 text-xs text-white/70">12 items</div>
-                            </div>
-
-                            <div className="space-y-3">
-                              <div className="rounded-[22px] border border-white/10 bg-white/5 p-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-pink-400 to-fuchsia-500" />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div>
-                                        <div className="text-sm font-medium text-white">Glow Facial</div>
-                                        <div className="mt-1 text-xs text-white/45">Hydrating treatment · 45 mins</div>
-                                      </div>
-                                      <div className="text-sm font-semibold text-white">$42</div>
-                                    </div>
-                                    <div className="mt-3 flex items-center gap-2">
-                                      <div className="rounded-full bg-white/10 px-2 py-1 text-[10px] text-white/70">Popular</div>
-                                      <div className="rounded-full bg-white/10 px-2 py-1 text-[10px] text-white/70">New</div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="rounded-[22px] border border-white/10 bg-white/5 p-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-indigo-400 to-violet-500" />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div>
-                                        <div className="text-sm font-medium text-white">Hair Styling Set</div>
-                                        <div className="mt-1 text-xs text-white/45">Styling + wash · 30 mins</div>
-                                      </div>
-                                      <div className="text-sm font-semibold text-white">$26</div>
-                                    </div>
-                                    <div className="mt-3 flex items-center gap-2">
-                                      <div className="rounded-full bg-white/10 px-2 py-1 text-[10px] text-white/70">Fast booking</div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="rounded-[22px] border border-dashed border-white/10 bg-white/[0.03] px-4 py-3 text-center text-xs text-white/45">
-                                More cards continue below in your customer hub
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {activePreview === "chat" && (
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                              <div>
-                                <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">Chat</div>
-                                <div className="mt-1 text-sm font-medium text-white">Beauty Studio Support</div>
-                              </div>
-                              <div className="rounded-full bg-fuchsia-500/18 px-2 py-1 text-[10px] font-medium text-fuchsia-200">2 unread</div>
-                            </div>
-
-                            <div className="space-y-3 rounded-[24px] border border-white/10 bg-white/5 p-4">
-                              <div className="flex justify-start">
-                                <div className="max-w-[78%] rounded-2xl rounded-bl-md bg-white/8 px-3 py-2 text-sm text-white/85">
-                                  Hi, do you have an opening this afternoon?
-                                </div>
-                              </div>
-                              <div className="flex justify-end">
-                                <div className="max-w-[78%] rounded-2xl rounded-br-md bg-gradient-to-r from-fuchsia-500 to-pink-500 px-3 py-2 text-sm text-white shadow-[0_10px_24px_rgba(236,72,153,0.22)]">
-                                  Yes, we have a 3:30 slot available.
-                                </div>
-                              </div>
-                              <div className="flex justify-start">
-                                <div className="max-w-[78%] rounded-2xl rounded-bl-md bg-white/8 px-3 py-2 text-sm text-white/85">
-                                  Great, please reserve it for me.
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                              <div className="h-9 flex-1 rounded-xl bg-white/6 px-3 py-2 text-sm text-white/35">Type a message...</div>
-                              <div className="rounded-xl bg-gradient-to-r from-fuchsia-500 to-pink-500 px-3 py-2 text-xs font-medium text-white">Send</div>
-                            </div>
-                          </div>
-                        )}
-
-                        {activePreview === "announcement" && (
-                          <div className="space-y-4">
-                            <div className="rounded-[24px] border border-white/10 bg-gradient-to-br from-white/8 to-white/4 p-4">
-                              <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">Announcement</div>
-                              <div className="mt-2 text-xl font-semibold tracking-[-0.03em] text-white">Summer sale banner</div>
-                              <div className="mt-2 text-sm leading-7 text-white/70">
-                                New seasonal promotion now live. Push this update to customers from the merchant console.
-                              </div>
-                            </div>
-
-                            <div className="rounded-[24px] bg-gradient-to-r from-fuchsia-500 to-pink-500 p-4 text-white shadow-[0_18px_40px_rgba(236,72,153,0.25)]">
-                              <div className="text-xs uppercase tracking-[0.16em] text-white/75">Featured update</div>
-                              <div className="mt-2 text-lg font-semibold">Book this week and get 15% off</div>
-                              <div className="mt-2 text-sm text-white/80">Perfect for promos, banners, and store-wide updates.</div>
-                            </div>
-
-                            <div className="space-y-3">
-                              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                                <div className="text-sm font-medium text-white">Push notification ready</div>
-                                <div className="mt-1 text-xs text-white/45">Customers can receive updates directly from your customer hub.</div>
-                              </div>
-                              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                                <div className="text-sm font-medium text-white">Designed to match the current visual style</div>
-                                <div className="mt-1 text-xs text-white/45">Brand styling, card rhythm, and content hierarchy stay consistent.</div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="border-t border-white/8 px-4 py-3">
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2">
-                          <div className="flex items-center gap-2">
-                            {previewScreens.map((screen) => (
-                              <div
-                                key={screen}
-                                className={`h-2 rounded-full transition-all duration-500 ${
-                                  activePreview === screen ? "w-6 bg-fuchsia-400" : "w-2 bg-white/18"
-                                }`}
-                              />
-                            ))}
-                          </div>
-                          <div className="text-[11px] uppercase tracking-[0.16em] text-white/45">
-                            {activePreview === "home" && "Home screen"}
-                            {activePreview === "services" && "Services list"}
-                            {activePreview === "chat" && "Chat flow"}
-                            {activePreview === "announcement" && "Announcement"}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                <div className="w-[420px] max-w-full rounded-[10px] border border-slate-200 bg-white p-2">
+                  <div className="aspect-[1096/2425] w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                    <img
+                      src={activeExampleScreen.src}
+                      alt={activeExampleScreen.title}
+                      className="h-full w-full object-contain object-top"
+                    />
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
           </div>
         </div>
       </section>
