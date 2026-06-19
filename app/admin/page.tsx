@@ -304,6 +304,17 @@ function getProgressRows(order: AdminOrderItem) {
   ];
 }
 
+function getMetricHintItems(hint?: string) {
+  if (!hint) {
+    return [];
+  }
+
+  return hint
+    .split("/")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function MetricCard({
   title,
   value,
@@ -313,11 +324,31 @@ function MetricCard({
   value: string;
   hint?: string;
 }) {
+  const hintItems = getMetricHintItems(hint);
+  const showSideHint = hintItems.length > 1;
+
   return (
     <div className="rounded-3xl border border-white/60 bg-white/80 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl">
-      <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</div>
-      <div className="mt-3 text-3xl font-bold tracking-[-0.04em] text-slate-900">{value}</div>
-      {hint ? <div className="mt-2 text-sm text-slate-500">{hint}</div> : null}
+      <div className="flex min-h-[92px] items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</div>
+          <div className="mt-3 text-3xl font-bold tracking-[-0.04em] text-slate-900">{value}</div>
+        </div>
+
+        {showSideHint ? (
+          <div className="shrink-0 rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-right">
+            <div className="space-y-1">
+              {hintItems.map((item) => (
+                <div key={item} className="whitespace-nowrap text-xs font-medium text-slate-500">
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {hint && !showSideHint ? <div className="mt-2 text-sm text-slate-500">{hint}</div> : null}
     </div>
   );
 }
