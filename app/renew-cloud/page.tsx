@@ -34,6 +34,29 @@ function formatTime(value: string) {
   }).format(date);
 }
 
+function getCloudDaysLeft(value: string): number | null {
+  const expiryDate = new Date(value);
+
+  if (Number.isNaN(expiryDate.getTime())) {
+    return null;
+  }
+
+  if (expiryDate.getTime() - Date.now() <= 0) {
+    return 0;
+  }
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const expiryDayStart = new Date(
+    expiryDate.getFullYear(),
+    expiryDate.getMonth(),
+    expiryDate.getDate(),
+  ).getTime();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+
+  return Math.max(0, Math.floor((expiryDayStart - todayStart) / oneDayMs));
+}
+
 function addDays(value: string | Date, days: number) {
   const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -490,9 +513,7 @@ useEffect(() => {
     isCurrentExpiryValid &&
     currentExpiryDate.getTime() > Date.now();
   const renewalBaseLabel = isRenewalFromCurrentExpiry ? "Current expiry" : "Today";
-  const daysUntilExpiry = Number.isNaN(currentExpiryDate.getTime())
-    ? null
-    : Math.max(0, Math.floor((currentExpiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+  const daysUntilExpiry = getCloudDaysLeft(cloudExpiresAt);
   const expiryCountdownLabel =
     daysUntilExpiry === null
       ? null
