@@ -151,8 +151,8 @@ type StoreMembershipRow = {
 type CategoryRow = {
   id: string;
   store_id: string | null;
-  name_zh?: string | null;
-  name_en?: string | null;
+  name: string | null;
+  name_i18n?: Record<string, unknown> | null;
   created_at: string | null;
 };
 
@@ -160,8 +160,8 @@ type DishRow = {
   id: string;
   store_id: string | null;
   category_id: string | null;
-  name_zh?: string | null;
-  name_en?: string | null;
+  name: string | null;
+  name_i18n?: Record<string, unknown> | null;
   recommended: boolean | null;
   sold_out: boolean | null;
   hidden: boolean | null;
@@ -405,6 +405,35 @@ function formatDateOnly(value: string | null | undefined): string {
   return `${year}-${month}-${day}`;
 }
 
+function pickI18nText(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const preferredKeys = ["zh", "default", "en"];
+
+  for (const key of preferredKeys) {
+    const text = record[key];
+
+    if (typeof text === "string" && text.trim()) {
+      return text.trim();
+    }
+  }
+
+  for (const text of Object.values(record)) {
+    if (typeof text === "string" && text.trim()) {
+      return text.trim();
+    }
+  }
+
+  return null;
+}
+
+function pickDisplayName(row: { id: string; name?: string | null; name_i18n?: unknown }): string {
+  return row.name?.trim() || pickI18nText(row.name_i18n) || row.id;
+}
+
 function formatDurationMinutes(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "-";
   if (value < 1) return "<1m";
@@ -616,12 +645,12 @@ export async function GET() {
           .order("created_at", { ascending: false }),
         appCloudAdmin
           .from("categories")
-          .select("id,store_id,name_zh,name_en,created_at")
+          .select("id,store_id,name,name_i18n,created_at")
           .order("created_at", { ascending: false }),
         appCloudAdmin
           .from("dishes")
           .select(
-            "id,store_id,category_id,name_zh,name_en,recommended,sold_out,hidden,price,discount_price,click_count,view_count,created_at,updated_at",
+            "id,store_id,category_id,name,name_i18n,recommended,sold_out,hidden,price,discount_price,click_count,view_count,created_at,updated_at",
           )
           .order("created_at", { ascending: false }),
         appCloudAdmin
@@ -1124,7 +1153,7 @@ export async function GET() {
     for (const row of categories) {
       const storeId = row.store_id || "-";
       categoriesByStore.set(storeId, (categoriesByStore.get(storeId) || 0) + 1);
-      categoryNameMap.set(row.id, row.name_zh || row.name_en || row.id);
+      categoryNameMap.set(row.id, pickDisplayName(row));
 
       if (row.id) {
         categoryDishCountMap.set(row.id, categoryDishCountMap.get(row.id) || 0);
@@ -1134,7 +1163,7 @@ export async function GET() {
     for (const row of dishes) {
       const storeId = row.store_id || "-";
       dishesByStore.set(storeId, (dishesByStore.get(storeId) || 0) + 1);
-      dishNameMap.set(row.id, row.name_zh || row.name_en || row.id);
+      dishNameMap.set(row.id, pickDisplayName(row));
 
       if (row.category_id) {
         categoryDishCountMap.set(row.category_id, (categoryDishCountMap.get(row.category_id) || 0) + 1);
@@ -1459,7 +1488,7 @@ export async function GET() {
       .slice(0, 20)
       .map((row) => [
         row.store_id || "-",
-        row.name_zh || row.name_en || row.id,
+        pickDisplayName(row),
         formatCount(row.click_count || 0),
         formatCount(row.view_count || 0),
       ]);
